@@ -1,0 +1,15 @@
+# Git hooks (lefthook). Install: `npm install` (postinstall runs scripts/install-lefthook.mjs).
+# No CI here — the local pre-commit IS the full documentation gate (the doc-quick role).
+
+pre-commit:
+  jobs:
+    - name: agent notes — classification
+      run: node_modules/.bin/tsx scripts/verify-agent-note-classification.ts
+    - name: agent notes — format
+      run: node_modules/.bin/tsx scripts/verify-agent-note-format.ts
+    - name: archived agent notes
+      run: node_modules/.bin/tsx scripts/verify-archived-agent-notes.ts
+    - name: markdown links
+      run: node_modules/.bin/tsx scripts/verify-md-links.ts
+    - name: doc refs in source
+      run: node_modules/.bin/tsx scripts/verify-doc-refs.ts

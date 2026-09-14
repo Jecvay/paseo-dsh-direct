@@ -1,0 +1,20 @@
+{
+  "name": "paseo-dsh-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/mdast": "^4.0.4",
+    "lefthook": "^2.1.9",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm": "^3.1.0",
+    "micromark-extension-gfm": "^3.0.0",
+    "tsx": "^4.22.4"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install-lefthook.mjs",
+    "verify:notes": "tsx scripts/verify-agent-note-classification.ts && tsx scripts/verify-agent-note-format.ts && tsx scripts/verify-archived-agent-notes.ts",
+    "verify:docs": "tsx scripts/verify-md-links.ts && tsx scripts/verify-doc-refs.ts",
+    "verify-archived-agent-notes": "tsx scripts/verify-archived-agent-notes.ts"
+  }
+}
