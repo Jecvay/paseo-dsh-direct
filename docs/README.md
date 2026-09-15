@@ -15,5 +15,6 @@
 - 服务端架构（Daemon 侧 Provider 实现与 DSH 通信）：`server-architecture.md`
 - 客户端架构（App 侧呈现与配置）：`client-architecture.md`
 - 插件规范与设计参考（官方规则、优秀插件借鉴与外部链接）：`plugin-guide.md`
+- 兼容性与版本管理（三方依赖基准、更新机制与启动探活）：`compatibility.md`
 - 决定与理由（打算做 / 已做完 / 决定不做 / 已过时）：`../.agents/notes/`；规则见 `../.agents/notes/README.md`
 - 仓外事件记录（git 项目按需建）：`../.agents/ops-log.md`（若存在）；svn/无版本控制项目的全量事件史：`../.agents/CHANGELOG.md`
