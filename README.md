@@ -4,6 +4,14 @@
 
 ---
 
+## 相关项目
+
+- **Paseo**：[github.com/getpaseo/paseo](https://github.com/getpaseo/paseo) — 现代化、跨端（桌面/移动/Web）的智能体工作空间与运行时宿主。
+- **DeepSeek Harness**：[github.com/deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) — DeepSeek 官方智能体框架与核心协议。
+- **dsh-pi-tui**：[github.com/XMoon/dsh-pi-tui](https://github.com/XMoon/dsh-pi-tui) — DeepSeek Harness 的终端交互与 Profile 扩展。
+
+---
+
 ## 为什么使用 paseo-dsh-pi？
 
 在泛型 ACP（Agent Client Protocol）适配器模式下，由于协议层缺失稳定的消息标识与累计快照切片机制，流式 token 会被切碎为大量独立气泡，导致 Markdown 排版撕裂、长思考链展示不佳以及中断交互迟滞。
@@ -14,6 +22,15 @@
 - **原生思考过程**：针对 DeepSeek 模型的长推理链（`reasoning`），提供原生的折叠展开与行内思考卡片。
 - **子进程与生命周期守护**：实现双阶段优雅退出（`SIGTERM` -> `SIGKILL`）与崩溃强制终结，杜绝僵尸进程与前端状态死锁。
 - **交互与审批流**：将 DSH 的高危工具调用无缝映射为 Paseo 原生卡片渲染，支持用户的实时授权与中断操作。
+
+---
+
+## 技术选型与规约
+
+- **全栈 TypeScript**：项目完全基于 **TypeScript**（TS / TSX）开发。Paseo 0.8 插件系统原生集成 `esbuild` 编译器，且 Paseo 核心、DeepSeek Harness 以及 `dsh-pi-tui` 均基于 TypeScript 开发，具有天然的类型契约共享优势和 AI 编码协同效率。
+- **文档分工（Docs vs. Agent Notes）**：
+  - **`docs/`（产品说明书）**：面向人类开发者、上下游项目以及其他协作 Agent，只描述**当前生效的技术机制与使用说明**（现在时，不掺杂变更历史与决策推导）。
+  - **`.agents/notes/`（决策记录）**：记录在工程演化过程中人与 Agent 共同做出的**关键架构与方向性决策**（为什么这么选、放弃了哪些替代做法、如何验证）。
 
 ---
 
