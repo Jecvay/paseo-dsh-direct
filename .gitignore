@@ -1,7 +1,11 @@
-# 个人本地配置，不进仓库（理由见 .agents/notes/implemented/process/2026-08-26-gitignore-mcp-json-by-default.md）
-# .mcp.json = Claude Code 项目级 MCP 配置，常含密钥/本机绝对路径，对团队无用；
-# 不 ignore 的话极易被 git add -A 误扫入库（2026-08-26 html-maker 实案，动了历史重写才抹掉）。
 .mcp.json
-
-# Node toolchain for the documentation gates (lefthook + tsx)
 node_modules/
+dist/
+server/generated-bridge.ts
+coverage/
+.env
+.env.*
+*.log
+*.jsonl
+*.secret
+*.token

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "types": [], "jsx": "preserve" },
+  "include": ["client/**/*.ts", "client/**/*.tsx", "index.client.tsx"]
+}

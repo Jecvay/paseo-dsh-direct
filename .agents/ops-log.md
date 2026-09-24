@@ -1,0 +1,113 @@
+# 仓外事件
+
+仅记录 git 与部署流水线无法还原的手工部署、配置变更和真实运行证据。不记录仓内代码改动。
+
+## 2026-09-23 — pi-tui profile 桥接探活
+
+- 环境：本机 Linux，Node 24.13.0，Paseo 0.8.0，DSH 0.1.5-rc.2，dsh-pi-tui 0.4.6。
+- 操作：通过临时 `--patch` 在既有 `pi-tui` profile 中加载桥接，依次执行 `bridge.initialize`、`session.list`、`bridge.shutdown`。
+- 结果：握手成功，目录返回 8 个模型和 4 个 preset，读取 120 个原生历史会话摘要；shutdown 后退出码 0，stderr 0 行，stdout 均为 JSON 协议。
+- 数据边界：未发模型请求，未修改用户持久 profile 或历史内容。模型路由、会话内容和凭证不进入此记录。
+
+## 2026-09-23 — 真实模型与原生会话生命周期
+
+- 操作：在专用测试工作目录新建 DSH 会话，要求仅返回 `PASEO_DSH_ALPHA_OK`，通过 bridge 接收实时流并读取持久结果。
+- 结果：回复包含指定文本，收到 19 个实时流帧、18 个持久事件，用户消息获得入队标识，close 和进程关闭成功。本次未观测到独立 reasoning 帧，不据此声称已验证真实模型思考输出。
+- 补充验证：另一专用测试会话执行 open、保持相同模型的 configure、rename、close、resume；恢复沿用同一 session id，读取 7 个持久事件且模型选择保持。所有 8 个目录模型可读到 reasoning 选项；该轮未发送 prompt，最终退出码 0，stderr 0 行。
+- 既有历史验证：官方只读接口成功读取一个已有会话的 18 个事件，未向其追加测试消息。测试会话内容与既有工作历史分开，用户 profile 文件保持原样。
+
+## 2026-09-23 — Paseo 本机安装与插件总开关
+
+- 操作：执行本地 `paseo plugin install` 安装 `paseo-dsh-pi`。插件已登记启用，但宿主的 `pluginsEnabled` 总开关关闭，初次状态为 `disabled`。
+- 配置：备份宿主配置后，仅将 `pluginsEnabled` 设为 `true`，执行 `paseo daemon reload`。保留既有自定义 `dsh` Provider，新增插件使用 `dsh-pi` 标识。
+- 回退：可通过 `paseo plugin disable paseo-dsh-pi` 停止插件；如需恢复总开关，使用主机侧安装前配置备份。备份、凭证和机器私有配置不进入本仓库。
+- 安装结果：插件状态 `running`、enabled 为 true；Paseo 模型目录返回 8 个模型与各自思考选项。
+- 完整对话：通过 `paseo run --provider dsh-pi` 创建专用测试会话，收到 `PASEO_MOBILE_READY`，最终状态 `idle`，Paseo 可见 4 个 preset 模式与用量统计。无需用户手机参与即可验证该 Daemon 会话链路；手机真机界面未在本任务中操作。
+- 工具与配置：同一 Paseo 测试会话成功调用 shell 执行 `printf PASEO_TOOL_OK` 并完成回复；Paseo 的思考选项更新到 `high` 成功。
+
+## 2026-09-23 — 会话级权限预设
+
+- 操作：使用 DSH 官方 `permissionPresets` 与 `/permission` 命令，在专用测试会话切换权限后关闭、恢复。
+- 结果：目录返回 `read-only`、`workspace-write`、`danger-full-access`；切换 `workspace-write` 后原生事件记录对应 sandbox 和 `ask` 审批策略，恢复保持该值；随后还原测试会话权限。
+- 数据边界：全局默认权限保持不变；本轮没有模型调用，最终进程退出码 0、stderr 为空。
+
+## 2026-09-23 — Paseo SDK 原生交互与审批验收
+
+- 环境：本机 Paseo Daemon `0.8.0`，通过官方 `@getpaseo/client` 连接 `ws://127.0.0.1:6767/ws`；仅使用专用导入测试 agent `2beceb2c-9fe7-406f-b02d-456cde720c77`，cwd 为 `/tmp/paseo-dsh-lifecycle-hb7_zea_`。
+- 权限路径：将会话切到 `read-only` 后，模型原生 bash 尝试写入 `PASEO_APPROVAL_OK.txt`；文件写入被拒，DSH 记录 workspace-write 升级被拒。随后切到 `workspace-write`，同一 bash 写入成功，文件内容为 `PASEO_APPROVAL_OK`。
+- 交互路径：原生 `ask_user_question` 收到 `Alpha choice`（Continue/Stop），客户端以 `Continue` 应答并回合正常结束；第二回合同结构问题以 deny 应答，记录为 `Question cancelled` 并正常回合结束。
+- 结果：三阶段均回到 `idle`，未取消活动回合；结束前将该测试会话权限恢复为 `danger-full-access`。未修改全局权限、未触碰其他会话、未记录 prompt 或凭证。
+
+## 2026-09-23 — Paseo 原生历史导入与中断恢复
+
+- 操作：重载插件后，通过 Paseo 继续既有专用测试对话，回复 `PASEO_ENV_READY`，证明宿主会话环境可以传入运行时。
+- 历史入口：使用官方客户端的 `fetchRecentProviderSessions` 查询 `dsh-pi`，获得 123 个原生会话摘要；将专用生命周期测试会话的 `providerHandleId` 原样交给 `importAgent`，导入成功，持久化 token 仍包含原生 DSH 会话 ID。未导入或修改用户工作会话。
+- 中断：向专用 Paseo 会话发起 `sleep 60` 工具请求，4 秒后停止返回 `stoppedCount: 1`；随后新回合返回 `PASEO_CANCEL_RECOVERED`，状态 completed。
+- 呈现：Paseo 的真实 timeline 已观测到独立 reasoning 项、工具卡片和助手消息；初始无 reasoning 的桥接探活不能替代这项后续证据。
+
+## 2026-09-23 — workspace 外工具审批 allow
+
+- 诊断：官方 DSH preset 表为 `read-only = sandbox read-only + approval ask`、`workspace-write = sandbox workspace-write + approval ask`、`danger-full-access = sandbox danger-full-access + approval never`。此前 read-only 写入先由 bash 沙箱拒绝，模型升级重试被拒；没有产生 Paseo `kind=tool` 审批事件。
+- 补测：在 `workspace-write` 下要求 bash 将固定 marker 写入专用 workspace 外目录 `$HOME/.cache/paseo-dsh-alpha-approval/ok.txt`。SDK 实际收到一个 `kind=tool`、`name=bash` 请求并自动响应 `allow`；文件内容为 `PASEO_APPROVAL_OK`，回合回到 `idle`。
+- 清理：删除专用审批测试目录，会话权限恢复为 `danger-full-access`；未修改全局权限或其他会话。
+
+## 2026-09-23 — workspace 外工具审批 deny
+
+- 补测：沿用 `workspace-write`，要求 bash 将固定 marker 写入专用 workspace 外路径 `$HOME/.cache/paseo-dsh-alpha-approval/denied.txt`。
+- 结果：SDK 实际收到一个 `kind=tool`、`name=bash` 请求并响应 `deny`；回合回到 `idle`，目标文件不存在，未发生重试或绕过。
+- 清理：会话权限恢复为 `danger-full-access`，专用测试目录已删除；未修改全局权限或其他会话。
+
+## 2026-09-23 — Daemon 重启与新建对话验收
+
+- 操作：执行 `paseo daemon restart`，正常停止旧进程并启动新 Daemon；插件自动恢复为 enabled/running。
+- 恢复：重启后向既有专用 Paseo 测试会话发送提示词，收到 `PASEO_RESTART_READY` 并正常结束。
+- 新建：通过 `paseo run --provider dsh-pi` 新建会话，返回 `PASEO_ALPHA_INSTALLED`。官方移动客户端接口读取 timeline，确认恰好一个真实用户气泡、一个助手气泡；运行时注入内容没有显示成用户消息。
+- 补充：可重复执行的 `npm run smoke:bridge -- --prompt` 通过真实模型、关闭和恢复检查；成功标记只从助手正文判定。
+- 发布边界：本机 Linux Daemon 和官方客户端接口实测通过；未操作手机真机界面，未向远端发布 GitHub Release。
+
+## 2026-09-23 — Alpha 最终加载与测试会话整理
+
+- 操作：加载最终插件代码，专用会话回复 `PASEO_FINAL_READY`；关闭并读取原生历史后，两次模型回复各出现一次。
+- 整理：仅归档本任务创建或导入的 3 个 Paseo 测试 agent，保留 DSH 原生测试历史；插件保持安装且启用。
+
+## 2026-09-23 — Paseo 升级至 0.9.1
+
+- 来源：实时 npm registry 的 `@getpaseo/cli` latest 为 `0.9.1`；沿用 mise，以 `mise use --global npm:@getpaseo/cli@0.9.1` 安装并固定该版本，安装前备份主机 mise 配置。
+- 启动：新版 `daemon restart` 只重启旧 supervisor 的 worker，查询仍为 `0.8.0`；随后完整执行 `daemon stop` 和 `daemon start`，确认 CLI 与 Daemon 均为 `0.9.1`。
+- 验证：Daemon reachable，原有 6 个 Provider 均 available，relay 配置保留；`paseo-dsh-pi` 保持 enabled/running，目录返回 8 个模型。专用会话实际返回 `PASEO_091_OK`，回合正常完成，用户确认手机收到该回复；测试会话已归档。
+- 范围：未升级 DSH、pi-tui 或项目 SDK 依赖；本次是宿主升级、加载和文字对话验证，未重跑完整 alpha 交互矩阵。
+
+## 2026-09-23 — Codex CLI 升级至 0.156.0
+
+- 操作：运行独立安装版内置的 `codex update`，官方安装器将 Codex CLI 从 `0.154.0` 更新至 `0.156.0`，平台为 Linux x64。
+- 验证：更新器退出码为 0；重新执行 `codex --version` 返回 `codex-cli 0.156.0`，命令链接已指向对应版本的 standalone release。
+- 生效：已运行的 Codex 会话需要重启后使用新版；本次未主动中断当前会话。
+
+## 2026-09-23 — 按用户要求结束 Codex 旧进程
+
+- 范围：主机检查发现当前用户只有一个 Codex 进程，PID 为 396156，版本为 0.154.0；用户明确授权全部结束。
+- 操作：核实可执行文件、属主和进程启动时间后发送 SIGTERM；若 5 秒内仍未退出，再核实身份并发送 SIGKILL。
+- 验证：目标进程已退出；未自动启动新的 Codex 会话。
+
+## 2026-09-24 — 本机重载斜杠命令、附件与会话选项版本
+
+- 操作：本地目录插件已安装，`paseo plugin install` 报 ID 已存在；改为 `npm run build` 后执行 `paseo plugin reload paseo-dsh-pi`，状态 running、enabled，无错误。
+- 实测（直接驱动桥接，DSH 0.1.5-rc.2）：`session.commands` 返回 5 个命令与 26 个技能；`/compact`、`/permission`、`/plan` 与 `/plan off` 写出对应事件；文件附件入 DSH 附件库并被模型读取；当前 8 个模型均拒绝图片输入；stdio MCP 工具经预批准调用成功，追加的 system prompt 生效；不持久化会话仅写入临时目录并在关闭后删除。
+- 范围：未在 Paseo App 或手机界面验证新功能；`/goal` 实测在临时会话中触发了一次模型调用，随会话关闭结束。
+
+## 2026-09-24 — pi-tui 升级至 0.4.7-alpha.2 后桥接启动失败
+
+- 现象：`~/.dsh/profiles/pi-tui` 中的 `@xmoon76/dsh-pi-tui` 于 08:13 变为 `0.4.7-alpha.2`（非本任务操作）；新版在应用就绪时若无界面调用 `markSurfaceMounted()` 即以退出码 1 结束，桥接进程随之退出，Paseo 新建或恢复 DSH 会话都会失败。
+- 处置：桥接挂载时调用 `tuiStartup.markSurfaceMounted()`；重建后桥接启动、存活并执行 `/compact`、`/plan off` 正常。需在 Paseo 执行 `paseo plugin reload paseo-dsh-pi` 生效。
+
+## 2026-09-24 — pi-tui 0.4.8 需要 DSH 0.1.7-rc.1，Paseo daemon 需完整重启
+
+- 现象：12:29 起 `@xmoon76/dsh-pi-tui` 升至 `0.4.8`（`dsh.bundle.patch` 改为数组），全局 mise 的 DSH 升至 `0.1.7-rc.1`（非本任务操作）；Paseo daemon 启动时固化的 `PATH` 仍指向 DSH `0.1.5-rc.2`，桥接在 `loadProfileDirectory` 报 `ERR_INVALID_ARG_TYPE` 退出，`paseo provider models dsh-pi` 失败。
+- 实测：DSH `0.1.7-rc.1` 下直接驱动桥接，模型、命令列表、`/plan`、`/plan off`、权限切换及对应事件正常。
+- 处置：用户从新 shell 执行 `paseo daemon stop && paseo daemon start`；之后 daemon 的 `PATH` 指向 `0.1.7-rc.1`，`paseo provider models dsh-pi` 返回 8 个模型。升级 DSH 后须完整重启 daemon，`daemon restart` 不刷新环境。
+
+## 2026-09-24 — DSH 0.1.7-rc.1 与 pi-tui 0.4.8 桥接验收
+
+- 环境：DSH `0.1.7-rc.1`、`@xmoon76/dsh-pi-tui` `0.4.8`、模型 `CPA-an/bm-an-glm`；临时脚本直接驱动桥接，不持久化会话，专用临时 cwd。
+- 结果：追加 system prompt 生效；`workspace-write` 下 workspace 外 bash 写入收到 `approval` 请求，允许后文件写入、拒绝后未写入，两次回合均 `completed`；问答请求应答后模型复述所选项；文件附件内容被模型读取；预批准 stdio MCP 工具返回值被模型引用；停止后回合 `aborted`，下一条消息正常回复；关闭后恢复会话历史完整。另 `npm run smoke:bridge -- --prompt` 通过，`paseo provider models dsh-pi` 返回 8 个模型。
+- 清理：删除 `$HOME/.cache/paseo-dsh-alpha-approval` 与临时 cwd；未改动用户 profile 与全局权限。

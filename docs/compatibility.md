@@ -1,73 +1,55 @@
 # 兼容性与版本管理
 
-本文档描述 `paseo-dsh-pi` 与宿主环境（Paseo）及下游运行时（`dsh`、`@xmoon76/dsh-pi-tui`）的基准版本配对、版本约束与线上更新机制。
+## Alpha 运行组合
 
-决策依据与方案选型理由见 [三方依赖版本管理与启动探活机制](../.agents/notes/implemented/architecture/2026-09-15-versioning-and-compatibility-strategy.md)。
+| 组件 | 本机验证版本 | 用途 |
+|---|---|---|
+| Paseo | `0.8.0` | 插件宿主与 Direct Provider 协议 |
+| DeepSeek Harness | `0.1.7-rc.1` | 原生 agent、会话持久化与交互服务 |
+| `@xmoon76/dsh-pi-tui` | `0.4.8` | 复用的 profile 组合与扩展注册 |
+| Node.js | `24.13.0` | 插件与 DSH 运行环境 |
 
-## 运行时基准
+本组合已验证真实 profile 启动、模型/preset/权限目录、真实模型与工具调用、思考输出、工具审批允许/拒绝、问答应答/拒绝、原生历史导入、停止后继续对话、Daemon 重启恢复及正常关闭。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
-当前经过完整端到端测试并锁定的依赖基准如下：
+Paseo `0.9.1` 另已通过本机启动、插件加载、模型目录和真实文字对话检查，用户已确认手机收到测试回复；完整交互验证基线仍为上表组合。
 
-| 角色 | 组件 | 当前验证基准版本 | 协议与形态 |
-|---|---|---|---|
-| 宿主应用 | Paseo | `0.8.0`（`>=0.8.0`） | Direct Provider 进程沙箱（`index.server.ts` + `index.client.tsx`） |
-| 下游前端/Bundle | `@xmoon76/dsh-pi-tui` | `0.4.6`（稳定版） | npm 全局或 profile 安装扩展 |
-| 下游智能体核心 | DeepSeek Harness (`dsh`) | `0.1.5-rc.1` / `0.1.5-rc.2` | stdio 双向通信管道与 JSON-RPC 事件流 |
+DSH 与 pi-tui 版本在桥接层直接验证：上表 DSH 与 pi-tui 版本已通过真实模型下的系统提示词追加、工具审批允许/拒绝、问答、文件附件、stdio MCP 工具、斜杠命令与技能、`/compact`、`/plan`、权限切换、停止后继续对话与会话恢复。pi-tui `0.4.8` 要求 DSH `>=0.1.7-rc.1`。Paseo daemon 的 `PATH` 在启动时固定，升级 DSH 后须 `paseo daemon stop` 再 `paseo daemon start`；`paseo daemon restart` 不刷新环境。
 
-## 宿主版本契约与更新机制
+DSH 与 pi-tui 保持用户原有安装。插件安装不自动升级或替换它们；不要以重新安装独立 SDK profile 代替对既有 profile 的接入。
 
-### 1. 宿主兼容性拦截
+## 宿主契约
 
-插件在 [paseo-plugin.json](../paseo-plugin.json) 中声明要求的 Paseo 最低版本：
+[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.8.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.8.0`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。
 
-```json
-{
-  "id": "paseo-dsh-pi",
-  "requirements": {
-    "paseo": ">=0.8.0"
-  }
-}
-```
+插件注册 `dsh-pi`，不会覆盖名为 `dsh` 的既有自定义 Provider。
 
-Paseo Daemon 启动与加载插件时，通过 `@getpaseo/protocol` 的兼容性断言校验当前宿主版本。若宿主低于声明的范围，Paseo 拒绝载入并向用户提示升级。
+## DSH 契约
 
-### 2. 插件热更新与 Staging 隔离
+插件握手使用自己的 `protocolVersion: 1`。DSH 的内部服务契约由当前验证版本确定；缺少所需服务或方法、无法加载 profile、会话被占用时，操作应报告错误。
 
-用户通过 Paseo 命令行更新本插件：
+模型、provider 路由和 preset id 从实际 profile 查询，不把示例名称写死为所有用户通用的模型列表。复用 DSH 的凭证存储和配置；环境变量由宿主传入，不复制进插件源码。
+
+TUI 界面扩展不会自动变成 Paseo 界面，具体范围见 [客户端呈现](client-architecture.md)。
+
+## Alpha 功能边界
+
+支持文字、图片与文件输入，正文/思考流、工具卡片、审批与用户问答、模型/preset/思考/权限/计划模式选择、中断、压缩卡片和原生历史恢复。既有 profile 中的运行时扩展继续加载。
+
+图片与上传文件存入 DSH 附件库后随消息发送；当前模型声明不接受图片时，提示词明确报错。PR、issue、代码评审等 Paseo 上下文附件以文字发送。归档由 Paseo 管理，不改动 DSH 原生会话。
+
+Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt；MCP server（stdio 与 streamable HTTP）挂载到该会话的 DSH 进程，工具名为 `mcp__<server>__<tool>`；tool policy 预先批准的 MCP 工具不再弹出审批。SSE 类型的 MCP server 明确报错。不持久化的会话写入该会话进程的临时目录，关闭时删除，不进入 DSH 历史。达到输出上限、被插件拦截或因进程中止未完成的回合显示警告。
+
+当前不支持会话回退与 Paseo 的 provider options。DSH profile 本身已有的配置仍由 DSH 管理。Paseo 的 `/` 目录列出 DSH 已注册命令（如 `/compact`、`/goal`、`/plan`）和用户可调用的技能；pi-tui 终端界面自带的命令（如 `/model`、`/sessions`）不在其中。Paseo 会话标题与 DSH 标题仅在新建时同步，后续 Paseo 改名不会写回原生历史。会话回退与改名受 Paseo 插件宿主限制，理由见 [回退与改名同步决策](../.agents/notes/rejected/feature/2026-09-24-paseo-rewind-and-rename-sync.md)。
+
+## 安装、更新与发行
+
+从 Git 安装时，Paseo 负责根据 manifest 执行构建；本地目录安装需要预先完成构建。插件构建生成并嵌入 DSH 桥接，Git checkout 不需要包含机器特定的预编译路径。
+
+本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 安装可指定已存在的 tag 或 commit：
 
 ```bash
+paseo plugin add Jecvay/paseo-dsh-pi --ref <tag-or-commit>
 paseo plugin update paseo-dsh-pi
 ```
 
-Paseo 采用暂存隔离机制执行更新：
-1. 在暂存目录（Staging）下拉取最新代码并校验 `requirements.paseo`；
-2. 执行 `paseo-plugin.json` 中配置的构建准备命令（`build`）；
-3. 校验并打包服务端和客户端 bundle；
-4. 构建通过后热替换旧进程并重载；若构建或校验失败，旧版本保持正常运行不受影响。
-
-## 下游运行时管理机制
-
-DSH 与 `dsh-pi-tui` 处于高频 prerelease 迭代期，Node semver 对带标签的预发布版本（如 `0.1.5-rc.1`、`0.1.6-alpha.1`）不执行跨标签的通配匹配。插件采用以下两项机制保障运行：
-
-### 1. 启动期探活（Startup Check）
-
-服务端拉起 `dsh` 子进程后，在进入正式会话前先发起版本探测命令或读取启动握手信息：
-
-- **基准兼容**：若探测到的版本属于已知验证集合（如 `0.4.6` TUI 配对 `0.1.5-rc.1` / `rc.2` 核心），静默完成握手进入就绪状态。
-- **过旧版本拦截**：若版本低于最低要求（如 `< 0.1.5` 导致缺失核心事件字段），向 Paseo 发射友好的通知卡片，告知用户升级命令：
-  ```bash
-  npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs,fs-ext @deepseek-ai/dsh@0.1.5-rc.2
-  ```
-- **前瞻版本放行**：若检测到更高的新版本，插件默认放行并在日志中标记，避免无谓阻塞。
-
-### 2. 错误捕获与降级
-
-子进程若因参数变更或协议不匹配抛出非零退出，服务端将其捕获为 `failed` 状态的 Turn，阻止前端界面挂起并保留调试日志。
-
-## 发布渠道与版本控制
-
-- **主线跟踪（Main）**：日常 bug 修复与向前兼容更新提交至 `main` 分支。使用 `paseo plugin add <git-url>` 的用户通过 `paseo plugin update` 获取最新代码。
-- **版本锁定（Git Tag）**：针对明确的基线版本发布 Git Tag（如 `v0.1.0`）。生产环境用户可通过指定 `--ref` 安装锁定版本：
-  ```bash
-  paseo plugin add <git-url> --ref v0.1.0
-  ```
+发行前执行 [Alpha 验收规范](alpha-acceptance.md)，记录实际验证的版本和能力。版本号采用 prerelease 形式，如 `0.1.0-alpha.1`；依赖探活、单元测试或文档门禁不能替代真实对话验证。

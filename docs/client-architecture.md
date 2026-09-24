@@ -1,19 +1,19 @@
-# 客户端架构
+# 客户端呈现
 
-本文档描述 `paseo-dsh-pi` 在 Paseo App 前端运行的客户端结构与跨平台规则。
+Provider 在 Paseo 中显示为 `DeepSeek Harness (pi-tui)`，标识为 `dsh-pi`。手机、桌面和 Web 使用 Paseo 原生新建对话、时间线、权限与历史导入界面。
 
-## 概述
+## 原生界面
 
-客户端入口为 `index.client.tsx`，由 Paseo 前端在启动时动态加载。客户端代码在 React Native / Expo 统一多端运行时中执行，覆盖桌面端（Electron）、移动端（iOS / Android）以及 Web 端。
+模型、preset 和权限预设来自 DSH profile 的官方目录，Provider 通过 `catalog` 和 `session.config` 提供选择与当前值。正文、思考、工具执行、审批和用户问答映射为 Paseo 原生事件，无需在前端解析 DSH 日志。
 
-## 呈现与配置
+会话历史从 Paseo 的 Import session 入口导入；已有会话继续使用原生 DSH 标识。手机端使用同一个 Daemon 安装的插件，不需要另外安装 DSH 或 npm 包。
 
-1. **品牌与图标**：注册 DeepSeek 官方或定制的矢量图标（SVG），并在 Provider 选择列表、会话卡片与对话头部中正确渲染。
-2. **模型与模式交互**：呈现 DSH 支持的模型列表（如 DeepSeek-V4-Flash、DeepSeek-V4-Pro）以及思考深度（`reasoning_effort`）配置。
+## 跨端边界
 
-## 跨端约束
+客户端入口不启动进程、不访问文件系统、不依赖 `window`、`document` 或 HTML 标签。运行时和凭证留在 Daemon 主机。
 
-客户端代码必须满足跨端沙箱安全与运行标准：
+图标为插件目录中的自包含 SVG。客户端专属扩展需要使用 Paseo 插件 SDK 和 React Native 组件，并通过宿主构建边界检查。
 
-- **无 Node.js 依赖**：客户端代码不得引入任何 `node:` 内置模块或依赖 Node 运行时的第三方库。
-- **DOM API 限制**：全局 `window` 与 `document` 对象在移动端不存在。Web 端特定行为必须置于专用模块并在非 Web 平台提供 Native 回退实现。
+## TUI 扩展范围
+
+DSH profile 的运行时配置和扩展注册被保留。注册成功不代表该扩展在 Paseo 中具备功能；依赖终端 surface 的回调与呈现需要另行适配。终端菜单、快捷键、TUI 主题、终端布局等扩展属于 pi-tui 的界面能力，不会自动转换成 Paseo 手机组件。
