@@ -1,6 +1,6 @@
 {
   "name": "paseo-dsh-pi",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "DeepSeek Harness (dsh-pi-tui) Direct Provider Plugin for Paseo",
   "repository": {
     "type": "git",
@@ -8,15 +8,40 @@
   },
   "private": true,
   "type": "module",
+  "peerDependencies": {
+    "@getpaseo/client": "0.8.0",
+    "@getpaseo/protocol": "0.8.0",
+    "react": "~19.1.0",
+    "react-native": ">=0.81.5"
+  },
+  "peerDependenciesMeta": {
+    "@getpaseo/client": { "optional": true },
+    "@getpaseo/protocol": { "optional": true },
+    "react": { "optional": true },
+    "react-native": { "optional": true }
+  },
   "devDependencies": {
+    "@getpaseo/plugin": "0.8.0",
     "@types/mdast": "^4.0.4",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
     "lefthook": "^2.1.9",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.1.0",
     "micromark-extension-gfm": "^3.0.0",
-    "tsx": "^4.22.4"
+    "tsx": "^4.22.4",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "smoke:bridge": "npm run build && tsx scripts/smoke-bridge.ts",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:client && npm run typecheck:scripts",
+    "typecheck:shared": "tsc -p tsconfig.shared.json",
+    "typecheck:server": "tsc -p tsconfig.server.json",
+    "typecheck:client": "tsc -p tsconfig.client.json",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
+    "test": "tsx --test \"server/**/*.test.ts\"",
     "postinstall": "node scripts/install-lefthook.mjs",
     "verify:notes": "tsx scripts/verify-agent-note-classification.ts && tsx scripts/verify-agent-note-format.ts && tsx scripts/verify-archived-agent-notes.ts",
     "verify:docs": "tsx scripts/verify-md-links.ts && tsx scripts/verify-doc-refs.ts",

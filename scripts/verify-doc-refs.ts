@@ -12,7 +12,16 @@ import { findReferenceViolations, uniqueRepoFiles, type ReferenceViolation as Vi
 const root = resolve(import.meta.dirname, '..')
 
 /** Repo-authored source that may cite docs in comments — PER-REPO CONFIG. */
-const PATTERNS = ['scripts/**/*.ts', 'scripts/**/*.mjs']
+const PATTERNS = [
+  'scripts/**/*.ts',
+  'scripts/**/*.mjs',
+  'server/**/*.ts',
+  'client/**/*.ts',
+  'client/**/*.tsx',
+  'shared/**/*.ts',
+  'index.server.ts',
+  'index.client.tsx',
+]
 
 /** Paths excluded from the scan: installed toolchain. */
 const isExcluded = (p: string): boolean =>

@@ -1,17 +1,5 @@
 {
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["ES2023"],
-    "types": ["node"],
-    "jsx": "react-jsx",
-    "strict": true,
-    "skipLibCheck": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true
-  },
+  "extends": "./tsconfig.base.json",
   "include": [
     "scripts/**/*.ts",
     "server/**/*.ts",
