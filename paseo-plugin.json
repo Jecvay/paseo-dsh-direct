@@ -2,5 +2,9 @@
   "id": "paseo-dsh-pi",
   "requirements": {
     "paseo": ">=0.8.0"
-  }
+  },
+  "build": [
+    ["npm", "ci", "--include=dev"],
+    ["npm", "run", "build"]
+  ]
 }

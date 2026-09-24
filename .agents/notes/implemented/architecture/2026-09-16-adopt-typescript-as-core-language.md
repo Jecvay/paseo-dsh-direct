@@ -11,9 +11,9 @@ Status: implemented
 工程全面采用 **TypeScript**（TS / TSX）作为唯一核心开发语言：
 
 1. **宿主原生支持**：Paseo 0.8 官方插件规范以 TypeScript 为一等公民。Paseo Daemon 内部集成 `esbuild` 编译器（`compiler.ts`），直接读取并编译 `index.server.ts` 和 `index.client.tsx`，免去用户侧配置预编译打包流水线的负担。
-2. **多端沙箱契约**：客户端 `index.client.tsx` 运行于 React Native / Expo 统一多端沙箱，TypeScript 的类型系统能够精准在编译阶段隔离 Node.js 专有 API 与 DOM 操作。
+2. **多端沙箱契约**：客户端 `index.client.tsx` 运行于 React Native / Expo 统一多端沙箱，客户端和共享层配置不载入 Node 或 DOM 类型；Paseo 的编译边界检查共同约束跨端依赖。
 3. **生态与协同对齐**：上游 Paseo、下游 DeepSeek Harness 与 `dsh-pi-tui` 均为全 TypeScript 工程，共享 Zod Schema 与类型定义最为直接；同时 AI 智能体在 TypeScript 下具有最佳的代码补全与静态错误自检能力。
-4. **统一配置**：在仓根维护标准 [tsconfig.json](../../../../tsconfig.json)，统一服务单、客户端与共享协议的类型校验基准。
+4. **统一配置**：在仓根维护标准 [tsconfig.json](../../../../tsconfig.json)，作为工程入口，并通过 shared/server/client/scripts 四份配置分别检查对应边界。
 
 ## 考虑过的其他做法
 
@@ -28,7 +28,7 @@ Status: implemented
 
 - 项目工程结构与 Paseo 0.8 官方推荐脚手架完全对齐，仓根新增 [tsconfig.json](../../../../tsconfig.json)。
 - 团队与 AI 智能体编码必须严格遵循类型检查，禁止任意使用 `any` 绕过类型校验。
-- 保证了 `shared/` 契约能在服务端与客户端之间零成本共享 Zod Schema 与推导类型。
+- 保证了 `shared/` 契约能在服务端与客户端之间共享类型与纯协议定义。
 
 ## 怎么验证的
 
