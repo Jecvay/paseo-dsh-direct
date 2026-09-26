@@ -124,3 +124,18 @@
 - 缺陷：用户报告 Paseo 界面工具"执行中"动效永不消失。抓包定位：`tool/result` 投影在 `message.content` 内查找 `tool-result` block，而 DSH 实际将 callId 放在 `message.toolCallId` / `source.callId`，导致结算事件被静默丢弃。仓内修复 `server/timeline.ts`（含 turn 中断时结算遗留 running 卡），31 个单测通过。
 - 线上验证：插件 rebuild + reload 后，通过 `@getpaseo/client` 读取本机真实会话时间线：90 张工具卡中 84 completed / 3 failed；reload 生效后新增 28 张卡全部正常收敛，仅 1 张为查询当时正在执行的调用。两张遗留 running 卡的时间戳与两次被中断的 reload 回合吻合（中断路径预期表现，已被新结算逻辑覆盖）。
 - 插件内自 reload 教训：本对话自身运行于 dsh-pi provider 上，从会话内执行 `paseo plugin reload` 会拆掉自身桥接导致 turn 被杀；重载应由会话外终端执行。两次中断 reload 遗留一个孤儿桥接进程（无会话锁、patch 指向已失效临时目录），核实身份后 SIGTERM 清理，本会话桥接进程不受影响。
+
+## 2026-09-26 — 向上游 dsh-pi-tui 提交官方 co-author 身份请求（issue #185）
+
+- 事件：本仓 commit a424601 携带 `Co-Authored-By: Claude` trailer，GitHub 据此把 Claude 列为 contributor；实际工具为 XMoon 的 dsh-pi-tui。GitHub co-author 头像只能由持有对应已验证邮箱的账号（个人或 App bot）渲染，组织不能验证邮箱，需上游发布官方身份。
+- 操作：以 Jecvay 账号在 XMoon/dsh-pi-tui 提交 issue #185（英文），请求其注册官方账号并公布统一署名行；未要求实现方式。
+- 后续：上游若公布官方 trailer，本仓新 commit 采用之；此前不加 co-author trailer。既有 a424601 是否改写历史待定。
+
+## 2026-09-26 — GitHub 看板工单循环上线（Project + systemd 轮询）
+
+- GitHub：用户级 Project #1「paseo-dsh-pi」建成并链接仓库；自定义单选字段「阶段」（待办/已评估/待开工/进行中/待审/受阻）与「优先级」（P0-P3）；内置 Status 字段不可改名/改选项，弃用（UI 可隐藏）。labels 建 kind/* 六类 + roadmap。issue 表单与 PR 模板入仓（.github/）。
+- 路线行动项入板：14 张工单（#3-#16）从路线笔记建单入板，优先级自动推断。
+- 本机 systemd：user 单元 `~/.config/systemd/user/paseo-dsh-pi-board.{service,timer}`（每 5 分钟 oneshot；PATH 用 mise shims 保证 dsh/npm 解析；SSH 推送无 agent 依赖已验证）。
+- dsh headless 凭据：默认路由 deepseek-official 缺 DEEPSEEK_API_KEY；改用 `~/.config/paseo-dsh-pi/board-patch.yml`（模型 CPA-an/bm-an-glm、danger-full-access，含私有 baseURL，不进仓）+ 凭证存储 CPA_API_KEY，实测出话正常。
+- 首轮自动评估实录（systemd service 驱动 dsh headless）：#3 获结构化归并评论（含 dump-config 实测证据），自动建父单 #17 聚合 #3-#6（P0 四道护栏）并挂 sub-issue，#3/#17 移入已评估。评估/实现状态与日志在 `~/.local/state/paseo-dsh-pi/`。
+- 停用轮询：`systemctl --user stop paseo-dsh-pi-board.timer`；手动一轮：`npm run board:poll`。

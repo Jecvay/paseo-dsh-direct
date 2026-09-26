@@ -36,6 +36,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "smoke:bridge": "npm run build && tsx scripts/smoke-bridge.ts",
+    "board": "tsx scripts/board.ts",
+    "board:poll": "tsx scripts/board-poll.ts",
     "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:client && npm run typecheck:scripts",
     "typecheck:shared": "tsc -p tsconfig.shared.json",
     "typecheck:server": "tsc -p tsconfig.server.json",

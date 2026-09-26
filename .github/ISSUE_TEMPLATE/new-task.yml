@@ -1,0 +1,37 @@
+name: 新工单
+description: 提交一张看板工单（问题、验收标准、边界）。agent 会自动评估归并建议，人拖单后开工。
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        工单进入看板 `待办` 后，agent 会自动评估：独立做还是与既有工单并成一轮架构迭代，
+        并在本单下留分析评论。**拖入 `待开工` 才是开工令**。
+        标题请用一句话说清「要什么」，中英不限。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题 / 背景
+      description: 现在发生了什么、为什么值得做。可粘贴现象、报错或链接。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准（怎么算做完）
+      description: 可核验的结果清单，一条一行。agent 完工与 PR review 都以此为准。
+      placeholder: |
+        - `npm run smoke:bridge` 通过
+        - manifest 版本上界生效于 paseo-plugin.json
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 边界与约束
+      description: 不要动什么、兼容要求、性能/安全红线。
+  - type: textarea
+    id: related
+    attributes:
+      label: 关联
+      description: 相关 issue、决策笔记（.agents/notes/...）、文档或外部链接。
