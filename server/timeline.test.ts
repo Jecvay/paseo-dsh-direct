@@ -218,15 +218,20 @@ describe("TimelineProjector", () => {
       time: 1_000,
       data: { callId: "call-1", name: "shell", arguments: '{"command":"pwd"}' },
     });
+    // DSH 0.1.7 records the call id on the tool message with plain text blocks.
     const completed = projector.projectEvent({
       type: "tool/result",
       seq: 4,
       time: 1_001,
       data: {
+        turn: 1,
+        step: 1,
         message: {
-          content: [
-            { type: "tool-result", toolCallId: "call-1", content: [{ type: "text", text: "/repo" }] },
-          ],
+          role: "tool",
+          source: { kind: "tool", callId: "call-1" },
+          toolCallId: "call-1",
+          content: [{ type: "text", text: "/repo" }],
+          isError: false,
         },
       },
     });
@@ -237,6 +242,61 @@ describe("TimelineProjector", () => {
     assert.equal(result.status, "completed");
     assert.equal(result.detail.type, "shell");
     if (result.detail.type === "shell") assert.equal(result.detail.output, "/repo");
+  });
+
+  it("settles a tool result that only carries source.callId and marks errors", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectEvent({
+      type: "tool/call",
+      seq: 3,
+      time: 1_000,
+      data: { callId: "call-9", name: "bash", arguments: '{"command":"ls"}' },
+    });
+    // No `toolCallId` field: the fallback reads `source.callId`.
+    const errored = projector.projectEvent({
+      type: "tool/result",
+      seq: 4,
+      time: 1_001,
+      data: {
+        message: {
+          role: "tool",
+          source: { kind: "tool", callId: "call-9" },
+          content: [{ type: "text", text: "boom" }],
+          isError: true,
+        },
+      },
+    });
+
+    const item = timelineItem(errored[0]!);
+    assert.equal(item.type, "tool_call");
+    assert.equal(item.status, "failed");
+    if (item.type === "tool_call") assert.equal(item.error, "boom");
+  });
+
+  it("still settles the legacy tool-result content block layout", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectEvent({
+      type: "tool/call",
+      seq: 3,
+      time: 1_000,
+      data: { callId: "call-legacy", name: "bash", arguments: "{}" },
+    });
+    const legacy = projector.projectEvent({
+      type: "tool/result",
+      seq: 4,
+      time: 1_001,
+      data: {
+        message: {
+          content: [
+            { type: "tool-result", toolCallId: "call-legacy", content: [{ type: "text", text: "ok" }] },
+          ],
+        },
+      },
+    });
+
+    const item = timelineItem(legacy[0]!);
+    assert.equal(item.type, "tool_call");
+    assert.equal(item.status, "completed");
   });
 
   it("does not expose plugin-injected user messages as chat bubbles", () => {

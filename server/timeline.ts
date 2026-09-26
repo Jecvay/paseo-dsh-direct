@@ -305,14 +305,22 @@ export class TimelineProjector {
 
   private projectToolResult(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
     const message = objectValue(event.data.message) ?? event.data;
+    // DSH tool messages carry the call id next to the content (`toolCallId`,
+    // `source.callId`) with plain text blocks inside; a `tool-result` content
+    // block is accepted for layouts that embed it instead.
     const direct = objectValue(message.content);
-    const result = direct?.type === "tool-result"
+    const block = direct?.type === "tool-result"
       ? direct
       : arrayValue(message.content)
           .map(objectValue)
-          .find((block) => block?.type === "tool-result");
-    if (!result) return [];
-    const callId = stringValue(result.toolCallId) ?? stringValue(result.tool_call_id);
+          .find((candidate) => candidate?.type === "tool-result");
+    const source = objectValue(message.source);
+    const callId =
+      stringValue(message.toolCallId) ??
+      stringValue(message.tool_call_id) ??
+      (source?.kind === "tool" ? stringValue(source.callId) : undefined) ??
+      stringValue(block?.toolCallId) ??
+      stringValue(block?.tool_call_id);
     if (!callId) return [];
     const existing = this.tools.get(callId) ?? {
       type: "tool_call" as const,
@@ -323,8 +331,10 @@ export class TimelineProjector {
       error: null,
       detail: { type: "unknown" as const, input: {}, output: {} },
     };
-    const output = contentText(result.content) || stringifyValue(result.content);
-    const isError = result.isError === true || event.data.isError === true;
+    const payload = block?.content ?? message.content;
+    const output = contentText(payload) || stringifyValue(payload);
+    const isError =
+      message.isError === true || event.data.isError === true || block?.isError === true;
     const detail = withOutput(existing.detail, output);
     const item: Extract<ProviderTimelineItem, { type: "tool_call" }> = isError
       ? { ...existing, detail, status: "failed", error: output || "Tool failed" }
