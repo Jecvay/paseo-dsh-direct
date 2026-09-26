@@ -48,7 +48,7 @@ npm run board:poll                   # 手动跑一轮轮询器（同 timer 行�
 
 ## 无头运行环境（本机）
 
-- systemd user 单元：`~/.config/systemd/user/paseo-dsh-pi-board.{service,timer}`，timer 每 5 分钟触发 service（oneshot，运行中不重叠）。
+- systemd user 单元：`~/.config/systemd/user/paseo-dsh-pi-board.{service,timer}`，timer **每天 09:00 触发一次**（错过开机补跑）；单轮先清完全部待评估（封顶 12 张），再做至多一件实现。
 - dsh headless 的模型路由/权限补丁：`~/.config/paseo-dsh-pi/board-patch.yml`（含私有 baseURL，不进仓）；凭证走 `~/.dsh/.credentials.yaml`（`CPA_API_KEY`），无需环境变量。
 - 轮询器状态与日志：`~/.local/state/paseo-dsh-pi/`（尝试计数、每轮日志）。
 - 超时：评估 10 分钟、实现 45 分钟；同一工单自动重试上限 2 次，超限移「受阻」等人处置。
