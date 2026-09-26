@@ -61,6 +61,7 @@ paseo plugin ls
 ## 给 agent 的约定
 
 - 动手前先读本文件 + 对应 `docs/`，以其为基准。
+- **人读内容先过风格关**：任何给人看的产出（工单标题/评论、PR 文案、文档、报告）落笔前必须回顾对应风格规则（看板产出见 `.agents/skills/gh-board/SKILL.md`「人读内容风格」节），重要产出写完后由 style subagent 专审可读性再定稿。标准：不点开上下文，人能否一眼看懂并做出判断。
 - **工作经看板调度**：工单 = GitHub issue，状态机 = [GitHub Projects 看板](https://github.com/users/Jecvay/projects/1)（机制见 `docs/board.md`，操作规约见 `.agents/skills/gh-board/SKILL.md`）。脚本面 `npm run board`。铁律：`待开工` 列只有人能拖进（开工令）；评估只做归并判断不改代码；**防稀碎默认并单**，一轮架构迭代一个 PR（Closes 父单与全部子单）；WIP=1；门禁全绿才开 PR。看板「进行中」有卡时不要在本仓做交互式改动（无头会话在同一工作树上切分支）。
 - **方向性的决定要写进 `.agents/notes/`**：无论决定做还是决定不做，都写一篇（规则见 `.agents/notes/README.md`）。「方向性」在本项目指 **改变与 DSH/Paseo 的通信协议机制（如从 Direct 转为 ACP、调整 RPC 协议帧格式）、变更支持的 Paseo SDK 版本兼容性、调整前端/服务端目录边界或引入新的外部运行时依赖**；纯机械改动（错别字、格式、普通 bug 修复）不写。
 - **多步骤任务优先用 subagent 派发**：需要拆解成「想清楚再执行」的活，不写文件交接，直接在派发 subagent 的 prompt 里把设计决策全部前置写清楚——任何「执行时再看」都是缺陷。subagent 的产出（反馈、教训）当场读、当场判断是否要落进 `.agents/notes/`，仓外事件按判据记 `.agents/ops-log.md`，不建单独的交接文件。
