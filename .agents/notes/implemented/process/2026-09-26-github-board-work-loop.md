@@ -13,7 +13,7 @@ Status: implemented
 - **阶段字段驱动**：`待办 → 已评估 → 待开工 → 进行中 → 待审 / 受阻`，关闭即归档。自定义字段「阶段」「优先级」（P0-P3，入板自动从正文推断）；不用内置 Status 字段（不可改名/改选项）。
 - **评估与实现分离**：agent 自动评估「待办」卡只做归并判断（建议并单时建父单挂 sub-issue），**不改代码**；「待开工」列只有人能拖进——这一下拖拽是开工令。
 - **防稀碎默认**：并单优先，一轮架构迭代一个 PR（`Closes` 父单与全部子单）；WIP=1。
-- **本地自动轮询**：systemd user timer 每 5 分钟跑 `scripts/board-poll.ts`——sync → 有「待开工」起实现循环（45 分钟超时）、否则有「待办」起评估循环（10 分钟超时）；失败重试上限 2 次后移「受阻」。
+- **本地自动轮询**：systemd user timer 每天 09:00 跑一次 `scripts/board-poll.ts`——sync → 清完「待办」评估（单轮封顶 12 张）→ 有「待开工」且 WIP 空闲时做一轮实现（45 分钟超时）；失败重试上限 2 次后移「受阻」。
 - **无头会话**：`dsh headless --patch <本机私有补丁>`（模型路由 CPA-an/bm-an-glm、danger-full-access，凭证走 dsh 凭证存储）；agent 行为规约在 `.agents/skills/gh-board/SKILL.md`，会话提示词只指工单号。
 - **项目/字段 ID 不进仓**：`scripts/board.ts` 按字段名发现；本机路径与私有配置只在 docs/board.md 描述、值放 `~/.config/paseo-dsh-pi/`。
 

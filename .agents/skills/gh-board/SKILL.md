@@ -82,12 +82,12 @@ issue 关闭（PR 合并）→ 下一次 `sync` 自动归档，即「完成」�
 
 ## 无头运行（board-poll）
 
-`scripts/board-poll.ts` 是轮询器入口（systemd user timer 每 5 分钟）：
+`scripts/board-poll.ts` 是轮询器入口（systemd user timer 每天 09:00 一次）：
 
 1. `sync`；
-2. 有 `待开工` 且 WIP 空闲 → 起**实现循环**（`dsh headless`，45 分钟超时）；
-3. 否则有 `待办` → 起**评估循环**（10 分钟超时）；
-4. 超时/失败 → 移 `受阻` + 评论；同一工单自动重试上限 2 次（状态文件 `~/.local/state/paseo-dsh-pi/board-state.json`）。
+2. 逐张清「待办」评估（每张独立 10 分钟超时，单轮封顶 12 张）；
+3. 有 `待开工` 且 WIP 空闲 → 起**实现循环**（45 分钟超时，每轮至多一件）；
+4. 超时/失败 → 计数；同一工单自动重试上限 2 次（状态文件 `~/.local/state/paseo-dsh-pi/board-state.json`）。
 
 无头会话的提示词只需：`读 .agents/skills/gh-board/SKILL.md，执行评估循环/实现循环，工单 #N`。
 

@@ -1,11 +1,11 @@
 /**
- * 看板轮询器 — systemd user timer 每 5 分钟驱动一次的入口。
+ * 看板轮询器 — systemd user timer 每天 09:00 驱动一次的入口。
  *
- * 职责（按优先级）：
+ * 职责（单轮内按序）：
  *   1. sync：入板新工单、归档已关闭；
- *   2. 有「待开工」且 WIP 空闲 → 起 dsh headless 跑实现循环（45 分钟超时）；
- *   3. 否则有「待办」→ 起 dsh headless 跑评估循环（10 分钟超时）；
- *   4. 失败（超时/非零退出/阶段未推进）→ 移「受阻」并评论；同一工单自动重试上限 2 次。
+ *   2. 清「待办」：逐张起 dsh headless 评估循环（每张 10 分钟超时，单轮封顶 12 张）；
+ *   3. 有「待开工」且 WIP 空闲 → 起 dsh headless 跑一轮实现循环（45 分钟超时，每轮至多一件）；
+ *   4. 失败（超时/非零退出/阶段未推进）→ 计数；同一工单自动重试上限 2 次后移「受阻」。
  *
  * 状态文件：~/.local/state/paseo-dsh-pi/board-state.json（尝试计数）
  * 日志：~/.local/state/paseo-dsh-pi/logs/<ts>-<phase>-<N>.log 与 journald。
@@ -22,6 +22,7 @@ const LOCK_FILE = resolve(STATE_DIR, 'board-poll.lock')
 const LOG_DIR = resolve(STATE_DIR, 'logs')
 const DSH_PATCH = process.env.BOARD_DSH_PATCH ?? resolve(process.env.HOME ?? '.', '.config/paseo-dsh-pi/board-patch.yml')
 const MAX_ATTEMPTS = 2
+const MAX_ANALYSES_PER_RUN = 12
 const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000
 const WORK_TIMEOUT_MS = 45 * 60 * 1000
 
@@ -129,6 +130,22 @@ function main(): void {
   const sync = board<{ added: number[]; archived: number[] }>('sync')
   if (sync.added.length > 0 || sync.archived.length > 0) console.log(`board-poll: sync ${JSON.stringify(sync)}`)
 
+  // 每轮先清待评估（封顶防失控），一轮跑完整个待办。
+  for (let i = 0; i < MAX_ANALYSES_PER_RUN; i++) {
+    const analysis = board<Card[]>('pick', '--for', 'analysis')
+    const queue = analysis.filter((card) => {
+      const entry = state[String(card.number)]
+      return !(entry && entry.attempts >= MAX_ATTEMPTS)
+    })
+    if (queue.length === 0) break
+    const card = queue[0]
+    const prompt = `读 .agents/skills/gh-board/SKILL.md，执行评估循环，工单 #${card.number}。`
+    const { reason } = runHeadless('analysis', card.number, prompt, ANALYSIS_TIMEOUT_MS)
+    console.log(`board-poll: analysis #${card.number} → ${reason}`)
+    conclude(state, 'analysis', card.number, ['已评估', '受阻'])
+    saveState(state)
+  }
+
   const work = board<{ wip: Card[]; queue: Card[] }>('pick', '--for', 'work')
   if (work.queue.length > 0) {
     const card = work.queue[0]
@@ -148,21 +165,10 @@ function main(): void {
     return
   }
 
-  const analysis = board<Card[]>('pick', '--for', 'analysis')
-  const queue = analysis.filter((card) => {
-    const entry = state[String(card.number)]
-    return !(entry && entry.attempts >= MAX_ATTEMPTS)
-  })
-  if (queue.length > 0) {
-    const card = queue[0]
-    const prompt = `读 .agents/skills/gh-board/SKILL.md，执行评估循环，工单 #${card.number}。`
-    const { reason } = runHeadless('analysis', card.number, prompt, ANALYSIS_TIMEOUT_MS)
-    console.log(`board-poll: analysis #${card.number} → ${reason}`)
-    conclude(state, 'analysis', card.number, ['已评估', '受阻'])
-    saveState(state)
+  if (work.wip.length > 0) {
+    console.log(`board-poll: WIP 占用中（${work.wip.map((c) => `#${c.number}`).join(', ')}），本轮不开新工`)
     return
   }
-
   console.log('board-poll: 无可做的工作（无待开工、无可评估的待办）')
 }
 
