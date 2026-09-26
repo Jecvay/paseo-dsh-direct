@@ -139,3 +139,8 @@
 - dsh headless 凭据：默认路由 deepseek-official 缺 DEEPSEEK_API_KEY；改用 `~/.config/paseo-dsh-pi/board-patch.yml`（模型 CPA-an/bm-an-glm、danger-full-access，含私有 baseURL，不进仓）+ 凭证存储 CPA_API_KEY，实测出话正常。
 - 首轮自动评估实录（systemd service 驱动 dsh headless）：#3 获结构化归并评论（含 dump-config 实测证据），自动建父单 #17 聚合 #3-#6（P0 四道护栏）并挂 sub-issue，#3/#17 移入已评估。评估/实现状态与日志在 `~/.local/state/paseo-dsh-pi/`。
 - 停用轮询：`systemctl --user stop paseo-dsh-pi-board.timer`；手动一轮：`npm run board:poll`。
+
+## 2026-09-26 — 看板轮询降频为每天一次
+
+- 用户反馈 5 分钟一拍过于激进：timer 改为 `OnCalendar=*-*-* 09:00:00`（每天 09:00，`Persistent=true` 错过补跑），`daemon-reload + restart` 生效，下次触发次日 09:00。
+- 轮询器改为单轮清完：先逐张评估全部待办（单轮封顶 12 张），再做至多一件实现；仓内代码与文档同步（scripts/board-poll.ts、docs/board.md、SKILL.md、决策笔记）。
