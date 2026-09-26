@@ -104,18 +104,7 @@ export class TimelineProjector {
   }
 
   failRunningTools(message: string): SessionEvent[] {
-    const events: SessionEvent[] = [];
-    for (const [callId, item] of this.tools) {
-      if (item.status !== "running") continue;
-      const failed: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
-        ...item,
-        status: "failed",
-        error: message,
-      };
-      this.tools.set(callId, failed);
-      events.push(timeline(this.paseoSessionId, failed));
-    }
-    return events;
+    return this.settleRunningTools(message);
   }
 
   private projectCommandRun(
@@ -152,11 +141,33 @@ export class TimelineProjector {
   /** Failures (replay only; live failures travel on session.turn) and abnormal ends. */
   private projectTurnEnd(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
     const terminal = classifyTurnEnd(event.data);
-    if (terminal.warning) return [this.notice(`turn-end:${event.seq}`, "warning", terminal.warning, timestamp)];
-    if (!terminal.error) return [];
-    return [
-      timeline(this.paseoSessionId, { type: "error", id: `turn-error:${event.seq}`, message: terminal.error.message }, timestamp),
-    ];
+    const projected: SessionEvent[] = [];
+    if (terminal.warning) projected.push(this.notice(`turn-end:${event.seq}`, "warning", terminal.warning, timestamp));
+    if (terminal.error) {
+      projected.push(
+        timeline(this.paseoSessionId, { type: "error", id: `turn-error:${event.seq}`, message: terminal.error.message }, timestamp),
+      );
+    }
+    // A turn never emits further tool results: settle whatever is still running
+    // so interrupted turns do not leave permanently spinning tool cards.
+    projected.push(...this.settleRunningTools(terminal.error?.message ?? terminal.warning ?? "Turn ended", timestamp));
+    return projected;
+  }
+
+  /** Marks every running tool card failed; used at turn end and bridge failure. */
+  private settleRunningTools(message: string, timestamp?: string): SessionEvent[] {
+    const events: SessionEvent[] = [];
+    for (const [callId, item] of this.tools) {
+      if (item.status !== "running") continue;
+      const failed: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
+        ...item,
+        status: "failed",
+        error: message,
+      };
+      this.tools.set(callId, failed);
+      events.push(timeline(this.paseoSessionId, failed, timestamp));
+    }
+    return events;
   }
 
   private notice(

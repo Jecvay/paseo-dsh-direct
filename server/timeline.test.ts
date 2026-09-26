@@ -299,6 +299,26 @@ describe("TimelineProjector", () => {
     assert.equal(item.status, "completed");
   });
 
+  it("settles still-running tool cards when a turn ends", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectEvent({
+      type: "tool/call",
+      seq: 3,
+      time: 1_000,
+      data: { callId: "call-stuck", name: "bash", arguments: '{"command":"sleep 60"}' },
+    });
+    const settled = projector.projectEvent({
+      type: "turn/end",
+      seq: 4,
+      time: 1_050,
+      data: { turn: 1, reason: { kind: "cancelled" } },
+    });
+
+    const card = settled.map(timelineItem).find((item) => item.type === "tool_call");
+    assert.ok(card, "turn end settles the interrupted tool card");
+    assert.equal(card!.type === "tool_call" ? card!.status : "", "failed");
+  });
+
   it("does not expose plugin-injected user messages as chat bubbles", () => {
     const projector = new TimelineProjector("paseo-session");
     const injected = projector.projectEvent({
