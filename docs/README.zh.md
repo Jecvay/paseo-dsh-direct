@@ -18,5 +18,6 @@
 - [客户端架构](client-architecture.md)
 - [插件开发与验证](plugin-guide.md)
 - [Alpha 验收规范](alpha-acceptance.md)
+- [GitHub 看板工单循环](board.md)
 
 本目录只描述当前生效的事实；决定与理由记录在 [`../.agents/notes/`](../.agents/notes/README.md)。
