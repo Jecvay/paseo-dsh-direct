@@ -111,3 +111,16 @@
 - 环境：DSH `0.1.7-rc.1`、`@xmoon76/dsh-pi-tui` `0.4.8`、模型 `CPA-an/bm-an-glm`；临时脚本直接驱动桥接，不持久化会话，专用临时 cwd。
 - 结果：追加 system prompt 生效；`workspace-write` 下 workspace 外 bash 写入收到 `approval` 请求，允许后文件写入、拒绝后未写入，两次回合均 `completed`；问答请求应答后模型复述所选项；文件附件内容被模型读取；预批准 stdio MCP 工具返回值被模型引用；停止后回合 `aborted`，下一条消息正常回复；关闭后恢复会话历史完整。另 `npm run smoke:bridge -- --prompt` 通过，`paseo provider models dsh-pi` 返回 8 个模型。
 - 清理：删除 `$HOME/.cache/paseo-dsh-alpha-approval` 与临时 cwd；未改动用户 profile 与全局权限。
+
+## 2026-09-26 — 上游三方升级：DSH 0.1.7-rc.2、pi-tui 0.4.9、Paseo 0.9.2
+
+- 来源：npm registry 实时查询；pi-tui 0.4.9（09-25 发布）peer 要求 `@deepseek-ai/dsh-* >=0.1.7-rc.2`，DSH `next` tag 为 0.1.7-rc.2（09-24 发布），`@getpaseo/cli` latest 为 0.9.2（09-24 发布）。
+- 操作：备份 mise 配置后 `mise use --global npm:@deepseek-ai/dsh@0.1.7-rc.2` 与 `npm:@getpaseo/cli@0.9.2`；`~/.dsh/profiles/pi-tui` 的 `@xmoon76/dsh-pi-tui` 由 0.4.8 改 0.4.9 并 pnpm install。
+- 重启：daemon 完整 `stop` + `start` 后 worker PATH 确认指向 DSH 0.1.7-rc.2 与 CLI 0.9.2；`paseo provider models dsh-pi` 返回完整目录。
+- 验证：新组合下直接驱动桥接抓取真实工具调用事件流，`tool/call`、`tool/result` 形状与 0.1.7-rc.1 一致（callId 在 `message.toolCallId` 与 `source.callId`，content 为纯 text block）。
+
+## 2026-09-26 — 工具卡不收敛缺陷修复与线上验证
+
+- 缺陷：用户报告 Paseo 界面工具"执行中"动效永不消失。抓包定位：`tool/result` 投影在 `message.content` 内查找 `tool-result` block，而 DSH 实际将 callId 放在 `message.toolCallId` / `source.callId`，导致结算事件被静默丢弃。仓内修复 `server/timeline.ts`（含 turn 中断时结算遗留 running 卡），31 个单测通过。
+- 线上验证：插件 rebuild + reload 后，通过 `@getpaseo/client` 读取本机真实会话时间线：90 张工具卡中 84 completed / 3 failed；reload 生效后新增 28 张卡全部正常收敛，仅 1 张为查询当时正在执行的调用。两张遗留 running 卡的时间戳与两次被中断的 reload 回合吻合（中断路径预期表现，已被新结算逻辑覆盖）。
+- 插件内自 reload 教训：本对话自身运行于 dsh-pi provider 上，从会话内执行 `paseo plugin reload` 会拆掉自身桥接导致 turn 被杀；重载应由会话外终端执行。两次中断 reload 遗留一个孤儿桥接进程（无会话锁、patch 指向已失效临时目录），核实身份后 SIGTERM 清理，本会话桥接进程不受影响。

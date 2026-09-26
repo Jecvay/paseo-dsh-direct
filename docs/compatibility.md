@@ -4,22 +4,22 @@
 
 | 组件 | 本机验证版本 | 用途 |
 |---|---|---|
-| Paseo | `0.8.0` | 插件宿主与 Direct Provider 协议 |
-| DeepSeek Harness | `0.1.7-rc.1` | 原生 agent、会话持久化与交互服务 |
-| `@xmoon76/dsh-pi-tui` | `0.4.8` | 复用的 profile 组合与扩展注册 |
+| Paseo | `0.9.2` | 插件宿主与 Direct Provider 协议 |
+| DeepSeek Harness | `0.1.7-rc.2` | 原生 agent、会话持久化与交互服务 |
+| `@xmoon76/dsh-pi-tui` | `0.4.9` | 复用的 profile 组合与扩展注册 |
 | Node.js | `24.13.0` | 插件与 DSH 运行环境 |
 
 本组合已验证真实 profile 启动、模型/preset/权限目录、真实模型与工具调用、思考输出、工具审批允许/拒绝、问答应答/拒绝、原生历史导入、停止后继续对话、Daemon 重启恢复及正常关闭。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
-Paseo `0.9.1` 另已通过本机启动、插件加载、模型目录和真实文字对话检查，用户已确认手机收到测试回复；完整交互验证基线仍为上表组合。
+Paseo `0.9.2` 为当前验证基线：本机启动、插件加载、模型目录、真实文字对话与真实工具调用（工具卡完整收敛）均已验证。早期 `0.8.0` / `0.9.1` 组合的历史验证结论不因此失效。
 
-DSH 与 pi-tui 版本在桥接层直接验证：上表 DSH 与 pi-tui 版本已通过真实模型下的系统提示词追加、工具审批允许/拒绝、问答、文件附件、stdio MCP 工具、斜杠命令与技能、`/compact`、`/plan`、权限切换、停止后继续对话与会话恢复。pi-tui `0.4.8` 要求 DSH `>=0.1.7-rc.1`。Paseo daemon 的 `PATH` 在启动时固定，升级 DSH 后须 `paseo daemon stop` 再 `paseo daemon start`；`paseo daemon restart` 不刷新环境。
+DSH 与 pi-tui 版本在桥接层直接验证：上表 DSH 与 pi-tui 版本已通过真实模型下的系统提示词追加、工具审批允许/拒绝、问答、文件附件、stdio MCP 工具、斜杠命令与技能、`/compact`、`/plan`、权限切换、停止后继续对话与会话恢复。pi-tui `0.4.9` 要求 DSH `>=0.1.7-rc.2`。Paseo daemon 的 `PATH` 在启动时固定，升级 DSH 后须 `paseo daemon stop` 再 `paseo daemon start`；`paseo daemon restart` 不刷新环境。
 
 DSH 与 pi-tui 保持用户原有安装。插件安装不自动升级或替换它们；不要以重新安装独立 SDK profile 代替对既有 profile 的接入。
 
 ## 宿主契约
 
-[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.8.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.8.0`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。
+[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.8.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.9.2`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。
 
 插件注册 `dsh-pi`，不会覆盖名为 `dsh` 的既有自定义 Provider。
 
