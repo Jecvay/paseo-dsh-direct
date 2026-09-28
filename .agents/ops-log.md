@@ -127,9 +127,9 @@
 
 ## 2026-09-26 — 向上游 dsh-pi-tui 提交官方 co-author 身份请求（issue #185）
 
-- 事件：本仓 commit a424601 携带 `Co-Authored-By: Claude` trailer，GitHub 据此把 Claude 列为 contributor；实际工具为 XMoon 的 dsh-pi-tui。GitHub co-author 头像只能由持有对应已验证邮箱的账号（个人或 App bot）渲染，组织不能验证邮箱，需上游发布官方身份。
+- 事件：本仓 commit 4ec1047（历史改写前为 a424601）携带 `Co-Authored-By: Claude` trailer，GitHub 据此把 Claude 列为 contributor；实际工具为 XMoon 的 dsh-pi-tui。GitHub co-author 头像只能由持有对应已验证邮箱的账号（个人或 App bot）渲染，组织不能验证邮箱，需上游发布官方身份。
 - 操作：以 Jecvay 账号在 XMoon/dsh-pi-tui 提交 issue #185（英文），请求其注册官方账号并公布统一署名行；未要求实现方式。
-- 后续：上游若公布官方 trailer，本仓新 commit 采用之；此前不加 co-author trailer。既有 a424601 是否改写历史待定。
+- 后续：上游若公布官方 trailer，本仓新 commit 采用之；此前不加 co-author trailer。既有 4ec1047（原 a424601）是否改写历史待定。
 
 ## 2026-09-26 — GitHub 看板工单循环上线（Project + systemd 轮询）
 
@@ -152,7 +152,7 @@
 
 ## 2026-09-28 — PR #18 合并上线（插件改跑 paseo profile）
 
-- 20:45 左右 rebase 合并 PR #18 进 main（CI 两轮 pass），主工作树 ff 到 3e7f0d0，`npm run build` 后 `paseo plugin reload paseo-dsh-pi`；reload 前 6 个 dsh-pi agent 均 idle。
+- 20:45 左右 rebase 合并 PR #18 进 main（CI 两轮 pass），主工作树 ff 到 0461137（历史改写前为 3e7f0d0），`npm run build` 后 `paseo plugin reload paseo-dsh-pi`；reload 前 6 个 dsh-pi agent 均 idle。
 - 线上验收：`paseo provider models dsh-pi` 列出 10 个模型（CPA-an/CPA-rs 各 4 + deepseek-official 2），dsh 子进程以 `--profile paseo` 运行；真实 agent（bm-an-glm-flash）bash 工具调用 `uname -r` 输出与本机一致，四个 preset 均出现在模式列表。本机 permission 为 danger-full-access，CLI 无法切权限 preset，审批弹窗未在线上复测（桥层已验证）。测试 agent 已删除。
 - dsh 0.2.0-rc.1 当日发布但无法安装：`@deepseek-ai/dsh-web-app@0.2.0-rc.1` 依赖的 `@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1` 未发布（官方 registry 绕缓存查实，全树 252 包仅缺这一个），与本机 npm 源无关；未提上游 issue。
 
@@ -198,3 +198,10 @@
 - 复测：用这份干净安装、隔离 `DSH_HOME=~/.local/share/dsh-0.2-test`，在插件 main（0.2.0）上跑 `npm run smoke:bridge -- --prompt` 通过；真 provider 路径下无版本警告、真实 bash 工具调用、会话恢复（同一 native id、回放 3 个工具项）、命令列表 30 项含 `/compact` `/plan`、审批允许/拒绝、问答应答/拒答全部通过。`~/.dsh` 未被触碰。
 - mise 装不上：`mise install npm:@deepseek-ai/dsh@0.2.0-rc.1` 报 `aube install failed: failed to resolve dependencies — peer-context fixed-point did not converge after 256 iterations. mutually recursive peers`（mise 2026.9.8 的 npm 后端 aube 解析器问题，同版本用 npm 能装）。本机 mise 全局仍钉 `0.1.7-rc.2`（pi-tui 终端依赖它），未改动。
 - 图片/文件附件、MCP、中断、Paseo Daemon 内加载与重启仍未在 0.2 下复测。
+
+## 2026-09-29 — 全部 commit message 改写为英文，force-push
+
+- 原因：commit message 统一改用英文、Linux kernel 风格（规范见 agents/common 的 `docs/git-commit-style.md`），用户决定把本仓的旧历史也改掉（agents/common 不改）。
+- 操作：在 mirror clone 里用 git-filter-repo 只改 message，author 和日期不变；`main`、`release/0.1` 用 `--force-with-lease` 推送，`v0.1.1`～`v0.2.0` 四个 tag 强推到新 commit。所有分支和 tag 的文件树、commit 数与改写前一致。
+- 影响：所有 commit 哈希都变了。GitHub 上旧 PR 和 issue 评论里引用的旧哈希会失效，本文件里的两处已改成新哈希。线上 live worktree 重新 checkout 新的 `v0.1.3`（文件内容一样，不用重新构建）。本地 tag `v0.1.0-alpha.1` 从来没推送过，指向的 commit 也不在已发布的历史里，保持原样。
+- 备份：改写前的完整仓库在 `~/src/tmp-rewrite/paseo-dsh-direct-before.bundle`，ref 清单在同目录的 `refs-before.txt`。
