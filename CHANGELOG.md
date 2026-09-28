@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Published to npm as `paseo-dsh-direct`. Paseo's **Settings → Plugins → Install Plugin** now accepts `npm:paseo-dsh-direct` or the Git URL; the dsh `0.1` line is `npm:paseo-dsh-direct@dsh-0.1`.
+- The Paseo build step runs `npm install --include=dev` instead of `npm ci`, because npm packages never contain `package-lock.json`.
+- The README opens with the Settings install and why the plugin talks to dsh natively instead of through ACP.
+
 ## 0.2.0
 
 - Targets dsh `0.2.*`; tested with dsh `0.2.0-rc.1`. For dsh `0.1.*`, install tag `v0.1.2`.
