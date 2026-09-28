@@ -18,6 +18,12 @@ Paseo `0.9.2` has passed local Daemon startup, plugin loading, model discovery, 
 
 The Paseo daemon fixes its `PATH` at startup; after upgrading DSH, run `paseo daemon stop` then `paseo daemon start`, because `paseo daemon restart` keeps the old environment.
 
+## npm releases and dist-tags
+
+The plugin publishes to npm as `paseo-dsh-direct` (unscoped). The current dsh line (`main`) publishes as `latest`; older lines (such as `release/0.1`) publish with `--tag dsh-<major.minor>` (for example `dsh-0.1`), installed as `npm:paseo-dsh-direct@dsh-<major.minor>`. See [AGENTS.md](../../AGENTS.md) for the release steps.
+
+Paseo's Install Plugin field has no Git ref input, so pasting a Git URL there always installs the `main` branch (the current dsh line); installing an older line's Git tag needs the CLI, `paseo plugin install <url> --ref <tag>`. The npm source has no such limit — a dist-tag is part of the `npm:<package>@<tag>` string itself, so it works from both the Settings field and the CLI.
+
 ## Runtime boundaries
 
 The plugin reuses the user's existing DSH installation, credentials, and native session storage. It runs its own `paseo` profile, created from DSH's official `web` template, and needs no third-party DSH add-on. It does not upgrade or replace DSH, and it does not write credentials or machine-specific paths into the repository.

@@ -69,6 +69,19 @@ paseo plugin ls
 
 **分支策略**：`main` 跟随当前最新 dsh 线开发（现为 0.2 线）；旧线的修复在 `release/<major.minor>` 分支上发 patch tag（现有 `release/0.1`，已发 `v0.1.3`）。
 
+**发布到 npm**：打完 tag 后，从该 tag 的干净 checkout 执行 `npm publish`——`main` 线（当前最新 dsh 线）发布为 `latest`；旧线（如 `release/0.1`）加 `--tag dsh-<major.minor>`（如 `--tag dsh-0.1`）。发布前用 `npm pack --dry-run` 核对压缩包文件列表，确认没有多余文件。
+
+```bash
+git clone https://github.com/Jecvay/paseo-dsh-direct.git /tmp/paseo-dsh-direct-release
+cd /tmp/paseo-dsh-direct-release
+git checkout <tag>
+npm ci --include=dev
+npm run build
+npm pack --dry-run
+npm publish                      # main 线，latest
+npm publish --tag dsh-0.1        # release/0.1 等旧线改这一行
+```
+
 ## 给 agent 的约定
 
 - 动手前先读本文件 + 对应 `docs/`，以其为基准。

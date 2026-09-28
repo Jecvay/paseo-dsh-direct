@@ -9,6 +9,12 @@
 - **一致**：无提示。
 - **不一致**（DSH 的 `major.minor` 线与插件不同）或**未确认**（探测超时、DSH 进程非 0 退出、或输出解析不出版本号）：插件照常启动和使用，只在 Paseo 时间线里显示一条警告，同时写一行到 stderr 日志。插件从不因为版本线不符拒绝启动——能否真正工作由 DSH 握手和运行时接口决定，见下方「DSH 契约」。
 
+## npm 发布与 dist-tag
+
+插件以包名 `paseo-dsh-direct`（无 scope）发布到 npm。当前最新 dsh 线（`main` 分支）发布为 `latest`；更早的 dsh 线（如 `release/0.1`）发布时带 `--tag dsh-<major.minor>`（如 `dsh-0.1`），装法是 `npm:paseo-dsh-direct@dsh-<major.minor>`。发布流程见 [AGENTS.md](../AGENTS.md)「发布到 npm」。
+
+Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git 地址总是装 `main` 分支（当前 dsh 线）；要装旧线的 Git tag，须用命令行 `paseo plugin install <url> --ref <tag>`。npm 来源不受这个限制——dist-tag 直接写在 `npm:<package>@<tag>` 里，Settings 输入框和命令行都能用。
+
 ## Alpha 运行组合
 
 | 插件版本线 | 已实测的 DSH 版本 | 获取方式 |
@@ -56,12 +62,15 @@ Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt�
 
 ## 安装、更新与发行
 
-从 Git 安装时，Paseo 负责根据 manifest 执行构建；本地目录安装需要预先完成构建。插件构建生成并嵌入 DSH 桥接，Git checkout 不需要包含机器特定的预编译路径。
+从 Git 或 npm 安装时，Paseo 负责根据 [paseo-plugin.json](../paseo-plugin.json) 的 `build` 命令执行构建；本地目录安装需要预先完成构建。插件构建生成并嵌入 DSH 桥接，Git checkout 或 npm 包本身都不需要包含机器特定的预编译路径。
 
-本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 安装可指定已存在的 tag 或 commit：
+manifest 的构建命令是 `npm install --include=dev`，不是 `npm ci`：npm 发布时无论 `files` 字段怎么写都会剔除 `package-lock.json`（这是 npm 打包的硬规则，`.npmignore` 负负得正的写法也绕不过去），npm 安装来源拿到的目录里没有锁文件，`npm ci` 会直接报错退出；Git 安装的 checkout 里锁文件还在，`npm install` 对它同样有效，所以两种来源共用同一条构建命令。
+
+本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 或 npm 安装可指定已存在的 tag、commit 或 dist-tag：
 
 ```bash
-paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin install npm:paseo-dsh-direct@<version-or-tag>
 paseo plugin update paseo-dsh-direct
 ```
 

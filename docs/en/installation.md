@@ -10,11 +10,17 @@ The validated alpha combination is:
 | DeepSeek Harness | `0.2.0-rc.1` |
 | Node.js | `24.13.0` |
 
-DSH must already be installed on the host running the Paseo Daemon; no other DSH add-on is needed. This repository does not publish an npm package.
+DSH must already be installed on the host running the Paseo Daemon; no other DSH add-on is needed.
 
-The plugin's `major.minor` tracks the dsh line it supports (this `0.2.x` release works with dsh `0.2.*`); install the tag matching your local dsh version. For dsh `0.1.*`, install tag `v0.1.3`. DSH `0.2.0-rc.1` installs cleanly with `npm install @deepseek-ai/dsh@0.2.0-rc.1`; [Compatibility](compatibility.md) shows the full versioning rule and a caveat for mise's npm backend on this package.
+The plugin's `major.minor` tracks the dsh line it supports (this `0.2.x` release works with dsh `0.2.*`); install the line matching your local dsh version. DSH `0.2.0-rc.1` installs cleanly with `npm install @deepseek-ai/dsh@0.2.0-rc.1`; [Compatibility](compatibility.md) shows the full versioning rule and a caveat for mise's npm backend on this package.
+
+## Install from the Settings UI
+
+In Paseo, go to **Settings → Plugins → Install Plugin** and paste an npm or Git source; see the root [README](../../README.md#install) for the short version and the dsh-line-to-source table, and [npm releases and dist-tags](compatibility.md#npm-releases-and-dist-tags) for how dist-tags map to older dsh lines.
 
 ## Install from source
+
+For local development, or to install without going through the Settings UI:
 
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-direct.git
@@ -31,10 +37,10 @@ paseo plugin ls
 paseo provider models dsh-pi
 ```
 
-Git installation supports an existing remote tag or commit:
+The CLI also accepts a Git ref that the Settings UI field cannot:
 
 ```bash
-paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
 
 If the Paseo Daemon has plugin loading disabled, set `pluginsEnabled` to `true` in its `config.json`, then run `paseo daemon reload`. Preserve the other configuration fields.
