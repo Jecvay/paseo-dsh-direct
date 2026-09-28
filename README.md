@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 `paseo-dsh-direct` connects a local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) to [Paseo](https://github.com/getpaseo/paseo) through a Direct Provider.
 
-Version `0.1.0-alpha.1` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-direct`.
+Version `0.1.1` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-direct`.
 
 ## Install locally
 
@@ -25,6 +25,16 @@ The same local source can be installed directly with `paseo plugin install /abso
 ```bash
 paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
+
+## Versioning
+
+The plugin's `major.minor` tracks the dsh line it supports (`0.1.x` works with dsh `0.1.*`); the patch number is the plugin's own release count and does not follow dsh. Install the tag that matches your local dsh version.
+
+| Plugin line | dsh line |
+|---|---|
+| `0.1.x` | `0.1.*` |
+
+See the [compatibility notes](docs/compatibility.md) for the full rule and the dsh versions actually tested.
 
 ## Use
 
