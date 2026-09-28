@@ -14,7 +14,7 @@
 | 插件版本线 | 已实测的 DSH 版本 | 获取方式 |
 |---|---|---|
 | `0.2.x` | `0.2.0-rc.1`（安装方式见下） | 当前版本 |
-| `0.1.x` | `0.1.7-rc.2` | tag `v0.1.2` |
+| `0.1.x` | `0.1.7-rc.2` | tag `v0.1.3` |
 
 本机同时验证 Paseo `0.9.2`、Node.js `24.13.0`。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
@@ -32,7 +32,7 @@ DSH `0.2.0-rc.1` 在 npm 上缺一个包：`@deepseek-ai/dsh-web-app@0.2.0-rc.1`
 
 在这个目录 `npm install` 后，可执行文件是 `node_modules/.bin/dsh`，用 `PASEO_DSH_EXECUTABLE` 指给插件。
 
-**0.1 线**：`v0.1.2` 在 DSH `0.1.7-rc.2` 下验证了自动创建 `paseo` profile、模型/preset/权限目录、真实模型与工具调用、思考输出、原生历史导入、停止后继续对话、Daemon 重启恢复及正常关闭；桥接层用真实模型还验证过 system prompt 追加、文件附件、stdio MCP 工具、斜杠命令与技能、`/compact`、`/plan`、权限切换。`v0.1.2` 在 `paseo` profile 下有一个已知问题：工具审批和问答请求被 web 模板的 `api-remotes` 行转给浏览器端，送不到 Paseo，回合一直等待；权限预设为 `danger-full-access`（不发起审批）、模型也不调用提问工具时不受影响。0.2 线在启动时禁用这一行，没有这个问题。
+**0.1 线**：`v0.1.2` 在 DSH `0.1.7-rc.2` 下验证了自动创建 `paseo` profile、模型/preset/权限目录、真实模型与工具调用、思考输出、原生历史导入、停止后继续对话、Daemon 重启恢复及正常关闭；桥接层用真实模型还验证过 system prompt 追加、文件附件、stdio MCP 工具、斜杠命令与技能、`/compact`、`/plan`、权限切换。0.1 线从 `v0.1.3` 起修复了工具审批和问答请求被 web 模板的 `api-remotes` 行转给浏览器端、送不到 Paseo、回合一直等待的问题：`v0.1.1` 加载失败不可安装，`v0.1.2` 有这个问题，`v0.1.3` 在 DSH `0.1.7-rc.2` 下实测审批允许/拒绝、问答应答/拒答四项通过。权限预设为 `danger-full-access`（不发起审批）、模型也不调用提问工具时，旧版本不受这个问题影响。
 
 Paseo `0.9.2` 为当前验证基线：本机启动、插件加载、模型目录、真实文字对话与真实工具调用（工具卡完整收敛）均已验证。早期 `0.8.0` / `0.9.1` 组合的历史验证结论不因此失效。Paseo daemon 的 `PATH` 在启动时固定，升级 DSH 后须 `paseo daemon stop` 再 `paseo daemon start`；`paseo daemon restart` 不刷新环境。
 
