@@ -28,6 +28,8 @@ describe("createBridgePatch", () => {
       DISABLED_SURFACE_ROWS.map((id) => ({ id, disabled: true })),
     );
     assert.ok(DISABLED_SURFACE_ROWS.includes("web-startup"));
+    // Otherwise the browser forwarder takes approvals and questions first and never answers.
+    assert.ok(DISABLED_SURFACE_ROWS.includes("api-remotes"));
     assert.deepEqual(patch.at(-1), {
       insert: [{ id: "paseo-dsh-bridge", name: "/tmp/b/dsh-bridge.mjs", config: { profile: "paseo" } }],
     });

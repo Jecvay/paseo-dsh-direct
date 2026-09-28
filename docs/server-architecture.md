@@ -8,7 +8,7 @@
 
 `paseo` profile 由 DSH 官方 `web` 模板生成：bundle 为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`，后者自带 `standard`、`ptc`、`minimal`、`cordis` 四个 agent preset。启动前 `server/bridge-client.ts` 检查 `$DSH_HOME/profiles/<profile>`（`$DSH_HOME` 为空或未设置时是 `~/.dsh`，解析方式与 DSH 相同）。目录缺失且 profile 是默认的 `paseo` 时，执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它（60 秒超时，输出丢弃）；`PASEO_DSH_PROFILE` 指定的 profile 缺失时直接报错并给出创建命令。模型路由、默认模型和权限预设属于用户层 `cordis.patch.yml`，插件不写它。
 
-DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里开浏览器界面的四行，再加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。用户持久 profile 文件保持原样。
+DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里服务浏览器界面的五行，再加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。用户持久 profile 文件保持原样。
 
 | 禁用的行 | 原本作用 | 为什么一并禁用 |
 |---|---|---|
@@ -16,8 +16,9 @@ DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 pa
 | `webserver` | 绑定 HTTP 端口（默认 3080） | 启动审计把它列为必需行，缺 `webStartup` 会让 DSH 启动失败 |
 | `web-runtime` | 托管前端、打印 URL、按配置打开浏览器 | 依赖前两行 |
 | `connection` | 把网关挂到 webserver 的 `/api` | 启动审计把它列为必需行，缺 `webRuntime` 会让 DSH 启动失败 |
+| `api-remotes` | 把工具审批（`approval/request`）和问答（`user-questions/request`）等宿主事件经网关转给浏览器端 | 它排在桥接前面接下审批和问答；没有浏览器连着时请求一直等待，桥接收不到 |
 
-DSH 的启动审计忽略被禁用的必需行，所以禁用这四行后 DSH 正常启动，不监听任何 TCP 端口，也不打开浏览器。依赖它们的浏览器端插件行（如 `file-upload`、`client-hmr`、`open-in-app`）停在等待状态，DSH 在 stderr 打一条「entries did not activate」提示，不影响桥接。preset 行和会话、工具相关的行不受影响。`appReady` 与 `appExit` 由 DSH 启动器提供，桥接在 `appReady` 之后开始读 stdin。浏览器端界面插件不等同于 Paseo 前端功能。
+DSH 的启动审计忽略被禁用的必需行，所以禁用这五行后 DSH 正常启动，不监听任何 TCP 端口，也不打开浏览器。依赖它们的浏览器端插件行（如 `file-upload`、`client-hmr`、`open-in-app`）停在等待状态，DSH 在 stderr 打一条「entries did not activate」提示，不影响桥接。preset 行和会话、工具相关的行不受影响。`appReady` 与 `appExit` 由 DSH 启动器提供，桥接在 `appReady` 之后开始读 stdin。浏览器端界面插件不等同于 Paseo 前端功能。
 
 模型目录和历史发现使用独立桥接；每个活动 Paseo 会话拥有自己的 DSH 子进程，接收宿主提供的会话环境变量。关闭会话时释放对应子进程。
 
