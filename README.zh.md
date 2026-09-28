@@ -4,7 +4,7 @@
 
 `paseo-dsh-direct` 通过 Direct Provider，把本机的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）接入 [Paseo](https://github.com/getpaseo/paseo)。
 
-当前版本为 `0.1.2`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness**；插件标识为 `paseo-dsh-direct`。
+当前版本为 `0.1.3`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness**；插件标识为 `paseo-dsh-direct`。
 
 ## 本地安装
 

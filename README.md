@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 `paseo-dsh-direct` connects a local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) to [Paseo](https://github.com/getpaseo/paseo) through a Direct Provider.
 
-Version `0.1.2` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-direct`.
+Version `0.1.3` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-direct`.
 
 ## Install locally
 
