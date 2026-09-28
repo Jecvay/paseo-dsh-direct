@@ -19,8 +19,8 @@ Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git
 
 | 插件版本线 | 已实测的 DSH 版本 | 获取方式 |
 |---|---|---|
-| `0.2.x` | `0.2.0-rc.1`（安装方式见下） | 当前版本 |
-| `0.1.x` | `0.1.7-rc.2` | tag `v0.1.3` |
+| `0.2.x` | `0.2.0-rc.1`（安装方式见下） | `npm:paseo-dsh-direct`，或 Git `main` |
+| `0.1.x` | `0.1.7-rc.2` | `npm:paseo-dsh-direct@dsh-0.1`，或 Git 分支 `release/0.1` |
 
 本机同时验证 Paseo `0.9.2`、Node.js `24.13.0`。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
