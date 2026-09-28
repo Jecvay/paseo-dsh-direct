@@ -13,7 +13,7 @@ Status: implemented
 确立基于「实测基线 + 启动期探活 + 宿主 Staging 构建」的三方版本演进管理方案，具体事实落盘于 [docs/compatibility.md](../../../../docs/compatibility.md)：
 
 1. **宿主（Paseo）契约**：在 [paseo-plugin.json](../../../../paseo-plugin.json) 声明 `"requirements": { "paseo": ">=0.8.0" }`。充分利用 Paseo 自身的 Staging 隔离机制，在 `paseo plugin update` 执行期间验证编译与构建完整性，失败时保留运行中的旧版本。
-2. **下游（DSH / TUI）探活**：实测组合记录于兼容性文档，当前为 `@xmoon76/dsh-pi-tui` 0.4.9 与 DSH `0.1.7-rc.2`。启动检查桥接握手及必要运行时接口，不依据包版本字符串硬拒绝未经测试的版本。缺失服务、启动超时或协议不匹配通过 Provider 错误报告。
+2. **下游（DSH / TUI）探活**：实测组合记录于兼容性文档，当前为 `@xmoon76/dsh-pi-tui` 0.4.9 与 DSH `0.1.7-rc.2`。启动检查桥接握手及必要运行时接口，不依据包版本字符串硬拒绝未经测试的版本。（「不依据版本号拒绝启动」这点仍然成立；「是否要用版本号做任何比对」这点已被 [插件版本线跟随 dsh 主次版本号](2026-09-28-version-line-follows-dsh.md) 取代——插件现在会比对 major.minor 线，不一致或未确认时提示警告，但同样不拒绝启动。）缺失服务、启动超时或协议不匹配通过 Provider 错误报告。
 运行时接入和握手的具体机制见 [pi-tui Direct 桥接决策](2026-09-23-pi-tui-direct-bridge.md)。SDK 依赖版本的选取见 [Paseo SDK 0.9 对齐](2026-09-26-paseo-sdk-09-alignment.md)。
 
 3. **版本发布渠道**：维护日常主分支跟踪与 Git Tag 发布机制，允许用户按需固定 `--ref <tag>` 获得稳定体验。

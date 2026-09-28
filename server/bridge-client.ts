@@ -16,6 +16,8 @@ type Notification = keyof BridgeNotifications;
 
 export interface DshBridge {
   readonly initialized: BridgeInitializeResult;
+  /** The resolved `dsh` executable this bridge was launched with (see `PASEO_DSH_EXECUTABLE`). */
+  readonly executable: string;
   request<Name extends Method>(
     method: Name,
     params: BridgeMethods[Name]["params"],
@@ -221,7 +223,7 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
-  const client = new JsonlBridgeClient(child, directory);
+  const client = new JsonlBridgeClient(child, directory, executable);
   try {
     await client.waitUntilReady(options.startupTimeoutMs ?? 15_000);
     client.initialized = await client.request("bridge.initialize", {});
@@ -237,6 +239,7 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
 
 class JsonlBridgeClient implements DshBridge {
   initialized!: BridgeInitializeResult;
+  readonly executable: string;
   private nextId = 1;
   private readonly pending = new Map<string | number, PendingRequest>();
   private readonly notifications = new Map<string, Set<(params: never) => void>>();
@@ -252,7 +255,9 @@ class JsonlBridgeClient implements DshBridge {
   constructor(
     private readonly child: ChildProcessWithoutNullStreams,
     private readonly temporaryDirectory: string,
+    executable: string,
   ) {
+    this.executable = executable;
     this.exited = new Promise((resolve) => {
       this.resolveExited = resolve;
     });

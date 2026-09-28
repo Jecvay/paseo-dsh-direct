@@ -24,10 +24,13 @@ import type {
 } from "../shared/bridge-protocol.js";
 import { slashLine } from "../shared/bridge-protocol.js";
 import type { BridgeMcpServer, DshBridge, SessionLaunch } from "./bridge-client.js";
+import { detectDshVersion } from "./dsh-version.js";
+import { PLUGIN_VERSION } from "./plugin-version.js";
 import { displayText, toPromptParts } from "./prompt-content.js";
 import { TimelineProjector } from "./timeline.js";
 import { classifyTurnEnd, type TurnTerminal } from "./turn-end.js";
 import { objectValue } from "./values.js";
+import { matchVersionLine, versionWarningMessage } from "./version-line.js";
 
 const CAPABILITIES = [
   "prompt.message",
@@ -45,6 +48,8 @@ const PLAN_MODE_SETTING = "planMode";
 
 interface DshProviderOptions {
   createBridge(launch?: SessionLaunch): Promise<DshBridge>;
+  /** Detects the local dsh version for the startup compatibility check; defaults to spawning `<exe> --version`. */
+  detectDshVersion?: (executable: string) => Promise<string>;
 }
 
 /** A prompt or command RPC in flight; it owns any turn DSH starts before the RPC returns. */
@@ -96,6 +101,7 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
         bridge,
         options.createBridge,
         negotiateProviderCapabilities(request.capabilities, supported),
+        options.detectDshVersion ?? detectDshVersion,
       );
     },
   };
@@ -105,6 +111,7 @@ function createConnection(
   discoveryBridge: DshBridge,
   createBridge: DshProviderOptions["createBridge"],
   capabilities: readonly string[],
+  detectVersion: (executable: string) => Promise<string>,
 ): ProviderConnection {
   const listeners = new Set<(event: ProviderEvent) => void>();
   const sessions = new Map<string, SessionState>();
@@ -121,8 +128,8 @@ function createConnection(
       if (closed) throw new Error("Provider connection is closed");
       validateAdmission(input, sessions, capabilities);
       queueMicrotask(() => {
-        void dispatch(input, { discoveryBridge, createBridge, sessions, emit, capabilities }).catch((error) =>
-          failInput(input, error, emit),
+        void dispatch(input, { discoveryBridge, createBridge, sessions, emit, capabilities, detectVersion }).catch(
+          (error) => failInput(input, error, emit),
         );
       });
     },
@@ -272,6 +279,7 @@ interface DispatchState {
   sessions: Map<string, SessionState>;
   emit(event: ProviderEvent): void;
   capabilities: readonly string[];
+  detectVersion: (executable: string) => Promise<string>;
 }
 
 async function dispatch(input: ProviderInput, state: DispatchState): Promise<void> {
@@ -421,7 +429,27 @@ async function openSession(
       for (const projected of session.projector.projectEvent(event)) state.emit(projected);
     }
   }
+  await warnOnDshVersionMismatch(session, state);
   state.emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });
+}
+
+/**
+ * Compares the detected local dsh version against the plugin's own line
+ * (`PLUGIN_VERSION`'s major.minor) and, on a mismatch or an unconfirmed
+ * result, posts a timeline warning and logs the same message to stderr.
+ * Never blocks the session: DSH's own handshake is what can fail startup.
+ */
+async function warnOnDshVersionMismatch(session: SessionState, state: DispatchState): Promise<void> {
+  const dshVersion = await state.detectVersion(session.bridge.executable).catch(() => "");
+  const status = matchVersionLine(PLUGIN_VERSION, dshVersion);
+  if (status === "match") return;
+  const message = versionWarningMessage(status, PLUGIN_VERSION, dshVersion);
+  console.error(`[paseo-dsh-direct] ${message}`);
+  state.emit({
+    type: "timeline.item",
+    sessionId: session.paseoId,
+    item: { type: "notification", id: `dsh-version:${session.paseoId}`, level: "warning", message },
+  });
 }
 
 async function promptSession(
