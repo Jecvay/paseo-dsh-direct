@@ -213,3 +213,9 @@
 - 排障：plugin reload 后 dsh provider 仍拉 0.1.7-rc.2——根因是 paseo 守护（09-26 启动）自身环境 PATH 含旧 dsh 安装 bin 绝对路径且排在 shims 前；`systemctl --user restart paseo` 后新 provider 挂 0.2.0-rc.1。经验：dsh 本体换版本线后必须 restart 守护，reload 插件不够。
 - 验证（真机 0.2.0-rc.1 + v0.2.1）：plugin running；provider 8 模型（CPA-an/rs 各 4）；`paseo run --provider dsh-pi` 真实回合回 pong；存量会话恢复；journal 无版本不匹配警告。09-28 条标注的「daemon 内加载与重启未复测」就此补上。
 - 附带：`~/.dsh/profiles/paseo/cordis.patch.yml` 的 llm-deepseek 条目 name 跟进 dsh 0.2 改名（`@deepseek-ai/dsh-llm-deepseek-api-key`），旧名整条被静默 skip。
+
+## 2026-09-29 — 首次发布到 npm：0.2.1（latest）和 0.1.4（dsh-0.1）
+
+- 发布：`paseo-dsh-direct@0.2.1` 从 tag `v0.2.1` 的干净 clone 发为 `latest`；`paseo-dsh-direct@0.1.4` 从 tag `v0.1.4`（`release/0.1` 上 cherry-pick 了打包改动）发为 `dsh-0.1`。npm 账号 `jecvay` 为此开了 Security Key 两步验证，第一次发布由人在浏览器里确认。
+- 验证：在临时 Paseo daemon（单独的 home、端口和 DSH_HOME，不碰线上）里真实安装两个来源都通过。`npm:paseo-dsh-direct` 配 dsh 0.2.0-rc.1，插件 running 0.2.1，能列出模型；`npm:paseo-dsh-direct@dsh-0.1` 配 dsh 0.1.7-rc.2，插件 running 0.1.4，能列出模型；两次日志都没有版本不一致警告。0.1.4 刚发布后第一次安装报过一次 `ETARGET`（npm 各节点还没同步），重试就好了。
+- 线上插件没有动，仍是 git 源的 v0.2.1（54beac7）。
