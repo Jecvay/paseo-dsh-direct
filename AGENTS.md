@@ -54,32 +54,18 @@ npm run verify:notes
 npm run verify:docs
 ```
 
-**本机上线方式**：Paseo 加载的线上插件目录是 `~/src/paseo-dsh-direct-live`，它是固定在某个发布 tag 上的独立 git worktree。主工作树 `~/src/paseo-dsh-direct` 只做开发，不被 Paseo 加载，在上面切分支、改代码不影响线上。发版上线就是在 live worktree 里换到新 tag 再重载：
+**发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本 = 改 `package.json` 版本号和 `CHANGELOG.md` → 打 tag `vX.Y.Z` 并推送 → 发 npm 包。已安装的用户从 Paseo 里更新插件。
+
+**分支策略**：`main` 跟随当前最新 dsh 线开发（现为 0.2 线）；旧线的修复在 `release/<major.minor>` 分支上发 patch tag（现有 `release/0.1`，已发 `v0.1.4`）。
+
+**发布到 npm**：从 tag 的干净 checkout 发布——`main` 线（当前最新 dsh 线）发布为 `latest`；旧线加 `--tag dsh-<major.minor>`（如 `--tag dsh-0.1`）。发布前用 `npm pack --dry-run` 核对文件列表。npm 账号开了 Security Key 两步验证，`npm publish` 只在真实终端里才会给出网页确认地址，否则直接报 `EOTP`；agent 在后台发布时用 `script` 包一层伪终端，从日志里取出 `https://www.npmjs.com/auth/cli/...` 地址交给人在浏览器确认：
 
 ```bash
-cd ~/src/paseo-dsh-direct-live
-git checkout <新tag>
-npm ci --include=dev
-npm run build
-paseo plugin reload paseo-dsh-direct
-paseo plugin ls
-```
-
-插件 `major.minor` 必须和本机 dsh 的版本线一致（见 `docs/compatibility.md`「版本号规则」），换 dsh 版本线时要同时切 live worktree 的 tag，并按兼容性说明完整重启 Paseo daemon。
-
-**分支策略**：`main` 跟随当前最新 dsh 线开发（现为 0.2 线）；旧线的修复在 `release/<major.minor>` 分支上发 patch tag（现有 `release/0.1`，已发 `v0.1.3`）。
-
-**发布到 npm**：打完 tag 后，从该 tag 的干净 checkout 执行 `npm publish`——`main` 线（当前最新 dsh 线）发布为 `latest`；旧线（如 `release/0.1`）加 `--tag dsh-<major.minor>`（如 `--tag dsh-0.1`）。发布前用 `npm pack --dry-run` 核对压缩包文件列表，确认没有多余文件。
-
-```bash
-git clone https://github.com/Jecvay/paseo-dsh-direct.git /tmp/paseo-dsh-direct-release
+git clone --branch <tag> https://github.com/Jecvay/paseo-dsh-direct.git /tmp/paseo-dsh-direct-release
 cd /tmp/paseo-dsh-direct-release
-git checkout <tag>
-npm ci --include=dev
-npm run build
 npm pack --dry-run
-npm publish                      # main 线，latest
-npm publish --tag dsh-0.1        # release/0.1 等旧线改这一行
+sleep 900 | BROWSER=true script -f -q -c "npm publish --tag latest --auth-type=web" /tmp/npm-publish.log   # 旧线改 --tag dsh-0.1
+grep -o 'https://www.npmjs.com/auth/cli/[a-z0-9-]*' /tmp/npm-publish.log
 ```
 
 ## 给 agent 的约定
