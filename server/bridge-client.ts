@@ -74,10 +74,13 @@ export const DEFAULT_PROFILE = "paseo";
 /** The official DSH profile template the default profile is created from. */
 export const DEFAULT_PROFILE_TEMPLATE = "web";
 /**
- * Rows of the web template that open a browser-facing surface. The bridge is
+ * Rows of the web template that serve a browser-facing surface. The bridge is
  * this profile's surface, so the launcher disables them in every bridge patch.
+ * `api-remotes` forwards `approval/request` and `user-questions/request` to
+ * browser clients ahead of the bridge; with no browser attached those requests
+ * would wait forever, so it is disabled with the rest.
  */
-export const DISABLED_SURFACE_ROWS = ["web-startup", "webserver", "web-runtime", "connection"] as const;
+export const DISABLED_SURFACE_ROWS = ["web-startup", "webserver", "web-runtime", "connection", "api-remotes"] as const;
 
 /** The DSH home, resolved the same way as `@deepseek-ai/dsh-home-paths`. */
 export function resolveDshHome(env: Readonly<Record<string, string | undefined>> = process.env): string {
