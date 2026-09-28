@@ -7,12 +7,12 @@ The validated alpha combination is:
 | Component | Version |
 |---|---|
 | Paseo | `0.9.2` |
-| DeepSeek Harness | `0.1.7-rc.2` |
+| DeepSeek Harness | `0.2.0-rc.1` |
 | Node.js | `24.13.0` |
 
 DSH must already be installed on the host running the Paseo Daemon; no other DSH add-on is needed. This repository does not publish an npm package.
 
-The plugin's `major.minor` tracks the dsh line it supports (this `0.1.x` release works with dsh `0.1.*`); install the tag matching your local dsh version. See [Compatibility](compatibility.md) for the full versioning rule.
+The plugin's `major.minor` tracks the dsh line it supports (this `0.2.x` release works with dsh `0.2.*`); install the tag matching your local dsh version. For dsh `0.1.*`, install tag `v0.1.2`. DSH `0.2.0-rc.1` cannot be installed from npm as published because one browser-side package is missing; [Compatibility](compatibility.md) shows the workaround and the full versioning rule.
 
 ## Install from source
 

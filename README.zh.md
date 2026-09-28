@@ -4,11 +4,11 @@
 
 `paseo-dsh-direct` 通过 Direct Provider，把本机的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）接入 [Paseo](https://github.com/getpaseo/paseo)。
 
-当前版本为 `0.1.2`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness**；插件标识为 `paseo-dsh-direct`。
+当前版本为 `0.2.0`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness**；插件标识为 `paseo-dsh-direct`。
 
 ## 本地安装
 
-当前 alpha 验证组合为 Paseo `0.9.2`、DSH `0.1.7-rc.2`，以及受支持的 Node.js 运行时。运行 Paseo Daemon 的主机需要预先装好 DSH，不需要额外的 DSH 扩展包。
+当前 alpha 验证组合为 Paseo `0.9.2`、DSH `0.2.0-rc.1`，以及受支持的 Node.js 运行时。运行 Paseo Daemon 的主机需要预先装好 DSH，不需要额外的 DSH 扩展包。
 
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-direct.git
@@ -28,11 +28,12 @@ paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 
 ## 版本号
 
-插件版本号的 `major.minor` 跟随它支持的 dsh 线（`0.1.x` 对应 dsh `0.1.*`）；最后一位是插件自己的发布计数，不跟 dsh 走。按本机的 dsh 版本选装对应 tag。
+插件版本号的 `major.minor` 跟随它支持的 dsh 线（`0.2.x` 对应 dsh `0.2.*`）；最后一位是插件自己的发布计数，不跟 dsh 走。按本机的 dsh 版本选装对应 tag。
 
-| 插件版本线 | dsh 版本线 |
-|---|---|
-| `0.1.x` | `0.1.*` |
+| 插件版本线 | dsh 版本线 | 装哪个 |
+|---|---|---|
+| `0.2.x` | `0.2.*` | 当前版本 |
+| `0.1.x` | `0.1.*` | tag `v0.1.2`（`paseo plugin add Jecvay/paseo-dsh-direct --ref v0.1.2`） |
 
 完整规则和已实测的 dsh 版本见[兼容性说明](docs/compatibility.md)。
 
