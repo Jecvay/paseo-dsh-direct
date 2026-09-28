@@ -1,6 +1,6 @@
 # 服务端架构
 
-`paseo-dsh-pi` 注册 Paseo Direct Provider `dsh-pi`，显示为 `DeepSeek Harness`。插件标识为 `paseo-dsh-pi`。服务端入口是 `index.server.ts`；实现位于 `server/`，跨进程契约位于 `shared/`。
+`paseo-dsh-direct` 注册 Paseo Direct Provider `dsh-pi`，显示为 `DeepSeek Harness`。插件标识为 `paseo-dsh-direct`。服务端入口是 `index.server.ts`；实现位于 `server/`，跨进程契约位于 `shared/`。
 
 ## 运行边界
 

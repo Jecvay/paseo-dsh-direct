@@ -7,8 +7,8 @@
  *   3. 有「待开工」且 WIP 空闲 → 起 dsh headless 跑一轮实现循环（45 分钟超时，每轮至多一件）；
  *   4. 失败（超时/非零退出/阶段未推进）→ 计数；同一工单自动重试上限 2 次后移「受阻」。
  *
- * 状态文件：~/.local/state/paseo-dsh-pi/board-state.json（尝试计数）
- * 日志：~/.local/state/paseo-dsh-pi/logs/<ts>-<phase>-<N>.log 与 journald。
+ * 状态文件：~/.local/state/paseo-dsh-direct/board-state.json（尝试计数）
+ * 日志：~/.local/state/paseo-dsh-direct/logs/<ts>-<phase>-<N>.log 与 journald。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -16,11 +16,11 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, openSync, closeSync
 import { resolve } from 'node:path'
 
 const REPO_ROOT = resolve(import.meta.dirname, '..')
-const STATE_DIR = process.env.BOARD_STATE_DIR ?? resolve(process.env.HOME ?? '.', '.local/state/paseo-dsh-pi')
+const STATE_DIR = process.env.BOARD_STATE_DIR ?? resolve(process.env.HOME ?? '.', '.local/state/paseo-dsh-direct')
 const STATE_FILE = resolve(STATE_DIR, 'board-state.json')
 const LOCK_FILE = resolve(STATE_DIR, 'board-poll.lock')
 const LOG_DIR = resolve(STATE_DIR, 'logs')
-const DSH_PATCH = process.env.BOARD_DSH_PATCH ?? resolve(process.env.HOME ?? '.', '.config/paseo-dsh-pi/board-patch.yml')
+const DSH_PATCH = process.env.BOARD_DSH_PATCH ?? resolve(process.env.HOME ?? '.', '.config/paseo-dsh-direct/board-patch.yml')
 const MAX_ATTEMPTS = 2
 const MAX_ANALYSES_PER_RUN = 12
 const ANALYSIS_TIMEOUT_MS = 10 * 60 * 1000
@@ -100,7 +100,7 @@ function runHeadless(phase: 'analysis' | 'work', number: number, prompt: string,
 function markBlocked(number: number, reason: string, attempts: number): void {
   board('move', String(number), '受阻')
   const body = `board-poll：第 ${attempts} 次自动尝试未完成（${reason}）。已移入**受阻**。处置后请拖回对应阶段（评估→待办，实现→待开工）。`
-  const comment = spawnSync('gh', ['issue', 'comment', String(number), '--repo', 'Jecvay/paseo-dsh-pi', '--body', body], { cwd: REPO_ROOT, encoding: 'utf8' })
+  const comment = spawnSync('gh', ['issue', 'comment', String(number), '--repo', 'Jecvay/paseo-dsh-direct', '--body', body], { cwd: REPO_ROOT, encoding: 'utf8' })
   if (comment.status !== 0) console.error(`board-poll: 评论 #${number} 失败：${comment.stderr}`)
 }
 

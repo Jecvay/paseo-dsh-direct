@@ -199,7 +199,7 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
   const executable = options.executable?.trim() || "dsh";
   const env = { ...process.env, ...options.env };
   await ensureDshProfile({ executable, profile, env });
-  const directory = await mkdtemp(path.join(tmpdir(), "paseo-dsh-pi-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "paseo-dsh-direct-"));
   const bridgePath = path.join(directory, "dsh-bridge.mjs");
   const patchPath = path.join(directory, "patch.json");
   await writeFile(bridgePath, options.bridgeSource, { mode: 0o600 });

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本目录收录 paseo-dsh-pi 的使用指南和子系统细节文档。
+本目录收录 paseo-dsh-direct 的使用指南和子系统细节文档。
 
 ## 使用指南
 

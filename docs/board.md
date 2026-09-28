@@ -1,6 +1,6 @@
 # GitHub 看板工单循环（agent 拉单，人拖单）
 
-本项目的工作调度运行在 [GitHub Projects 看板](https://github.com/users/Jecvay/projects/1)（仓库 `Jecvay/paseo-dsh-pi`，Project #1）上：**issue 即工单，看板即状态机，人只做两个动作——把卡拖进「待开工」、在 PR 上 review 合并**，其余由本地轮询器驱动的 dsh headless 会话完成。
+本项目的工作调度运行在 [GitHub Projects 看板](https://github.com/users/Jecvay/projects/1)（仓库 `Jecvay/paseo-dsh-direct`，Project #1）上：**issue 即工单，看板即状态机，人只做两个动作——把卡拖进「待开工」、在 PR 上 review 合并**，其余由本地轮询器驱动的 dsh headless 会话完成。
 
 ## 阶段与字段
 
@@ -48,12 +48,12 @@ npm run board:poll                   # 手动跑一轮轮询器（同 timer 行�
 
 ## 无头运行环境（本机）
 
-- systemd user 单元：`~/.config/systemd/user/paseo-dsh-pi-board.{service,timer}`，timer **每天 09:00 触发一次**（错过开机补跑）；单轮先清完全部待评估（封顶 12 张），再做至多一件实现。
-- dsh headless 的模型路由/权限补丁：`~/.config/paseo-dsh-pi/board-patch.yml`（含私有 baseURL，不进仓）；凭证走 `~/.dsh/.credentials.yaml`（`CPA_API_KEY`），无需环境变量。
-- 轮询器状态与日志：`~/.local/state/paseo-dsh-pi/`（尝试计数、每轮日志）。
+- systemd user 单元：`~/.config/systemd/user/paseo-dsh-direct-board.{service,timer}`，timer **每天 09:00 触发一次**（错过开机补跑）；单轮先清完全部待评估（封顶 12 张），再做至多一件实现。
+- dsh headless 的模型路由/权限补丁：`~/.config/paseo-dsh-direct/board-patch.yml`（含私有 baseURL，不进仓）；凭证走 `~/.dsh/.credentials.yaml`（`CPA_API_KEY`），无需环境变量。
+- 轮询器状态与日志：`~/.local/state/paseo-dsh-direct/`（尝试计数、每轮日志）。
 - 超时：评估 10 分钟、实现 45 分钟；同一工单自动重试上限 2 次，超限移「受阻」等人处置。
 
 ## 已知边界
 
 - WIP=1 只约束无头会话；人在同一工作树上交互开发时，无头实现循环的 `git checkout` 可能与之冲突——避免在轮询器干活时在同一目录做交互改动（看板「进行中」有卡即代表无头会话在干活）。
-- 评估/实现会话消费真实模型 token（CPA-an 路由）；停用轮询：`systemctl --user stop paseo-dsh-pi-board.timer`。
+- 评估/实现会话消费真实模型 token（CPA-an 路由）；停用轮询：`systemctl --user stop paseo-dsh-direct-board.timer`。

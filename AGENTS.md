@@ -1,4 +1,4 @@
-# paseo-dsh-pi — DeepSeek Harness 的 Paseo Provider Plugin
+# paseo-dsh-direct — DeepSeek Harness 的 Paseo Provider Plugin
 
 本项目是为 Paseo（v0.8+）打造的第三方 Provider Plugin，旨在提供对本地 DeepSeek Harness（`dsh`）的原生级直连适配（Direct Provider），使 Paseo 用户（涵盖 iOS、Android、Desktop、Web）能直接驱动本地 DSH 智能体，获得平滑的流式响应、原生思考过程、工具审批与会话生命周期管理体验。
 
@@ -54,7 +54,7 @@ npm run verify:notes
 npm run verify:docs
 
 # 本地 Paseo Daemon 载入测试
-paseo plugin install /home/jecvay/src/paseo-dsh-pi
+paseo plugin install /home/jecvay/src/paseo-dsh-direct
 paseo plugin ls
 ```
 

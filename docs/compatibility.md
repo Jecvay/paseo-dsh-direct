@@ -47,8 +47,8 @@ Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt�
 本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 安装可指定已存在的 tag 或 commit：
 
 ```bash
-paseo plugin add Jecvay/paseo-dsh-pi --ref <tag-or-commit>
-paseo plugin update paseo-dsh-pi
+paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin update paseo-dsh-direct
 ```
 
 发行前执行 [Alpha 验收规范](alpha-acceptance.md)，记录实际验证的版本和能力。版本号采用 prerelease 形式，如 `0.1.0-alpha.1`；依赖探活、单元测试或文档门禁不能替代真实对话验证。
