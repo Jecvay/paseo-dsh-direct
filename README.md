@@ -33,7 +33,7 @@ The plugin's `major.minor` tracks the dsh line it supports (`0.2.x` works with d
 | Plugin line | dsh line | What to install |
 |---|---|---|
 | `0.2.x` | `0.2.*` | this version |
-| `0.1.x` | `0.1.*` | tag `v0.1.2` (`paseo plugin add Jecvay/paseo-dsh-direct --ref v0.1.2`) |
+| `0.1.x` | `0.1.*` | tag `v0.1.3` (`paseo plugin add Jecvay/paseo-dsh-direct --ref v0.1.3`) |
 
 See the [compatibility notes](docs/compatibility.md) for the full rule and the dsh versions actually tested.
 
