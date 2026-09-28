@@ -6,8 +6,28 @@
     "type": "git",
     "url": "git+https://github.com/Jecvay/paseo-dsh-direct.git"
   },
-  "private": true,
+  "license": "MIT",
+  "keywords": [
+    "paseo-plugin",
+    "paseo",
+    "dsh",
+    "deepseek-harness",
+    "provider"
+  ],
   "type": "module",
+  "files": [
+    "index.server.ts",
+    "index.client.tsx",
+    "server",
+    "shared",
+    "scripts/build.mjs",
+    "scripts/install-lefthook.mjs",
+    "paseo-plugin.json",
+    "dsh.svg",
+    "!server/**/*.test.ts",
+    "!server/generated-bridge.ts",
+    "!server/generated-version.ts"
+  ],
   "peerDependencies": {
     "@getpaseo/client": "0.9.2",
     "@getpaseo/protocol": "0.9.2",
