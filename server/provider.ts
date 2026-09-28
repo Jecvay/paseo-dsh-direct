@@ -78,8 +78,8 @@ interface SessionState {
 export function createDshProvider(options: DshProviderOptions): ProviderRegistration {
   return {
     id: "dsh-pi",
-    label: "DeepSeek Harness (pi-tui)",
-    description: "Direct connection to the local DSH pi-tui profile",
+    label: "DeepSeek Harness",
+    description: "Direct connection to the local DeepSeek Harness (dsh)",
     icon: "dsh.svg",
     getCatalogCacheKey: async (options) =>
       options.scope === "workspace" ? `dsh-pi:${options.cwd}` : "dsh-pi:global",
@@ -334,7 +334,7 @@ async function listSessions(
       persistence: persistence(session.id),
       cwd: session.cwd ?? "",
       title: session.title,
-      description: session.agentPreset ? `pi-tui preset: ${session.agentPreset}` : undefined,
+      description: session.agentPreset ? `preset: ${session.agentPreset}` : undefined,
       updatedAt: timestamp(session.createdAt),
     }));
   state.emit({ type: "sessions", requestId: input.requestId, sessions });
@@ -702,7 +702,7 @@ function validateSessionConfig(config: ProviderSessionConfig): void {
     unsupported.push("providerOptions");
   }
   if (unsupported.length > 0) {
-    throw new Error(`DSH pi-tui does not support session config: ${unsupported.join(", ")}`);
+    throw new Error(`DSH does not support session config: ${unsupported.join(", ")}`);
   }
 }
 
@@ -882,7 +882,7 @@ function validateSettings(settings: Readonly<Record<string, unknown>>): void {
     (key) => key !== PERMISSION_PRESET_SETTING && key !== PLAN_MODE_SETTING,
   );
   if (unsupported.length > 0) {
-    throw new Error(`DSH pi-tui does not support session settings: ${unsupported.join(", ")}`);
+    throw new Error(`DSH does not support session settings: ${unsupported.join(", ")}`);
   }
   const value = settings[PERMISSION_PRESET_SETTING];
   if (value !== undefined && typeof value !== "string") {

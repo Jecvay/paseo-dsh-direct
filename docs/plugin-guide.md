@@ -2,7 +2,7 @@
 
 ## 开发环境
 
-使用 Node.js 22.19+ 或 24+、npm、Paseo 0.8.0，以及已安装 `@xmoon76/dsh-pi-tui` 的 DSH profile。具体实测版本与边界见 [兼容性说明](compatibility.md)。
+使用 Node.js 22.19+ 或 24+、npm、Paseo 0.8.0 以上，以及已安装的 DSH。具体实测版本与边界见 [兼容性说明](compatibility.md)。
 
 ```bash
 npm ci
@@ -56,16 +56,16 @@ Git 安装通过 `paseo plugin update paseo-dsh-pi` 更新。安装固定版本�
 
 ## 运行配置
 
-默认启动 `dsh --profile pi-tui`，使用 Daemon 可见的 DSH home 与凭证。可在启动 Daemon 的环境中设置：
+默认启动 `dsh --profile paseo`，使用 Daemon 可见的 DSH home（`$DSH_HOME`，未设置时为 `~/.dsh`）与凭证。`paseo` profile 不存在时，插件先执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它。模型路由、默认模型和权限预设写在该 profile 的 `cordis.patch.yml`。可在启动 Daemon 的环境中设置：
 
 | 环境变量 | 用途 |
 |---|---|
 | `PASEO_DSH_EXECUTABLE` | DSH 可执行文件路径，默认 `dsh` |
-| `PASEO_DSH_PROFILE` | 复用的 profile 名称，默认 `pi-tui` |
+| `PASEO_DSH_PROFILE` | 改用另一个已存在的 profile，默认 `paseo`；这里指定的 profile 缺失时直接报错，不自动创建 |
 
 Paseo 提供的会话环境变量传入该会话的 DSH 子进程。已有历史恢复优先保留原生模型、preset、思考和权限配置；恢复后可通过 Paseo 的会话配置主动调整。
 
-`npm run smoke:bridge` 构建桥接并验证真实 profile 的目录、历史读取和关闭，不调用模型。`npm run smoke:bridge -- --prompt` 额外创建测试会话、调用模型并恢复历史，会产生模型用量。
+`npm run smoke:bridge` 构建桥接并验证真实 profile 的目录、历史读取和关闭，不调用模型；`paseo` profile 不存在时会先创建它。`npm run smoke:bridge -- --prompt` 额外创建测试会话、调用模型并恢复历史，会产生模型用量。
 
 ## 测试数据
 
@@ -80,4 +80,3 @@ DSH 会话写锁由原生运行时拥有。不要删除 `.lock` 文件来强行�
 - [Paseo Provider 开发指南](https://paseo.sh/docs/plugins/providers)
 - [Paseo Direct Provider 示例](https://github.com/getpaseo/paseo/tree/main/plugin-examples/provider-direct)
 - [DSH 0.1.7-rc.1 源码](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.7-rc.1)
-- [dsh-pi-tui](https://github.com/XMoon/dsh-pi-tui)

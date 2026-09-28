@@ -157,7 +157,6 @@ export interface HostServices {
     >;
   };
   userQuestions: object | undefined;
-  tuiStartup: { markSurfaceMounted?(): void } | undefined;
   appReady: { onReady(listener: () => void): () => void } | undefined;
   appExit: ((code: number) => void) | undefined;
 }

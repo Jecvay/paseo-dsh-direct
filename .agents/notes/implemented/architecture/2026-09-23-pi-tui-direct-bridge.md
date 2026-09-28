@@ -11,7 +11,7 @@ Status: implemented
 ## 决定
 
 1. 保持 Paseo Direct Provider，插件 id 为 `paseo-dsh-pi`，Provider id 为 `dsh-pi`，与已有 Provider 并存。
-2. 插件携带独立编译的 DSH Cordis bridge。用本次启动的 `--patch` 将 bridge 注入既有 `pi-tui` profile，禁用 `tui-app`；会话级的 MCP server 与不持久化会话的存储根目录也经同一 patch 设置。保留 `tui-startup`、扩展宿主和内建扩展注册。不修改用户持久配置。
+2. (本条的 profile 部分已被 [去除 pi-tui 依赖](../process/2026-09-26-drop-pi-tui-dependency.md) 取代:插件改用自己的 `paseo` profile,不再注入 pi-tui、不再有 `tui-startup` 握手;桥接形态本身不变。)插件携带独立编译的 DSH Cordis bridge。用本次启动的 `--patch` 将 bridge 注入既有 `pi-tui` profile，禁用 `tui-app`；会话级的 MCP server 与不持久化会话的存储根目录也经同一 patch 设置。保留 `tui-startup`、扩展宿主和内建扩展注册。不修改用户持久配置。
 3. bridge 通过官方 `ctx` 服务访问模型、presets、持久会话查询、agent 恢复、实时流、审批与用户问答。DSH 原生持久化和写租约拥有数据一致性，插件不直接重写 session 文件。
 4. Paseo 子进程与 DSH bridge 使用 JSONL JSON-RPC 2.0，握手携带 `protocolVersion: 1`。协议包含 catalog、历史读取、open/prompt/cancel/close、交互回复和 shutdown；持久事件与实时 stream 使用独立通知。
 5. bridge 源码位于 `server/dsh/`，构建资源位于 `dist/`；构建同时将 bridge 作为字符串嵌入服务端生成模块，运行时写入专用临时目录。Paseo 的服务端 bundle 通过求值加载，SDK 不暴露插件资源目录，因此不依赖 `cwd` 或 `import.meta.url` 寻找资源。桥接从已安装的 DSH 解析官方模型选择 helper，避免复制其 scoped listener 语义；Paseo 侧不导入 DSH 运行时包，也不另外安装 DSH npm 依赖。TypeScript 和 esbuild 作为开发/构建依赖。
