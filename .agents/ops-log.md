@@ -183,3 +183,10 @@
 - 实测（真实 provider 路径，模型 CPA-an/bm-an-glm）：`npm run smoke:bridge -- --prompt` 通过，DSH 子进程无 TCP 监听、无浏览器进程；含 bash 工具调用的回合完成且无版本警告；用 0.1.7-rc.2 可执行文件开会话出现版本警告、回合照常完成；审批允许/拒绝、问答应答/拒答、斜杠目录含 `/compact` `/plan`、会话恢复均通过。
 - 发现：`paseo` profile 下审批和问答请求被 web 模板的 `api-remotes` 行截走，回合一直等待，0.1.7-rc.2 同样复现，线上 `v0.1.2` 带着这个问题。0.2.0 在禁用清单里加了 `api-remotes`，复盘见 `.agents/notes/implemented/bug-fix/2026-09-28-postmortem-api-remotes-swallows-approvals.md`。
 - 线上 Paseo 插件未 reload，仍是 `~/src/paseo-dsh-direct-live` 的 `v0.1.2`。
+
+## 2026-09-28 — v0.1.3 发布上线（0.1 线补 api-remotes 修复）
+
+- 原因：0.2.0（适配 dsh 0.2.0-rc.1）已合并进 main，但本机 dsh 仍是 0.1.7-rc.2，线上 live worktree 钉在 0.1 线；0.2.0 里修复的 web 模板 `api-remotes` 行吞掉审批和问答请求、回合一直等待的 bug，需要单独回补到 0.1 线。
+- 操作：从 `v0.1.2` 拉出分支 `release/0.1`，cherry-pick 该修复，版本号改为 0.1.3，打 tag `v0.1.3` 并推送；dsh 0.1.7-rc.2（隔离 `DSH_HOME`）实测审批允许/拒绝、问答应答/拒答四项通过。
+- 上线：`~/src/paseo-dsh-direct-live` checkout `v0.1.3`，`npm ci` + `npm run build` 后 `paseo plugin reload paseo-dsh-direct`；插件 running，`paseo provider models dsh-pi` 10 个模型正常，真实会话正常回复且无版本警告。
+- 现状：main 已进 0.2 线（0.2.0 适配 dsh 0.2.0-rc.1，用 overrides 顶替上游漏发的 `@deepseek-ai/dsh-client-ui-settings-account`，待上游补发后复测）；线上仍是 0.1 线的 `v0.1.3`，等本机切 dsh 0.2 时再切 live worktree 的 tag。
