@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Fixed: 0.1.1 failed to load in Paseo because a server module imported `package.json`, which lies outside `client/`, `server/` and `shared/`. The plugin version is now generated into `server/generated-version.ts` by `npm run build`. Do not install the `v0.1.1` tag.
+- Added a test that fails when a plugin module imports a file outside those three directories.
+
 ## 0.1.1
 
 - Dropped the `@xmoon76/dsh-pi-tui` dependency; the plugin now runs its own `paseo` DSH profile instead of injecting into a pi-tui profile.
