@@ -6,27 +6,25 @@
 
 ## 安装
 
-前提：运行 Paseo Daemon 的机器上装好 `dsh` 并在 `PATH` 里，版本 `major.minor` 与下表匹配。
+运行 Paseo daemon 的机器上要装好 `dsh`，它的 `major.minor` 要和你装的插件线一致。
 
-在 Paseo 里：**Settings → Plugins → Install Plugin**，粘贴下面任意一种来源——npm 和 Git 是同一个插件的两条等价路径：
+在 Paseo 里打开 **Settings → Plugins → Install Plugin**，npm 和 Git 两种来源任填一个：
 
-| dsh 版本线 | npm 来源 | Git 来源 |
+| 你的 dsh | npm | Git |
 |---|---|---|
 | `0.2.x` | `npm:paseo-dsh-direct` | `https://github.com/Jecvay/paseo-dsh-direct` |
-| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | 见下方说明 |
+| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | 只能用命令行：`paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1` |
 
-Install Plugin 输入框没有 ref/分支字段，所以 Git 来源总是装 `main` 分支（当前 `0.2.x` 线）。要从 Git 装 `0.1` 线，改用命令行：`paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref v0.1.3`。
+更多：[兼容性说明](docs/compatibility.md) · [命令行安装、本地目录安装、环境变量](docs/plugin-guide.md)
 
-完整版本号规则见[兼容性说明](docs/compatibility.md)；命令行安装、开发用的本地目录安装、环境变量见[安装与使用](docs/plugin-guide.md)。
+## 为什么叫 Direct
 
-## 为什么是 Direct
+其他 dsh 接入大多走 ACP，那是一套所有 agent 都能用的通用协议。本插件不走 ACP，直接原生对接 dsh，dsh 的各种行为都能按 Paseo 自己的方式呈现：
 
-插件是 Paseo 的 **Direct Provider**，不经通用 ACP 适配层——它直接对接 dsh 自己的内部事件总线和 RPC 服务（`server/dsh/bridge.ts`，一个按行分帧的 JSON-RPC 2.0 桥接，细节见[服务端架构](docs/server-architecture.md)）。这带来：
-
-- 正文和思考的流式输出用稳定 item id 和累计快照传给 Paseo，由 Paseo 自己切出增量，不经通用适配层预先拆好的 token 碎片。
-- 工具审批和用户问答以原生 Paseo 交互卡片呈现，直接走 dsh 自己的审批与问答服务。
-- 已有的原生 dsh 会话通过 Paseo 的 **Import session** 导入和恢复，保留真实的 dsh 会话 id 和历史。
-- dsh 自己的斜杠命令和技能（`/compact`、`/plan` 等）直接出现在 Paseo 的 `/` 目录里，实时读自正在运行的 dsh profile。
+- 回复和思考过程流畅地流式输出，不会被切成一段一段。
+- 工具审批和 dsh 向你提的问题，显示成 Paseo 自带的审批卡片和问答卡片。
+- 已有的 dsh 会话可以导入 Paseo 接着用。
+- dsh 的斜杠命令（`/compact`、`/plan` 等）出现在 Paseo 的 `/` 菜单里。
 
 ## 版本号
 

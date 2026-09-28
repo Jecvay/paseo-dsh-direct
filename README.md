@@ -6,27 +6,25 @@ English | [中文](README.zh.md)
 
 ## Install
 
-Prerequisite: `dsh` is installed and on the `PATH` of the machine running the Paseo Daemon, with a `major.minor` matching the line below.
+You need `dsh` on the machine that runs the Paseo daemon, with the same `major.minor` as the plugin line you install.
 
-In Paseo: **Settings → Plugins → Install Plugin**, paste one of these sources — npm and Git are two equivalent ways to get the same plugin:
+In Paseo, open **Settings → Plugins → Install Plugin** and paste either the npm or the Git source:
 
-| dsh line | npm source | Git source |
+| Your dsh | npm | Git |
 |---|---|---|
 | `0.2.x` | `npm:paseo-dsh-direct` | `https://github.com/Jecvay/paseo-dsh-direct` |
-| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | see note below |
+| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | CLI only: `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1` |
 
-The Install Plugin field has no ref/branch input, so a Git source always installs the `main` branch (the current, `0.2.x` line). To install the `0.1` line from Git, use the CLI instead: `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref v0.1.3`.
+More: [compatibility](docs/en/compatibility.md) · [CLI and local install, environment variables](docs/en/installation.md)
 
-See [Compatibility](docs/en/compatibility.md) for the full version-matching rule, and [Install and use](docs/en/installation.md) for CLI install, local directory install for development, and environment variables.
+## Why "Direct"
 
-## Why Direct
+Most dsh integrations go through ACP, a generic protocol that every agent can speak. This plugin skips it and talks to dsh natively, so what dsh does shows up in Paseo the way Paseo expects:
 
-The plugin is a Paseo **Direct Provider**, not a generic ACP adapter — it talks to dsh's own internal event bus and RPC services (`server/dsh/bridge.ts`, a line-delimited JSON-RPC 2.0 bridge, see [server architecture](docs/server-architecture.md)). That buys:
-
-- Streamed assistant and reasoning text carries stable item ids and cumulative snapshots, so Paseo slices the increments itself instead of reassembling pre-chopped generic chunks.
-- Tool approvals and user questions arrive as native Paseo interaction cards, routed through dsh's own approval and question services.
-- Existing native dsh sessions import and resume through Paseo's **Import session** flow, keeping their real dsh session id and history.
-- dsh's own slash commands and skills (`/compact`, `/plan`, and others) show up directly in Paseo's `/` menu, read live from the running dsh profile.
+- Replies and thinking stream smoothly instead of arriving in chopped pieces.
+- Tool approvals and dsh's questions to you appear as Paseo's own approval and question cards.
+- Your existing dsh sessions can be imported and resumed in Paseo.
+- dsh's slash commands (`/compact`, `/plan`, ...) appear in Paseo's `/` menu.
 
 ## Versioning
 
