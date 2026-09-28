@@ -1,18 +1,18 @@
-# paseo-dsh-pi
+# paseo-dsh-direct
 
 [English](README.md) | 中文
 
-`paseo-dsh-pi` 通过 Direct Provider，把本机的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）接入 [Paseo](https://github.com/getpaseo/paseo)。
+`paseo-dsh-direct` 通过 Direct Provider，把本机的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）接入 [Paseo](https://github.com/getpaseo/paseo)。
 
-当前版本为 `0.1.0-alpha.1`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness**；插件标识为 `paseo-dsh-pi`。
+当前版本为 `0.1.0-alpha.1`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness**；插件标识为 `paseo-dsh-direct`。
 
 ## 本地安装
 
 当前 alpha 验证组合为 Paseo `0.9.2`、DSH `0.1.7-rc.2`，以及受支持的 Node.js 运行时。运行 Paseo Daemon 的主机需要预先装好 DSH，不需要额外的 DSH 扩展包。
 
 ```bash
-git clone https://github.com/Jecvay/paseo-dsh-pi.git
-cd paseo-dsh-pi
+git clone https://github.com/Jecvay/paseo-dsh-direct.git
+cd paseo-dsh-direct
 npm ci
 npm run build
 paseo plugin install "$PWD"
@@ -20,10 +20,10 @@ paseo plugin ls
 paseo provider models dsh-pi
 ```
 
-构建后也可以直接安装本地源码：`paseo plugin install /absolute/path/to/paseo-dsh-pi`。从 Git 安装已有远端 ref：
+构建后也可以直接安装本地源码：`paseo plugin install /absolute/path/to/paseo-dsh-direct`。从 Git 安装已有远端 ref：
 
 ```bash
-paseo plugin add Jecvay/paseo-dsh-pi --ref <tag-or-commit>
+paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
 
 ## 使用

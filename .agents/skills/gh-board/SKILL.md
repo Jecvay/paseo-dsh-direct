@@ -1,6 +1,6 @@
 # gh-board 工单循环 — agent 操作规约
 
-本 skill 定义 agent 参与 GitHub Projects 看板（[paseo-dsh-pi 项目看板](https://github.com/users/Jecvay/projects/1)）的完整循环。看板即状态机，脚本面是 `npm run board`（`scripts/board.ts`），字段是「阶段」与「优先级」。
+本 skill 定义 agent 参与 GitHub Projects 看板（[paseo-dsh-direct 项目看板](https://github.com/users/Jecvay/projects/1)）的完整循环。看板即状态机，脚本面是 `npm run board`（`scripts/board.ts`），字段是「阶段」与「优先级」。
 
 ## 不变量（先读）
 
@@ -51,7 +51,7 @@ issue 关闭（PR 合并）→ 下一次 `sync` 自动归档，即「完成」�
 输入：`待办` 列的一张卡。
 
 1. `npm run board sync`，然后 `npm run board pick --for analysis`，取队首。
-2. 读工单正文（`gh issue view <N> --repo Jecvay/paseo-dsh-pi`）、看板全量（`npm run board status`）、相关 `.agents/notes/` 与 `docs/`。
+2. 读工单正文（`gh issue view <N> --repo Jecvay/paseo-dsh-direct`）、看板全量（`npm run board status`）、相关 `.agents/notes/` 与 `docs/`。
 3. 只做判断，在工单下评论（`gh issue comment`），固定结构：
 
    ```markdown
@@ -87,7 +87,7 @@ issue 关闭（PR 合并）→ 下一次 `sync` 自动归档，即「完成」�
 1. `sync`；
 2. 逐张清「待办」评估（每张独立 10 分钟超时，单轮封顶 12 张）；
 3. 有 `待开工` 且 WIP 空闲 → 起**实现循环**（45 分钟超时，每轮至多一件）；
-4. 超时/失败 → 计数；同一工单自动重试上限 2 次（状态文件 `~/.local/state/paseo-dsh-pi/board-state.json`）。
+4. 超时/失败 → 计数；同一工单自动重试上限 2 次（状态文件 `~/.local/state/paseo-dsh-direct/board-state.json`）。
 
 无头会话的提示词只需：`读 .agents/skills/gh-board/SKILL.md，执行评估循环/实现循环，工单 #N`。
 

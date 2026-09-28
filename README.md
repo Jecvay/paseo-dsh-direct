@@ -1,18 +1,18 @@
-# paseo-dsh-pi
+# paseo-dsh-direct
 
 English | [中文](README.zh.md)
 
-`paseo-dsh-pi` connects a local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) to [Paseo](https://github.com/getpaseo/paseo) through a Direct Provider.
+`paseo-dsh-direct` connects a local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) to [Paseo](https://github.com/getpaseo/paseo) through a Direct Provider.
 
-Version `0.1.0-alpha.1` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-pi`.
+Version `0.1.0-alpha.1` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-direct`.
 
 ## Install locally
 
 The validated alpha combination is Paseo `0.9.2`, DSH `0.1.7-rc.2`, and a supported Node.js runtime. DSH must already be installed on the Paseo Daemon host; no other DSH add-on is needed.
 
 ```bash
-git clone https://github.com/Jecvay/paseo-dsh-pi.git
-cd paseo-dsh-pi
+git clone https://github.com/Jecvay/paseo-dsh-direct.git
+cd paseo-dsh-direct
 npm ci
 npm run build
 paseo plugin install "$PWD"
@@ -20,10 +20,10 @@ paseo plugin ls
 paseo provider models dsh-pi
 ```
 
-The same local source can be installed directly with `paseo plugin install /absolute/path/to/paseo-dsh-pi` after building. Git installation is available for an existing remote ref:
+The same local source can be installed directly with `paseo plugin install /absolute/path/to/paseo-dsh-direct` after building. Git installation is available for an existing remote ref:
 
 ```bash
-paseo plugin add Jecvay/paseo-dsh-pi --ref <tag-or-commit>
+paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
 
 ## Use

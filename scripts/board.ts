@@ -1,5 +1,5 @@
 /**
- * GitHub Projects 看板操作台 — paseo-dsh-pi 工单循环的脚本面。
+ * GitHub Projects 看板操作台 — paseo-dsh-direct 工单循环的脚本面。
  *
  * 状态机权威在「阶段」单选字段：待办 → 已评估 → 待开工 → 进行中 → 待审 / 受阻；
  * issue 关闭即归档（合并即完成）。人只在看板上拖「待开工」（开工令）。
@@ -20,7 +20,7 @@ import { spawnSync } from 'node:child_process'
 const STAGES = ['待办', '已评估', '待开工', '进行中', '待审', '受阻'] as const
 type Stage = (typeof STAGES)[number]
 
-const REPO = process.env.BOARD_REPO ?? 'Jecvay/paseo-dsh-pi'
+const REPO = process.env.BOARD_REPO ?? 'Jecvay/paseo-dsh-direct'
 const PROJECT_OWNER = process.env.BOARD_OWNER ?? 'Jecvay'
 const PROJECT_NUMBER = Number(process.env.BOARD_PROJECT ?? 1)
 const STAGE_FIELD = '阶段'
