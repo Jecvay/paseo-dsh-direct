@@ -52,11 +52,20 @@ npm install
 # 门禁与类型检查
 npm run verify:notes
 npm run verify:docs
+```
 
-# 本地 Paseo Daemon 载入测试
-paseo plugin install /home/jecvay/src/paseo-dsh-direct
+**本机上线方式**：Paseo 加载的线上插件目录是 `~/src/paseo-dsh-direct-live`，它是固定在某个发布 tag 上的独立 git worktree。主工作树 `~/src/paseo-dsh-direct` 只做开发，不被 Paseo 加载，在上面切分支、改代码不影响线上。发版上线就是在 live worktree 里换到新 tag 再重载：
+
+```bash
+cd ~/src/paseo-dsh-direct-live
+git checkout <新tag>
+npm ci --include=dev
+npm run build
+paseo plugin reload paseo-dsh-direct
 paseo plugin ls
 ```
+
+插件 `major.minor` 必须和本机 dsh 的版本线一致（见 `docs/compatibility.md`「版本号规则」），换 dsh 版本线时要同时切 live worktree 的 tag，并按兼容性说明完整重启 Paseo daemon。
 
 ## 给 agent 的约定
 

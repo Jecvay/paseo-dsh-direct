@@ -174,3 +174,12 @@
 - 原因：主工作树要合并 dsh 0.2 适配（插件 0.2 线），而本机 dsh 仍是 0.1.7-rc.2，线上必须钉在 0.1 线的发布 tag 上，不能再跟主工作树的 HEAD 走。
 - 操作：新建 `~/src/paseo-dsh-direct-live`，是本仓的独立 git worktree，detached 在发布 tag `v0.1.2`；里面 `npm ci --include=dev` + `npm run build` 后，备份 `~/.paseo/config.json.bak-20260928-pre-live-worktree`，`paseo plugin remove paseo-dsh-direct` 再 `paseo plugin install /home/jecvay/src/paseo-dsh-direct-live`。结果：插件 running，`paseo provider models dsh-pi` 10 个模型正常。
 - 以后上线新版本：在 `~/src/paseo-dsh-direct-live` checkout 新 tag → `npm ci --include=dev` → `npm run build` → `paseo plugin reload paseo-dsh-direct`。
+
+## 2026-09-28 — dsh 0.2.0-rc.1 适配实测（插件 0.2.0，未上线）
+
+- 安装：dsh 0.2.0-rc.1 装在 `~/.local/opt/dsh-0.2.0-rc.1/`（独立 package.json，`overrides` 把漏发的 `@deepseek-ai/dsh-client-ui-settings-account` 顶成 0.1.7-rc.2），`npm install` 546 包，`dsh --version` 输出 `0.2.0-rc.1`。未改 mise 全局、未 `npm -g`。
+- 隔离：所有 0.2 实验带 `DSH_HOME=~/.local/share/dsh-0.2-test`；该目录下用插件同款命令建 `paseo` profile，用户层 `cordis.patch.yml` 从 `~/.dsh/profiles/paseo` 复制，凭证复制为 0600。开工前后 `~/.dsh/profiles/{pi-tui,paseo}/cordis.patch.yml` sha256 不变，`~/.dsh/sessions` 下没有测试期间新建的文件。
+- 组合树：0.2 与 0.1.7-rc.2 的 web 模板 dump 相比，只多了 `otel`、`desktop-product-telemetry`、`product-analytics`、`ui-settings-session-log`，少了 `time-context`、`schedule`、`ui-schedule`（后三行在 0.1 里本就禁用）；禁用的浏览器行和四个 preset 行 id 不变。
+- 实测（真实 provider 路径，模型 CPA-an/bm-an-glm）：`npm run smoke:bridge -- --prompt` 通过，DSH 子进程无 TCP 监听、无浏览器进程；含 bash 工具调用的回合完成且无版本警告；用 0.1.7-rc.2 可执行文件开会话出现版本警告、回合照常完成；审批允许/拒绝、问答应答/拒答、斜杠目录含 `/compact` `/plan`、会话恢复均通过。
+- 发现：`paseo` profile 下审批和问答请求被 web 模板的 `api-remotes` 行截走，回合一直等待，0.1.7-rc.2 同样复现，线上 `v0.1.2` 带着这个问题。0.2.0 在禁用清单里加了 `api-remotes`，复盘见 `.agents/notes/implemented/bug-fix/2026-09-28-postmortem-api-remotes-swallows-approvals.md`。
+- 线上 Paseo 插件未 reload，仍是 `~/src/paseo-dsh-direct-live` 的 `v0.1.2`。
