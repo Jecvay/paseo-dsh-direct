@@ -109,7 +109,7 @@ export class BridgeService {
   constructor(
     private readonly ctx: HostContext,
     private readonly notify: Notify,
-    private readonly profile = "pi-tui",
+    private readonly profile = "paseo",
     private readonly helpers?: HostHelpers,
   ) {
     this.subscriptions.push(
@@ -708,7 +708,7 @@ export class BridgeService {
     if (!permission.names.includes(preset))
       throw new Error("Unknown permission preset");
 
-    // Follow the same official live command as pi-tui. It writes session-owned
+    // Use the official live /permission command, as DSH's own surfaces do. It writes session-owned
     // permission/sandbox/approval events and queues the policy-change notice;
     // the settings namespace and future-session default remain untouched.
     const execution = await commands.execute(

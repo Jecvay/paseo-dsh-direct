@@ -8,7 +8,7 @@ import { createDshProvider } from "./provider.js";
 class FakeBridge implements DshBridge {
   readonly initialized: BridgeInitializeResult = {
     protocolVersion: 1,
-    profile: "pi-tui",
+    profile: "paseo",
     capabilities: { stream: true, approvals: true, questions: true, history: true, cancel: true },
     catalog: {
       models: [{ id: "deepseek/chat", provider: "deepseek", model: "chat", name: "DeepSeek Chat", providerName: "DeepSeek" }],

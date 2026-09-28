@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-`paseo-dsh-pi` 通过 Direct Provider，将现有 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 `pi-tui` profile 接入 [Paseo](https://github.com/getpaseo/paseo)。
+`paseo-dsh-pi` 通过 Direct Provider，把本机的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）接入 [Paseo](https://github.com/getpaseo/paseo)。
 
-当前版本为 `0.1.0-alpha.1`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness (pi-tui)**；插件标识为 `paseo-dsh-pi`。
+当前版本为 `0.1.0-alpha.1`。插件注册 Provider `dsh-pi`，在 Paseo 中显示为 **DeepSeek Harness**；插件标识为 `paseo-dsh-pi`。
 
 ## 本地安装
 
-当前 alpha 验证组合为 Paseo `0.8.0`、DSH `0.1.7-rc.1`、`@xmoon76/dsh-pi-tui` `0.4.8`，以及受支持的 Node.js 运行时。运行 Paseo Daemon 的主机需要预先安装并配置 DSH 与 `pi-tui` profile。
+当前 alpha 验证组合为 Paseo `0.9.2`、DSH `0.1.7-rc.2`，以及受支持的 Node.js 运行时。运行 Paseo Daemon 的主机需要预先装好 DSH，不需要额外的 DSH 扩展包。
 
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-pi.git
@@ -28,13 +28,13 @@ paseo plugin add Jecvay/paseo-dsh-pi --ref <tag-or-commit>
 
 ## 使用
 
-新建对话时选择 **DeepSeek Harness (pi-tui)**。模型和 preset 来自已配置的 DSH profile。已有原生 DSH 会话可通过 Paseo 的 **Import session** 导入，并保留原生会话标识。
+新建对话时选择 **DeepSeek Harness**。模型和 preset 来自已配置的 DSH profile。已有原生 DSH 会话可通过 Paseo 的 **Import session** 导入，并保留原生会话标识。
 
-Provider 支持连续正文和思考输出、工具执行与审批、用户问答、模型和 preset 配置、中断及会话恢复。它使用 `pi-tui` profile 启动 DSH，不改写用户持久化 profile，也不修改 Paseo 或 DSH 核心。
+Provider 支持连续正文和思考输出、工具执行与审批、用户问答、模型和 preset 配置、中断及会话恢复。它用插件专用的 `paseo` profile 启动 DSH，不修改 Paseo 或 DSH 核心。
 
-默认 profile 为 `pi-tui`。可通过 `PASEO_DSH_EXECUTABLE` 指定其他 `dsh` 可执行文件，通过 `PASEO_DSH_PROFILE` 选择其他 profile。如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
+插件使用名为 `paseo` 的 DSH profile。首次启动时，插件用 DSH 官方的 `web` 模板自动创建它（位置是 `~/.dsh/profiles/paseo`；设置了 `$DSH_HOME` 时在其下）。模型路由、默认模型和权限预设写在 `~/.dsh/profiles/paseo/cordis.patch.yml`。可通过 `PASEO_DSH_EXECUTABLE` 指定其他 `dsh` 可执行文件，通过 `PASEO_DSH_PROFILE` 改用另一个已存在的 profile；这样指定的 profile 不会被自动创建。如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
 
-如果原生会话仍被终端 TUI 占用，请先在那里释放，再从 Paseo 导入或恢复。
+如果原生会话仍被另一个 DSH 客户端（如终端界面）占用，请先在那里释放，再从 Paseo 导入或恢复。
 
 ## 开发
 

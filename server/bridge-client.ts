@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type {
@@ -67,35 +67,157 @@ interface PendingRequest {
 
 const MAX_STDERR = 16_384;
 
+/** The profile the plugin launches unless `PASEO_DSH_PROFILE` names another one. */
+export const DEFAULT_PROFILE = "paseo";
+/** The official DSH profile template the default profile is created from. */
+export const DEFAULT_PROFILE_TEMPLATE = "web";
+/**
+ * Rows of the web template that open a browser-facing surface. The bridge is
+ * this profile's surface, so the launcher disables them in every bridge patch.
+ */
+export const DISABLED_SURFACE_ROWS = ["web-startup", "webserver", "web-runtime", "connection"] as const;
+
+/** The DSH home, resolved the same way as `@deepseek-ai/dsh-home-paths`. */
+export function resolveDshHome(env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const configured = env.DSH_HOME;
+  const home = configured !== undefined && configured.trim().length > 0 ? configured : path.join(homedir(), ".dsh");
+  if (home === "~") return homedir();
+  if (home.startsWith("~/") || home.startsWith("~\\")) return path.resolve(homedir(), home.slice(2));
+  return path.resolve(home);
+}
+
+/** The bridge patch: surface rows disabled, session overrides, then the bridge itself. */
+export function createBridgePatch(options: {
+  profile: string;
+  bridgePath: string;
+  sessionsRoot?: string;
+  mcpServers?: readonly BridgeMcpServer[];
+}): unknown[] {
+  return [
+    ...DISABLED_SURFACE_ROWS.map((id) => ({ id, disabled: true })),
+    ...(options.sessionsRoot
+      ? [{ id: "session-persistence-jsonl", config: { root: options.sessionsRoot } }]
+      : []),
+    {
+      insert: [
+        ...(options.mcpServers ?? []).map((server) => ({
+          id: `paseo-mcp-${server.serverName}`,
+          name: "@deepseek-ai/dsh-mcp-client",
+          config: server,
+        })),
+        { id: "paseo-dsh-bridge", name: options.bridgePath, config: { profile: options.profile } },
+      ],
+    },
+  ];
+}
+
+/**
+ * Make sure the profile directory exists before DSH is started with it. The
+ * default profile is created once from the official web template; a missing
+ * profile chosen through `PASEO_DSH_PROFILE` is reported instead.
+ */
+export async function ensureDshProfile(options: {
+  executable: string;
+  profile: string;
+  env: Readonly<Record<string, string | undefined>>;
+  timeoutMs?: number;
+}): Promise<void> {
+  const directory = path.join(resolveDshHome(options.env), "profiles", options.profile);
+  if (await isDirectory(directory)) return;
+  if (options.profile !== DEFAULT_PROFILE) {
+    throw new Error(
+      `DSH profile "${options.profile}" does not exist at ${directory}. ` +
+        `Create it with \`dsh --profile ${options.profile} --from-default-profile ${DEFAULT_PROFILE_TEMPLATE} --dump-config\`, ` +
+        `or unset PASEO_DSH_PROFILE to use the "${DEFAULT_PROFILE}" profile.`,
+    );
+  }
+  // Concurrent first launches share one creation run.
+  let creation = profileCreations.get(directory);
+  if (!creation) {
+    creation = runProfileInit(options.executable, options.profile, options.env, options.timeoutMs ?? 60_000).finally(
+      () => profileCreations.delete(directory),
+    );
+    profileCreations.set(directory, creation);
+  }
+  await creation;
+  if (!(await isDirectory(directory))) {
+    throw new Error(`DSH did not create the "${options.profile}" profile at ${directory}`);
+  }
+}
+
+const profileCreations = new Map<string, Promise<void>>();
+
+async function isDirectory(directory: string): Promise<boolean> {
+  try {
+    return (await stat(directory)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function runProfileInit(
+  executable: string,
+  profile: string,
+  env: Readonly<Record<string, string | undefined>>,
+  timeoutMs: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      executable,
+      ["--profile", profile, "--from-default-profile", DEFAULT_PROFILE_TEMPLATE, "--dump-config"],
+      { env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
+    );
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr = (stderr + chunk).slice(-MAX_STDERR);
+    });
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`Creating the DSH "${profile}" profile timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve();
+      else
+        reject(
+          new Error(
+            `Creating the DSH "${profile}" profile failed ${signal ? `from ${signal}` : `with code ${String(code)}`}` +
+              (stderr.trim() ? `: ${stderr.trim()}` : ""),
+          ),
+        );
+    });
+  });
+}
+
 export async function launchDshBridge(options: LaunchBridgeOptions): Promise<DshBridge> {
+  const profile = options.profile?.trim() || DEFAULT_PROFILE;
+  const executable = options.executable?.trim() || "dsh";
+  const env = { ...process.env, ...options.env };
+  await ensureDshProfile({ executable, profile, env });
   const directory = await mkdtemp(path.join(tmpdir(), "paseo-dsh-pi-"));
   const bridgePath = path.join(directory, "dsh-bridge.mjs");
   const patchPath = path.join(directory, "patch.json");
-  const profile = options.profile?.trim() || "pi-tui";
   await writeFile(bridgePath, options.bridgeSource, { mode: 0o600 });
   await writeFile(
     patchPath,
-    JSON.stringify([
-      { id: "tui-app", disabled: true },
-      ...(options.ephemeral
-        ? [{ id: "session-persistence-jsonl", config: { root: path.join(directory, "sessions") } }]
-        : []),
-      {
-        insert: [
-          ...(options.mcpServers ?? []).map((server) => ({
-            id: `paseo-mcp-${server.serverName}`,
-            name: "@deepseek-ai/dsh-mcp-client",
-            config: server,
-          })),
-          { id: "paseo-dsh-bridge", name: bridgePath, config: { profile } },
-        ],
-      },
-    ]),
+    JSON.stringify(
+      createBridgePatch({
+        profile,
+        bridgePath,
+        sessionsRoot: options.ephemeral ? path.join(directory, "sessions") : undefined,
+        mcpServers: options.mcpServers,
+      }),
+    ),
     { mode: 0o600 },
   );
 
-  const child = spawn(options.executable?.trim() || "dsh", ["--profile", profile, "--patch", patchPath], {
-    env: { ...process.env, ...options.env },
+  const child = spawn(executable, ["--profile", profile, "--patch", patchPath], {
+    env,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });

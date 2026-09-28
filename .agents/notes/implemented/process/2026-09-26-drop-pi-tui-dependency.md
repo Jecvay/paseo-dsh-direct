@@ -1,12 +1,12 @@
 # 决策记录: 去除 pi-tui 依赖的技术评估(完整报告)
 
-Status: proposed
+Status: implemented
 
 ## 问题
 
 paseo-dsh-pi 插件当前通过 `--patch` 注入用户既有 `pi-tui` profile 运行。多角度调研(2026-09-26 四路 subagent)与后续源码核查提出一个问题:插件对 pi-tui 的依赖到底是能力依赖还是巧合依赖?若完全去除,需要补齐什么、代价与收益如何?本报告汇总全部证据,供拍板。
 
-前因:2026-09-26 路线方针调研(见 [路线方针优化提案](2026-09-26-roadmap-multi-angle-research.md))发现核心风险是「dsh + pi-tui + paseo SDK」三方上游耦合。随后三问三答逐步逼近本问题:①官方 SDK 为什么不够用;②paseo 接 Claude Code 用的是 SDK 还是 TUI;③那么我们到底需不需要 pi-tui。
+前因:2026-09-26 路线方针调研(见 [路线方针优化提案](../../proposed/process/2026-09-26-roadmap-multi-angle-research.md))发现核心风险是「dsh + pi-tui + paseo SDK」三方上游耦合。随后三问三答逐步逼近本问题:①官方 SDK 为什么不够用;②paseo 接 Claude Code 用的是 SDK 还是 TUI;③那么我们到底需不需要 pi-tui。
 
 ## 证据链(全部本机查实)
 
@@ -45,35 +45,46 @@ dsh 的差距正在于此:官方 sdk profile 仅 3 请求+4 通知,无 cancel/�
 3. 「插件会话与用户 TUI 会话同一环境」的性质:配置一处改、历史同一套——自建 profile 后配置需双份维护或共享 patch(可设计);
 4. 旧会话兼容:存量会话在 pi-tui 组合下创建,事件流可能引用其注册的技能/命令;新组合下 resume 完整性需实测(WP4,唯一的真验证成本)。
 
-## 提案
+## 决定
 
-**结论:插件不需要 pi-tui 本体。** 它对我们的贡献是「一张可复制的配置清单 + 一个别人替你追版本的幻觉」,不贡献任何被执行的逻辑;带来的却是版本硬绑死、假握手技术债和两次已发生的事故源。去除的总工作量是**几天级**,不是能力重建:
+**插件不依赖 pi-tui。** 插件默认启动名为 `paseo` 的 DSH profile,由 DSH 官方 `web` 模板生成(bundle = `@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`)。pi-tui 贡献的只是「一张可复制的配置清单 + 一个别人替你追版本的幻觉」,不贡献任何被执行的逻辑;带来的却是版本硬绑死、假握手技术债和两次已发生的事故源。
 
-- WP1 自建 profile:dsh-base + 自研 app bundle(桥从「patch 挤进别人家的客人」升格为「自带 profile 的户主」,startup 骨架照官方 dsh-acp-app 无头样板),抄 standard preset 为自有 preset;
-- WP2 桥改造:删 tuiStartup/markSurfaceMounted;patch.json 简化为只剩会话级 MCP/临时存储根;
-- WP3 行为等价回归:对照 alpha 验收清单全量重跑(审批/问答/命令/技能//compact//plan/中断/恢复);
-- WP4 旧会话 resume 兼容实测(pi-tui 安装可保留作兜底对照组);
-- WP5 用户层配置一次性搬迁(路由/默认模型/权限)。
+- **profile**:官方 `dsh-web-app` 自己就把 standard/ptc/minimal/cordis 四个 preset 挂进组合树,这四个文件与 pi-tui 的 `generated/dsh-presets/*.patch.yml` 逐字节相同,所以不需要自建 bundle 或镜像 preset。官方 acp/headless bundle 不带 preset,因此选 web 模板。
+- **自动创建**:`launchDshBridge` 启动前检查 `$DSH_HOME/profiles/<profile>`(解析方式照 `@deepseek-ai/dsh-home-paths`:非空 `DSH_HOME` 优先,否则 `~/.dsh`)。缺失且 profile 为默认 `paseo` 时执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建;`PASEO_DSH_PROFILE` 显式指定的 profile 缺失直接报错并给出创建命令。
+- **运行时 patch**:禁用 `web-startup`、`webserver`、`web-runtime`、`connection` 四行,再插入桥。preset 行和会话、工具行不动。
+- **桥**:inject 不含 `tuiStartup`,不调用 `markSurfaceMounted`;`appReady`/`appExit` 由 DSH 启动器提供,要求保留。
+- **命名**:Provider 显示名为「DeepSeek Harness」;包名 `paseo-dsh-pi` 与 Provider id `dsh-pi` 不变,避免弄坏已装的 Paseo 配置和已有 agent。
+- **用户层配置**:模型路由(`llm-pi-ai` 的 CPA-an/CPA-rs)、`agent-default-model`、`permission` 写在 `~/.dsh/profiles/paseo/cordis.patch.yml`,插件不写它。
 
-收益:上游耦合三方→两方;甩掉逐版硬配对与假握手;插件自包含可分发(npm + paseo.cafe 不再要求用户装 pi-tui);与 [路线方针](2026-09-26-roadmap-multi-angle-research.md) 的放弃判据③④(「自建 profile 去掉第三方依赖」)直接衔接。
+上游耦合由三方(dsh + pi-tui + paseo SDK)收敛为两方;插件自包含可分发,不再要求用户装第三方 profile。与 [路线方针](../../proposed/process/2026-09-26-roadmap-multi-angle-research.md) 的放弃判据③④(「自建 profile 去掉第三方依赖」)直接衔接。
 
-保留 pi-tui 的唯一成立理由:用户本人以「插件会话=TUI 会话同一环境」为不可让步的需求。该需求 2026-09-23 立项时是硬约束,但其重量应重新评估——配置双份维护的痛感,小于「pi-tui 掉队卡死 dsh 升级」的痛感(后者已发生两次)。
+### 实际做法与报告的差异
+
+报告原提 WP1「自建 app bundle + 抄 standard preset」。实际改用官方 `web` 模板:preset 本来就是官方的、web-app 已自带,自建 bundle 只会多一份要追版本的副本。
+
+- **禁用行比预计多**:原设想只禁 `web-startup`,不够时加禁 `webserver`、`web-runtime`。实测只禁 `web-startup` 时 DSH 启动审计报 `webserver`、`connection` 两个必需行未激活而退出;加禁 `webserver`、`web-runtime` 后仍因 `connection`(必需,依赖 `webRuntime`)退出。DSH 启动审计明确忽略被禁用的必需行,所以最终清单多了 `connection`。其余依赖这几行的浏览器端插件行停在等待状态,只在 stderr 打一条提示。
+- **旧会话兼容(WP4)按用户决定不做处理、不测试**:pi-tui 组合下创建的历史会话在 `paseo` profile 下 resume 的完整性没有结论。
+- **本机 pi-tui profile 保留**:用户终端仍在用 `~/.dsh/profiles/pi-tui`,插件不再触碰它;其用户层配置(第 43 行起的模型路由、默认模型、权限四段)原样复制进 `paseo` profile。复制过来的 `llm-deepseek` 行因包名与官方行不符被 DSH 跳过,这在 pi-tui 下同样发生,行为不变。
+- **WP3 alpha 验收全量重跑未在本次做**:本次只跑了 smoke(目录、真实模型回合、恢复)与端口检查,其余验收项留待按 [Alpha 验收规范](../../../../docs/alpha-acceptance.md) 复测。
 
 ## 考虑过的其他做法
 
 - 维持现状(留 pi-tui):零迁移成本;接受三方耦合与事故史,且每次 pi-tui 行为变化都波及桥(反向被依赖方绑架)。
 - 迁 dsh 官方 sdk profile:协议面太窄(无 cancel/审批/流式),功能净减,见路线方针调研结论,仅列观察项。
 - 迁 dsh acp profile:官方正门但丢 steer/流式/命令/问答,同样仅观察项。
+- 自建 app bundle + 镜像 standard preset(报告原提 WP1):完全自控组合;但 preset 本来就是官方 dsh-web-app 自带的同一批文件,自建只多一份要逐版追的副本。
 - 双轨并存(pi-tui 桥默认 + 自建 profile 可选):PASEO_DSH_PROFILE 已支持切换,但双轨=双份维护+测试矩阵翻倍,alpha 阶段不建议;正确顺序是单轨迁移,迁移期内 pi-tui 桥作回退备份。
-
-## 怎么算做完
-
-- WP1–WP5 全部落地,standard preset 等价清单入库,假握手代码删除;
-- alpha 验收清单在新 profile 下全绿,旧会话 resume 验证有结论(完整/降级可接受/需 pi-tui 兜底,三选一成文);
-- 本件状态改 implemented,路线方针记录中「自建 profile」观察项同步销项;pi-tui 从 dependencies 语义降为「用户个人终端工具」。
 
 ## 后果
 
-- dsh-base schema 变化从此直接由本仓吸收(原来 pi-tui 作者先行踩坑的一面消失,但事故史证明它更多是坑源而非盾牌);
+- dsh-base 与 dsh-web-app 的 schema 变化直接由本仓吸收(pi-tui 作者先行踩坑的一面消失,但事故史证明它更多是坑源而非盾牌)。web 模板改动行 id 或新增必需行时,启动会大声失败(启动审计列出未激活的必需行),按报错调整禁用清单;
+- 插件与用户终端的 pi-tui 不再共用一份配置:模型路由等用户层配置在两个 profile 里各一份,改一处不会同步到另一处;
 - 插件分发力解锁:不要求用户安装特定第三方 profile;
 - 用户本人的 pi-tui 终端使用完全不受影响(插件不再触碰该 profile)。
+
+## 怎么验证的
+
+- `npm run smoke:bridge -- --prompt` 在默认 `paseo` profile 下通过:10 个模型、默认 preset `standard`、真实模型回合、关闭后 resume 历史完整。
+- smoke 期间每 0.2 秒采样 dsh 子进程及其子进程的 `ss -ltnp`,无任何 TCP 监听,也无浏览器进程。
+- `dsh --profile paseo --patch <插件生成的 patch.json> --dump-config`:四个 preset 行启用、`paseo-dsh-bridge` 行存在、四个 web 行 disabled。
+- 单元测试覆盖 DSH home 解析、patch 构成、默认 profile 自动创建一次、显式 profile 缺失报错。
