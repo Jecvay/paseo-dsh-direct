@@ -51,7 +51,7 @@ dsh 的差距正在于此:官方 sdk profile 仅 3 请求+4 通知,无 cancel/�
 
 - **profile**:官方 `dsh-web-app` 自己就把 standard/ptc/minimal/cordis 四个 preset 挂进组合树,这四个文件与 pi-tui 的 `generated/dsh-presets/*.patch.yml` 逐字节相同,所以不需要自建 bundle 或镜像 preset。官方 acp/headless bundle 不带 preset,因此选 web 模板。
 - **自动创建**:`launchDshBridge` 启动前检查 `$DSH_HOME/profiles/<profile>`(解析方式照 `@deepseek-ai/dsh-home-paths`:非空 `DSH_HOME` 优先,否则 `~/.dsh`)。缺失且 profile 为默认 `paseo` 时执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建;`PASEO_DSH_PROFILE` 显式指定的 profile 缺失直接报错并给出创建命令。
-- **运行时 patch**:禁用 `web-startup`、`webserver`、`web-runtime`、`connection` 四行,再插入桥。preset 行和会话、工具行不动。
+- **运行时 patch**:禁用 `web-startup`、`webserver`、`web-runtime`、`connection`、`api-remotes` 五行,再插入桥。preset 行和会话、工具行不动。`api-remotes` 为什么也要禁,见 [复盘](../bug-fix/2026-09-28-postmortem-api-remotes-swallows-approvals.md)。
 - **桥**:inject 不含 `tuiStartup`,不调用 `markSurfaceMounted`;`appReady`/`appExit` 由 DSH 启动器提供,要求保留。
 - **命名**:Provider 显示名为「DeepSeek Harness」;包名 `paseo-dsh-pi` 与 Provider id `dsh-pi` 不变,避免弄坏已装的 Paseo 配置和已有 agent。
 - **用户层配置**:模型路由(`llm-pi-ai` 的 CPA-an/CPA-rs)、`agent-default-model`、`permission` 写在 `~/.dsh/profiles/paseo/cordis.patch.yml`,插件不写它。
