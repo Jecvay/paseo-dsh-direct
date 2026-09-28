@@ -190,3 +190,11 @@
 - 操作：从 `v0.1.2` 拉出分支 `release/0.1`，cherry-pick 该修复，版本号改为 0.1.3，打 tag `v0.1.3` 并推送；dsh 0.1.7-rc.2（隔离 `DSH_HOME`）实测审批允许/拒绝、问答应答/拒答四项通过。
 - 上线：`~/src/paseo-dsh-direct-live` checkout `v0.1.3`，`npm ci` + `npm run build` 后 `paseo plugin reload paseo-dsh-direct`；插件 running，`paseo provider models dsh-pi` 10 个模型正常，真实会话正常回复且无版本警告。
 - 现状：main 已进 0.2 线（0.2.0 适配 dsh 0.2.0-rc.1，用 overrides 顶替上游漏发的 `@deepseek-ai/dsh-client-ui-settings-account`，待上游补发后复测）；线上仍是 0.1 线的 `v0.1.3`，等本机切 dsh 0.2 时再切 live worktree 的 tag。
+
+## 2026-09-28 — 上游补发漏包，0.2 用干净安装复测通过
+
+- 补发：`@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1` 于 2026-09-28T12:54:22Z（北京时间 20:54）发布，之前缺这个包导致 `@deepseek-ai/dsh@0.2.0-rc.1` 装不上（`ETARGET`）。补发后不加任何 overrides，`npm install @deepseek-ai/dsh@0.2.0-rc.1` 直接装上 546 个包，`dsh --version` 输出 `0.2.0-rc.1`。
+- 重装：`~/.local/opt/dsh-0.2.0-rc.1/` 去掉 `package.json` 里的 `overrides`，删 `node_modules` 后用 npm 干净重装。
+- 复测：用这份干净安装、隔离 `DSH_HOME=~/.local/share/dsh-0.2-test`，在插件 main（0.2.0）上跑 `npm run smoke:bridge -- --prompt` 通过；真 provider 路径下无版本警告、真实 bash 工具调用、会话恢复（同一 native id、回放 3 个工具项）、命令列表 30 项含 `/compact` `/plan`、审批允许/拒绝、问答应答/拒答全部通过。`~/.dsh` 未被触碰。
+- mise 装不上：`mise install npm:@deepseek-ai/dsh@0.2.0-rc.1` 报 `aube install failed: failed to resolve dependencies — peer-context fixed-point did not converge after 256 iterations. mutually recursive peers`（mise 2026.9.8 的 npm 后端 aube 解析器问题，同版本用 npm 能装）。本机 mise 全局仍钉 `0.1.7-rc.2`（pi-tui 终端依赖它），未改动。
+- 图片/文件附件、MCP、中断、Paseo Daemon 内加载与重启仍未在 0.2 下复测。
