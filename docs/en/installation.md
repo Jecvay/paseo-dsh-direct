@@ -6,12 +6,11 @@ The validated alpha combination is:
 
 | Component | Version |
 |---|---|
-| Paseo | `0.8.0` |
-| DeepSeek Harness | `0.1.7-rc.1` |
-| `@xmoon76/dsh-pi-tui` | `0.4.8` |
+| Paseo | `0.9.2` |
+| DeepSeek Harness | `0.1.7-rc.2` |
 | Node.js | `24.13.0` |
 
-DSH and the `pi-tui` profile must already be installed and configured on the host running the Paseo Daemon. This repository does not publish an npm package.
+DSH must already be installed on the host running the Paseo Daemon; no other DSH add-on is needed. This repository does not publish an npm package.
 
 ## Install from source
 
@@ -40,16 +39,18 @@ If the Paseo Daemon has plugin loading disabled, set `pluginsEnabled` to `true` 
 
 ## Start a conversation
 
-Select **DeepSeek Harness (pi-tui)** when creating a conversation. The provider id is `dsh-pi`; the plugin id is `paseo-dsh-pi`. Models and presets are read from the selected DSH profile.
+Select **DeepSeek Harness** when creating a conversation. The provider id is `dsh-pi`; the plugin id is `paseo-dsh-pi`. Models and presets are read from the DSH profile the plugin runs.
 
-Existing native DSH sessions are exposed through Paseo's **Import session** flow. Resuming a session keeps its native DSH session id and history. A session held by a terminal TUI must be released there first.
+Existing native DSH sessions are exposed through Paseo's **Import session** flow. Resuming a session keeps its native DSH session id and history. A session held by another DSH client, such as a terminal UI, must be released there first.
 
-The default profile is `pi-tui`. Configure overrides in the Daemon environment:
+The plugin runs the DSH profile `paseo`. On first start it creates that profile from DSH's official `web` template, at `~/.dsh/profiles/paseo` (or under `$DSH_HOME` when set). Put model routes, the default model, and permission presets in `~/.dsh/profiles/paseo/cordis.patch.yml`; the file is a YAML list of DSH patch entries, for example `llm-pi-ai` for provider routes, `agent-default-model`, and `permission`.
+
+Configure overrides in the Daemon environment:
 
 | Variable | Effect |
 |---|---|
 | `PASEO_DSH_EXECUTABLE` | Selects the `dsh` executable. |
-| `PASEO_DSH_PROFILE` | Selects the DSH profile; default: `pi-tui`. |
+| `PASEO_DSH_PROFILE` | Selects another existing DSH profile; default: `paseo`. A profile named here is not created automatically. |
 
 The provider exposes streamed assistant and reasoning output, tool execution and approval, user questions, configuration, interruption and persistent session recovery through Paseo's native UI.
 

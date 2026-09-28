@@ -1,16 +1,27 @@
 # 服务端架构
 
-`paseo-dsh-pi` 注册 Paseo Direct Provider `dsh-pi`，显示为 `DeepSeek Harness (pi-tui)`。插件标识为 `paseo-dsh-pi`。服务端入口是 `index.server.ts`；实现位于 `server/`，跨进程契约位于 `shared/`。
+`paseo-dsh-pi` 注册 Paseo Direct Provider `dsh-pi`，显示为 `DeepSeek Harness`。插件标识为 `paseo-dsh-pi`。服务端入口是 `index.server.ts`；实现位于 `server/`，跨进程契约位于 `shared/`。
 
 ## 运行边界
 
-运行链路为 Paseo Daemon → 插件服务端 → DSH 子进程 → 既有 `pi-tui` profile。插件不修改 Paseo 或 DSH 核心。
+运行链路为 Paseo Daemon → 插件服务端 → DSH 子进程 → `paseo` profile。插件不修改 Paseo 或 DSH 核心。
 
-DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，禁用终端界面 `tui-app` 并加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。保留 `tui-startup`、扩展宿主和内建扩展注册；桥接在挂载时调用 `tuiStartup.markSurfaceMounted()`，以桥接充当该 profile 的界面，满足 pi-tui 在应用就绪时的界面挂载检查。用户持久 profile 文件保持原样。TUI 的菜单、快捷键、终端绘制等界面扩展不等同于 Paseo 前端功能。
+`paseo` profile 由 DSH 官方 `web` 模板生成：bundle 为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`，后者自带 `standard`、`ptc`、`minimal`、`cordis` 四个 agent preset。启动前 `server/bridge-client.ts` 检查 `$DSH_HOME/profiles/<profile>`（`$DSH_HOME` 为空或未设置时是 `~/.dsh`，解析方式与 DSH 相同）。目录缺失且 profile 是默认的 `paseo` 时，执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它（60 秒超时，输出丢弃）；`PASEO_DSH_PROFILE` 指定的 profile 缺失时直接报错并给出创建命令。模型路由、默认模型和权限预设属于用户层 `cordis.patch.yml`，插件不写它。
+
+DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里开浏览器界面的四行，再加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。用户持久 profile 文件保持原样。
+
+| 禁用的行 | 原本作用 | 为什么一并禁用 |
+|---|---|---|
+| `web-startup` | 解析 web 启动参数，提供 `webStartup` 服务 | 桥接就是这个 profile 的界面，不需要网页 |
+| `webserver` | 绑定 HTTP 端口（默认 3080） | 启动审计把它列为必需行，缺 `webStartup` 会让 DSH 启动失败 |
+| `web-runtime` | 托管前端、打印 URL、按配置打开浏览器 | 依赖前两行 |
+| `connection` | 把网关挂到 webserver 的 `/api` | 启动审计把它列为必需行，缺 `webRuntime` 会让 DSH 启动失败 |
+
+DSH 的启动审计忽略被禁用的必需行，所以禁用这四行后 DSH 正常启动，不监听任何 TCP 端口，也不打开浏览器。依赖它们的浏览器端插件行（如 `file-upload`、`client-hmr`、`open-in-app`）停在等待状态，DSH 在 stderr 打一条「entries did not activate」提示，不影响桥接。preset 行和会话、工具相关的行不受影响。`appReady` 与 `appExit` 由 DSH 启动器提供，桥接在 `appReady` 之后开始读 stdin。浏览器端界面插件不等同于 Paseo 前端功能。
 
 模型目录和历史发现使用独立桥接；每个活动 Paseo 会话拥有自己的 DSH 子进程，接收宿主提供的会话环境变量。关闭会话时释放对应子进程。
 
-智能体执行循环属于 DSH。pi-tui 的启动检查和扩展注册仍会运行，其终端客户端的输入、呈现与交互逻辑不在本链路中执行。
+智能体执行循环属于 DSH。profile 的扩展注册照常运行，DSH 自带的浏览器界面不在本链路中执行。
 
 桥接通过官方 DSH 服务访问会话、agent、presets、模型、实时输出与交互请求。它不直接改写持久会话文件，也不在 Paseo 进程中加载另一套 DSH 运行时。
 
@@ -72,4 +83,4 @@ Paseo 的 Import session 入口查询 DSH 原生历史。Provider 持久化数�
 
 请求超时、协议失败和进程退出须结束挂起请求。关闭时先请求桥接释放 agent、等待持久化清理；无法正常退出的子进程采用有界终止。活动回合、工具和交互不能在进程退出后保留永久运行状态。
 
-架构理由见 [pi-tui Direct 桥接决策](../.agents/notes/implemented/architecture/2026-09-23-pi-tui-direct-bridge.md)，行为验收见 [Alpha 验收规范](alpha-acceptance.md)。
+架构理由见 `.agents/notes/implemented/` 下的桥接与 profile 决策记录，行为验收见 [Alpha 验收规范](alpha-acceptance.md)。

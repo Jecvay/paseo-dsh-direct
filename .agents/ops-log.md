@@ -144,3 +144,8 @@
 
 - 用户反馈 5 分钟一拍过于激进：timer 改为 `OnCalendar=*-*-* 09:00:00`（每天 09:00，`Persistent=true` 错过补跑），`daemon-reload + restart` 生效，下次触发次日 09:00。
 - 轮询器改为单轮清完：先逐张评估全部待办（单轮封顶 12 张），再做至多一件实现；仓内代码与文档同步（scripts/board-poll.ts、docs/board.md、SKILL.md、决策笔记）。
+
+## 2026-09-28 — 本机建 paseo profile，插件去 pi-tui 依赖
+
+- `dsh --profile paseo --from-default-profile web --dump-config` 建 `~/.dsh/profiles/paseo`（bundles：dsh-base + dsh-web-app）；把 `~/.dsh/profiles/pi-tui/cordis.patch.yml` 第 43 行到文件末（llm-deepseek、agent-default-model、llm-pi-ai 的 CPA-an/CPA-rs 八个模型、permission）原样放进 paseo 的 `cordis.patch.yml`，保留其头部注释，替换掉模板自带的空列表 `[]`。pi-tui profile 两个文件 sha256 前后一致，未改动。
+- 实测：只禁 `web-startup` 时 DSH 因必需行 `webserver`、`connection` 未激活而拒绝启动；最终禁 `web-startup`、`webserver`、`web-runtime`、`connection` 四行，`npm run smoke:bridge -- --prompt` 通过，dsh 子进程无 TCP 监听、无浏览器进程。线上 Paseo daemon 未 reload，仍跑主工作树的旧代码。
