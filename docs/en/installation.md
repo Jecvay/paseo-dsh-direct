@@ -15,14 +15,14 @@ DSH must already be installed on the host running the Paseo Daemon; no other DSH
 ## Install from source
 
 ```bash
-git clone https://github.com/Jecvay/paseo-dsh-pi.git
-cd paseo-dsh-pi
+git clone https://github.com/Jecvay/paseo-dsh-direct.git
+cd paseo-dsh-direct
 npm ci
 npm run build
 paseo plugin install "$PWD"
 ```
 
-For an existing checkout, use `paseo plugin install /absolute/path/to/paseo-dsh-pi` after `npm run build`. Verify registration with:
+For an existing checkout, use `paseo plugin install /absolute/path/to/paseo-dsh-direct` after `npm run build`. Verify registration with:
 
 ```bash
 paseo plugin ls
@@ -32,14 +32,14 @@ paseo provider models dsh-pi
 Git installation supports an existing remote tag or commit:
 
 ```bash
-paseo plugin add Jecvay/paseo-dsh-pi --ref <tag-or-commit>
+paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
 
 If the Paseo Daemon has plugin loading disabled, set `pluginsEnabled` to `true` in its `config.json`, then run `paseo daemon reload`. Preserve the other configuration fields.
 
 ## Start a conversation
 
-Select **DeepSeek Harness** when creating a conversation. The provider id is `dsh-pi`; the plugin id is `paseo-dsh-pi`. Models and presets are read from the DSH profile the plugin runs.
+Select **DeepSeek Harness** when creating a conversation. The provider id is `dsh-pi`; the plugin id is `paseo-dsh-direct`. Models and presets are read from the DSH profile the plugin runs.
 
 Existing native DSH sessions are exposed through Paseo's **Import session** flow. Resuming a session keeps its native DSH session id and history. A session held by another DSH client, such as a terminal UI, must be released there first.
 
@@ -58,7 +58,7 @@ The provider exposes streamed assistant and reasoning output, tool execution and
 
 ```bash
 npm run build
-paseo plugin reload paseo-dsh-pi
+paseo plugin reload paseo-dsh-direct
 ```
 
-For a Git-installed plugin, update with `paseo plugin update paseo-dsh-pi`.
+For a Git-installed plugin, update with `paseo plugin update paseo-dsh-direct`.

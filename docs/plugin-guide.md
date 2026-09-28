@@ -46,13 +46,13 @@ paseo provider models dsh-pi
 
 若已启用的插件仍显示 `disabled`，请在 Paseo 的 `config.json` 中将 `pluginsEnabled` 设为 `true`，然后执行 `paseo daemon reload`。保留配置文件中的其他字段。
 
-插件和 Provider 是两个标识：插件管理使用 `paseo-dsh-pi`，会话操作使用 `dsh-pi`。本地源码更新后重新构建，并执行：
+插件和 Provider 是两个标识：插件管理使用 `paseo-dsh-direct`，会话操作使用 `dsh-pi`。本地源码更新后重新构建，并执行：
 
 ```bash
-paseo plugin reload paseo-dsh-pi
+paseo plugin reload paseo-dsh-direct
 ```
 
-Git 安装通过 `paseo plugin update paseo-dsh-pi` 更新。安装固定版本时使用已发布的 Git tag 或 commit；本地构建成功不代表远端已存在同名 tag。
+Git 安装通过 `paseo plugin update paseo-dsh-direct` 更新。安装固定版本时使用已发布的 Git tag 或 commit；本地构建成功不代表远端已存在同名 tag。
 
 ## 运行配置
 

@@ -155,3 +155,10 @@
 - 20:45 左右 rebase 合并 PR #18 进 main（CI 两轮 pass），主工作树 ff 到 3e7f0d0，`npm run build` 后 `paseo plugin reload paseo-dsh-pi`；reload 前 6 个 dsh-pi agent 均 idle。
 - 线上验收：`paseo provider models dsh-pi` 列出 10 个模型（CPA-an/CPA-rs 各 4 + deepseek-official 2），dsh 子进程以 `--profile paseo` 运行；真实 agent（bm-an-glm-flash）bash 工具调用 `uname -r` 输出与本机一致，四个 preset 均出现在模式列表。本机 permission 为 danger-full-access，CLI 无法切权限 preset，审批弹窗未在线上复测（桥层已验证）。测试 agent 已删除。
 - dsh 0.2.0-rc.1 当日发布但无法安装：`@deepseek-ai/dsh-web-app@0.2.0-rc.1` 依赖的 `@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1` 未发布（官方 registry 绕缓存查实，全树 252 包仅缺这一个），与本机 npm 源无关；未提上游 issue。
+
+## 2026-09-28 — 仓库改名 paseo-dsh-direct
+
+- 原因：插件已不接 pi-tui；同名 `paseo-deepseek-harness` 已被 geoqiao 的 ACP 插件占用（paseo.cafe 收录为 `deepseek-harness`），改用突出 Direct 接入的名字。
+- GitHub：`gh repo rename` → Jecvay/paseo-dsh-direct（旧 URL 自动跳转），Project #1 标题同步改名。
+- 本机：源码目录移到 `~/src/paseo-dsh-direct`，旧路径 `~/src/paseo-dsh-pi` 留软链接（已有 Paseo agent 的 cwd 仍可用）；看板 systemd 单元改名 `paseo-dsh-direct-board.{service,timer}`（systemd-analyze verify 通过，timer 下次 09-29 09:00），`~/.config/paseo-dsh-direct/`、`~/.local/state/paseo-dsh-direct/` 同步改名。
+- Paseo：备份 `~/.paseo/config.json.bak-20260928-pre-rename-dsh-direct` 后 `paseo plugin remove paseo-dsh-pi` + `install ~/src/paseo-dsh-direct`；新插件 running，Provider id `dsh-pi` 不变，`paseo provider models dsh-pi` 10 个模型正常。

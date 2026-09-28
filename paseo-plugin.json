@@ -1,5 +1,5 @@
 {
-  "id": "paseo-dsh-pi",
+  "id": "paseo-dsh-direct",
   "requirements": {
     "paseo": ">=0.8.0"
   },
