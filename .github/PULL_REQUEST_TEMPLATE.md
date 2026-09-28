@@ -14,4 +14,4 @@ Closes #<issue 编号>（并单时逐个列出：Closes #A, Closes #B）
 
 ## 边界确认
 
-<!-- 没动什么；对上游兼容矩阵的影响（dsh / pi-tui / paseo 版本）。 -->
+<!-- 没动什么；对上游兼容矩阵的影响（dsh / paseo 版本）。 -->

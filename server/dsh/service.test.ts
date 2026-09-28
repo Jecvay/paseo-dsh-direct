@@ -98,7 +98,6 @@ function fixture(
     systemPrompt: options.systemPrompt,
     userQuestions: {},
     sessionTitle: undefined,
-    tuiStartup: undefined,
     appReady: undefined,
     appExit: undefined,
   } satisfies HostServices;

@@ -23,7 +23,7 @@ Status: proposed
 - **P2 条件触发**:revertToken(需 dsh 截断历史)、subsession 子 agent 轨道(需 dsh 子会话事件)、ACP 迁移试点(自建 dsh-base+acp-app profile 只读验证,不动用户 pi-tui)。
 - **P3 分发与成熟度**:npm 发布+paseo.cafe 提交;手机真机实测;dsh 侧 acp profile 路由修复(settings 迁移后新存储未吃到 CPA 路由),修好留 `extends: acp` 当低成本对照组;根 README/README.zh/docs/en 版本表同步到 0.9.2/0.1.7-rc.2/0.4.9。
 
-**技术债标记**:对 pi-tui 的唯一硬依赖是 `tuiStartup` 握手与 profile 复用;若自建 profile 可行可去掉第三方依赖,兼容面收敛为 dsh 内部契约一层,与放弃判据联动评估。
+**技术债标记**:对 pi-tui 的唯一硬依赖是 `tuiStartup` 握手与 profile 复用;若自建 profile 可行可去掉第三方依赖,兼容面收敛为 dsh 内部契约一层,与放弃判据联动评估。**(已完成 2026-09-28:插件改用官方 web 模板生成的 `paseo` profile,`tuiStartup` 握手已删,见 [去除 pi-tui 依赖](../../implemented/process/2026-09-26-drop-pi-tui-dependency.md)。)**
 
 ## 考虑过的其他做法
 

@@ -15,7 +15,6 @@ export const inject = [
   "sessionQuery",
   "agentPresets",
   "llm",
-  "tuiStartup",
 ];
 
 /** Keep stack traces off the wire and redact common credential representations. */
@@ -115,9 +114,6 @@ export async function apply(
   const onReady = ctx.get("appReady");
   if (!onReady || !ctx.get("appExit"))
     throw new Error("Paseo bridge requires the DSH profile launcher");
-  // The bridge is this profile's surface in place of the disabled tui-app;
-  // pi-tui >= 0.4.7 exits at app-ready unless a surface reports itself mounted.
-  ctx.get("tuiStartup")?.markSurfaceMounted?.();
   const removeReady = onReady.onReady(() => {
     if (disposed) return;
     input = createInterface({ input: process.stdin, crlfDelay: Infinity });
