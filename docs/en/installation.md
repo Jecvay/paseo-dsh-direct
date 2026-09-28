@@ -12,7 +12,7 @@ The validated alpha combination is:
 
 DSH must already be installed on the host running the Paseo Daemon; no other DSH add-on is needed. This repository does not publish an npm package.
 
-The plugin's `major.minor` tracks the dsh line it supports (this `0.2.x` release works with dsh `0.2.*`); install the tag matching your local dsh version. For dsh `0.1.*`, install tag `v0.1.3`. DSH `0.2.0-rc.1` cannot be installed from npm as published because one browser-side package is missing; [Compatibility](compatibility.md) shows the workaround and the full versioning rule.
+The plugin's `major.minor` tracks the dsh line it supports (this `0.2.x` release works with dsh `0.2.*`); install the tag matching your local dsh version. For dsh `0.1.*`, install tag `v0.1.3`. DSH `0.2.0-rc.1` installs cleanly with `npm install @deepseek-ai/dsh@0.2.0-rc.1`; [Compatibility](compatibility.md) shows the full versioning rule and a caveat for mise's npm backend on this package.
 
 ## Install from source
 

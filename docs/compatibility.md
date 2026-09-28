@@ -20,17 +20,9 @@
 
 **0.2 线**：在 DSH `0.2.0-rc.1` 下，用插件真实的 provider 路径（`createDshProvider` + `launchDshBridge`，不经 Paseo Daemon）和真实模型验证了：自动创建 `paseo` profile、模型/preset/权限目录、含 bash 工具调用的真实回合、工具审批允许/拒绝、问答应答/拒绝、斜杠目录含 `/compact` 与 `/plan`、关闭后按持久化句柄恢复会话并继续对话；`npm run smoke:bridge -- --prompt` 通过，DSH 子进程不监听 TCP 端口、不开浏览器。图片与文件附件、MCP、中断、Paseo Daemon 内加载与重启恢复在 0.2 线尚未复测。
 
-DSH `0.2.0-rc.1` 在 npm 上缺一个包：`@deepseek-ai/dsh-web-app@0.2.0-rc.1` 依赖的 `@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1` 没有发布，直接安装报 `ETARGET`。上表的实测是在独立目录里用 npm `overrides` 把这个包顶成 `0.1.7-rc.2` 后装的 DSH；它是浏览器端的账号设置页，`paseo` profile 不加载浏览器端。上游补发后要按 [Alpha 验收规范](alpha-acceptance.md) 复测一遍。
+DSH `0.2.0-rc.1` 用 `npm install @deepseek-ai/dsh@0.2.0-rc.1` 即可正常安装。
 
-```json
-{
-  "private": true,
-  "dependencies": { "@deepseek-ai/dsh": "0.2.0-rc.1" },
-  "overrides": { "@deepseek-ai/dsh-client-ui-settings-account": "0.1.7-rc.2" }
-}
-```
-
-在这个目录 `npm install` 后，可执行文件是 `node_modules/.bin/dsh`，用 `PASEO_DSH_EXECUTABLE` 指给插件。
+mise 2026.9.8 的 npm 后端装 `@deepseek-ai/dsh@0.2.0-rc.1` 会报 peer 依赖解析不收敛（`aube install failed: ... peer-context fixed-point did not converge`）；改用 npm 装即可，全局 `npm install -g @deepseek-ai/dsh@0.2.0-rc.1`，或装到独立目录后用 `PASEO_DSH_EXECUTABLE` 指过去。
 
 **0.1 线**：`v0.1.2` 在 DSH `0.1.7-rc.2` 下验证了自动创建 `paseo` profile、模型/preset/权限目录、真实模型与工具调用、思考输出、原生历史导入、停止后继续对话、Daemon 重启恢复及正常关闭；桥接层用真实模型还验证过 system prompt 追加、文件附件、stdio MCP 工具、斜杠命令与技能、`/compact`、`/plan`、权限切换。0.1 线从 `v0.1.3` 起修复了工具审批和问答请求被 web 模板的 `api-remotes` 行转给浏览器端、送不到 Paseo、回合一直等待的问题：`v0.1.1` 加载失败不可安装，`v0.1.2` 有这个问题，`v0.1.3` 在 DSH `0.1.7-rc.2` 下实测审批允许/拒绝、问答应答/拒答四项通过。权限预设为 `danger-full-access`（不发起审批）、模型也不调用提问工具时，旧版本不受这个问题影响。
 
