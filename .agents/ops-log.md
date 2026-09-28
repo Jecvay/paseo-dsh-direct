@@ -149,3 +149,9 @@
 
 - `dsh --profile paseo --from-default-profile web --dump-config` 建 `~/.dsh/profiles/paseo`（bundles：dsh-base + dsh-web-app）；把 `~/.dsh/profiles/pi-tui/cordis.patch.yml` 第 43 行到文件末（llm-deepseek、agent-default-model、llm-pi-ai 的 CPA-an/CPA-rs 八个模型、permission）原样放进 paseo 的 `cordis.patch.yml`，保留其头部注释，替换掉模板自带的空列表 `[]`。pi-tui profile 两个文件 sha256 前后一致，未改动。
 - 实测：只禁 `web-startup` 时 DSH 因必需行 `webserver`、`connection` 未激活而拒绝启动；最终禁 `web-startup`、`webserver`、`web-runtime`、`connection` 四行，`npm run smoke:bridge -- --prompt` 通过，dsh 子进程无 TCP 监听、无浏览器进程。线上 Paseo daemon 未 reload，仍跑主工作树的旧代码。
+
+## 2026-09-28 — PR #18 合并上线（插件改跑 paseo profile）
+
+- 20:45 左右 rebase 合并 PR #18 进 main（CI 两轮 pass），主工作树 ff 到 3e7f0d0，`npm run build` 后 `paseo plugin reload paseo-dsh-pi`；reload 前 6 个 dsh-pi agent 均 idle。
+- 线上验收：`paseo provider models dsh-pi` 列出 10 个模型（CPA-an/CPA-rs 各 4 + deepseek-official 2），dsh 子进程以 `--profile paseo` 运行；真实 agent（bm-an-glm-flash）bash 工具调用 `uname -r` 输出与本机一致，四个 preset 均出现在模式列表。本机 permission 为 danger-full-access，CLI 无法切权限 preset，审批弹窗未在线上复测（桥层已验证）。测试 agent 已删除。
+- dsh 0.2.0-rc.1 当日发布但无法安装：`@deepseek-ai/dsh-web-app@0.2.0-rc.1` 依赖的 `@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1` 未发布（官方 registry 绕缓存查实，全树 252 包仅缺这一个），与本机 npm 源无关；未提上游 issue。
