@@ -5,16 +5,18 @@
 | Component | Validated version | Role |
 |---|---|---|
 | Paseo | `0.9.2` | Plugin host and Direct Provider protocol |
-| DeepSeek Harness | `0.1.7-rc.2` | Agent runtime, persistence, and interaction services |
+| DeepSeek Harness | `0.2.0-rc.1` | Agent runtime, persistence, and interaction services |
 | Node.js | `24.13.0` | Plugin and DSH runtime |
 
 The repository manifest requires Paseo `>=0.8.0`; the table above is the tested alpha baseline. Other Paseo or DSH versions are not implied to be tested by that lower-bound declaration.
 
-Local validation covers automatic creation of the `paseo` profile, the real profile, model/preset/permission discovery, real model responses, reasoning output, tool execution and approval, question answers and rejection, native history import, cancellation followed by another turn, Daemon restart and session recovery, and clean shutdown. The mobile client’s Daemon interfaces have been exercised; a physical phone has not been tested. See the repository's [Chinese compatibility notes](../compatibility.md) and [alpha acceptance criteria](../alpha-acceptance.md) for the detailed evidence boundary.
+Plugin `0.2.x` targets DSH `0.2.*`. Under DSH `0.2.0-rc.1`, the real provider path (`createDshProvider` + `launchDshBridge`, outside the Paseo Daemon) was checked with a real model: automatic creation of the `paseo` profile, model/preset/permission discovery, a real turn with a bash tool call, tool approval allow and reject, question answer and rejection, a slash menu that includes `/compact` and `/plan`, and resuming a closed session from its persistence handle. `npm run smoke:bridge -- --prompt` passes, and the DSH child opens no TCP port and no browser. Image and file attachments, MCP, cancellation, and loading and restart inside the Paseo Daemon have not been rechecked on the `0.2` line. For DSH `0.1.*`, install tag `v0.1.2`; under the `paseo` profile that tag has a known issue where tool approvals and questions never reach Paseo and the turn keeps waiting.
+
+DSH `0.2.0-rc.1` on npm depends on `@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1`, which is not published, so a plain install fails with `ETARGET`. The tests above used DSH installed in a separate directory with an npm `overrides` entry that pins that package to `0.1.7-rc.2`; it is a browser-side account settings page that the `paseo` profile does not load. Retest once upstream publishes the package. The mobile client’s Daemon interfaces have been exercised; a physical phone has not been tested. See the repository's [Chinese compatibility notes](../compatibility.md) and [alpha acceptance criteria](../alpha-acceptance.md) for the detailed evidence boundary.
 
 Paseo `0.9.2` has passed local Daemon startup, plugin loading, model discovery, a real text conversation, and a real tool call.
 
-The DSH version above is validated directly at the bridge with a real model: appended system prompt, tool approval allow and reject, questions, file attachments, stdio MCP tools, slash commands and skills, `/compact`, `/plan`, permission switching, cancellation followed by another turn, and session resume. These features rely only on official DSH services, not on which bundles make up the profile. Under the `paseo` profile, model and preset discovery, a real model turn, and session resume pass (`npm run smoke:bridge -- --prompt`); the remaining items are rechecked with the [alpha acceptance criteria](../alpha-acceptance.md). The Paseo daemon fixes its `PATH` at startup; after upgrading DSH, run `paseo daemon stop` then `paseo daemon start`, because `paseo daemon restart` keeps the old environment.
+The Paseo daemon fixes its `PATH` at startup; after upgrading DSH, run `paseo daemon stop` then `paseo daemon start`, because `paseo daemon restart` keeps the old environment.
 
 ## Runtime boundaries
 

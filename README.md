@@ -4,11 +4,11 @@ English | [中文](README.zh.md)
 
 `paseo-dsh-direct` connects a local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) to [Paseo](https://github.com/getpaseo/paseo) through a Direct Provider.
 
-Version `0.1.2` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-direct`.
+Version `0.2.0` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Harness**. The plugin id is `paseo-dsh-direct`.
 
 ## Install locally
 
-The validated alpha combination is Paseo `0.9.2`, DSH `0.1.7-rc.2`, and a supported Node.js runtime. DSH must already be installed on the Paseo Daemon host; no other DSH add-on is needed.
+The validated alpha combination is Paseo `0.9.2`, DSH `0.2.0-rc.1`, and a supported Node.js runtime. DSH must already be installed on the Paseo Daemon host; no other DSH add-on is needed.
 
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-direct.git
@@ -28,11 +28,12 @@ paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 
 ## Versioning
 
-The plugin's `major.minor` tracks the dsh line it supports (`0.1.x` works with dsh `0.1.*`); the patch number is the plugin's own release count and does not follow dsh. Install the tag that matches your local dsh version.
+The plugin's `major.minor` tracks the dsh line it supports (`0.2.x` works with dsh `0.2.*`); the patch number is the plugin's own release count and does not follow dsh. Install the tag that matches your local dsh version.
 
-| Plugin line | dsh line |
-|---|---|
-| `0.1.x` | `0.1.*` |
+| Plugin line | dsh line | What to install |
+|---|---|---|
+| `0.2.x` | `0.2.*` | this version |
+| `0.1.x` | `0.1.*` | tag `v0.1.2` (`paseo plugin add Jecvay/paseo-dsh-direct --ref v0.1.2`) |
 
 See the [compatibility notes](docs/compatibility.md) for the full rule and the dsh versions actually tested.
 
