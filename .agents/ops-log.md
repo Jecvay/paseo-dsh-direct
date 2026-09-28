@@ -168,3 +168,9 @@
 - 合并 PR #19 并打 `v0.1.1` 后 `paseo plugin reload`，插件变 failed：`server/plugin-version.ts` 运行时 import `../package.json`，Paseo 插件加载器拒绝 client/server/shared 以外的模块。单测与 CI 都不经过 Paseo 加载器，没拦住。故障期间无运行中的 dsh-pi 会话。
 - 处置：主工作树切修复分支（版本号改由 `npm run build` 生成 `server/generated-version.ts`）后 reload，插件恢复 running；真实会话（dsh 0.1.7-rc.2）正常回复且无版本警告。修复经 PR #20 合并，打 `v0.1.2`，主工作树回到 main 再 reload，running。
 - 护栏：新增 `server/module-boundary.test.ts`，插件模块相对 import 出界即失败，已验证能拦住 0.1.1 的写法。`v0.1.1` tag 保留不挪，CHANGELOG 注明勿装。
+
+## 2026-09-28 — 线上插件改为固定 tag 的独立 worktree
+
+- 原因：主工作树要合并 dsh 0.2 适配（插件 0.2 线），而本机 dsh 仍是 0.1.7-rc.2，线上必须钉在 0.1 线的发布 tag 上，不能再跟主工作树的 HEAD 走。
+- 操作：新建 `~/src/paseo-dsh-direct-live`，是本仓的独立 git worktree，detached 在发布 tag `v0.1.2`；里面 `npm ci --include=dev` + `npm run build` 后，备份 `~/.paseo/config.json.bak-20260928-pre-live-worktree`，`paseo plugin remove paseo-dsh-direct` 再 `paseo plugin install /home/jecvay/src/paseo-dsh-direct-live`。结果：插件 running，`paseo provider models dsh-pi` 10 个模型正常。
+- 以后上线新版本：在 `~/src/paseo-dsh-direct-live` checkout 新 tag → `npm ci --include=dev` → `npm run build` → `paseo plugin reload paseo-dsh-direct`。
