@@ -7,6 +7,10 @@
 - Fixed: tool approvals and user questions never reached Paseo and the turn kept waiting. The `web` template's `api-remotes` row forwards those requests to browser clients before the bridge sees them; the launcher now disables it along with the other browser-surface rows. `v0.1.2` has this bug under the `paseo` profile.
 - dsh `0.2.0-rc.1` on npm depends on an unpublished package (`@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1`). See `docs/compatibility.md` for the install workaround used in testing.
 
+## 0.1.3
+
+- Fixed: tool approvals and user questions never reached Paseo and the turn stayed running. The `api-remotes` row of the web template forwarded both requests to browser clients ahead of the bridge; the plugin now disables it along with the other web surface rows.
+
 ## 0.1.2
 
 - Fixed: 0.1.1 failed to load in Paseo because a server module imported `package.json`, which lies outside `client/`, `server/` and `shared/`. The plugin version is now generated into `server/generated-version.ts` by `npm run build`. Do not install the `v0.1.1` tag.

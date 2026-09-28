@@ -67,6 +67,8 @@ paseo plugin ls
 
 插件 `major.minor` 必须和本机 dsh 的版本线一致（见 `docs/compatibility.md`「版本号规则」），换 dsh 版本线时要同时切 live worktree 的 tag，并按兼容性说明完整重启 Paseo daemon。
 
+**分支策略**：`main` 跟随当前最新 dsh 线开发（现为 0.2 线）；旧线的修复在 `release/<major.minor>` 分支上发 patch tag（现有 `release/0.1`，已发 `v0.1.3`）。
+
 ## 给 agent 的约定
 
 - 动手前先读本文件 + 对应 `docs/`，以其为基准。

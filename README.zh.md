@@ -33,7 +33,7 @@ paseo plugin add Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 | 插件版本线 | dsh 版本线 | 装哪个 |
 |---|---|---|
 | `0.2.x` | `0.2.*` | 当前版本 |
-| `0.1.x` | `0.1.*` | tag `v0.1.2`（`paseo plugin add Jecvay/paseo-dsh-direct --ref v0.1.2`） |
+| `0.1.x` | `0.1.*` | tag `v0.1.3`（`paseo plugin add Jecvay/paseo-dsh-direct --ref v0.1.3`） |
 
 完整规则和已实测的 dsh 版本见[兼容性说明](docs/compatibility.md)。
 
