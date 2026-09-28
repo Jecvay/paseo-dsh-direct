@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Published to npm as `paseo-dsh-direct` under the `dsh-0.1` dist-tag. In Paseo's **Settings → Plugins → Install Plugin**, paste `npm:paseo-dsh-direct@dsh-0.1`; from Git, use `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1`.
+- The Paseo build step runs `npm install --include=dev` instead of `npm ci`, because npm packages never contain `package-lock.json`.
+
 ## 0.1.3
 
 - Fixed: tool approvals and user questions never reached Paseo and the turn stayed running. The `api-remotes` row of the web template forwarded both requests to browser clients ahead of the bridge; the plugin now disables it along with the other web surface rows.
