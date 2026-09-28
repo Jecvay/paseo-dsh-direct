@@ -205,3 +205,11 @@
 - 操作：在 mirror clone 里用 git-filter-repo 只改 message，author 和日期不变；`main`、`release/0.1` 用 `--force-with-lease` 推送，`v0.1.1`～`v0.2.0` 四个 tag 强推到新 commit。所有分支和 tag 的文件树、commit 数与改写前一致。
 - 影响：所有 commit 哈希都变了。GitHub 上旧 PR 和 issue 评论里引用的旧哈希会失效，本文件里的两处已改成新哈希。线上 live worktree 重新 checkout 新的 `v0.1.3`（文件内容一样，不用重新构建）。本地 tag `v0.1.0-alpha.1` 从来没推送过，指向的 commit 也不在已发布的历史里，保持原样。
 - 备份：改写前的完整仓库在 `~/src/tmp-rewrite/paseo-dsh-direct-before.bundle`，ref 清单在同目录的 `refs-before.txt`。
+
+## 2026-09-29 — 本机 dsh 切 0.2 线，线上插件钉 v0.2.1
+
+- 前置：上游补发漏包后 dsh 0.2.0-rc.1 已可正常安装（见 09-28 条），本机 dsh 本体 mise 钉版升 0.2.0-rc.1，pi-tui 插件同步 0.5.0。
+- 机制变化：凌晨起线上插件已从 `~/src/paseo-dsh-direct-live` worktree 改为 Paseo 自管 git checkout（`~/.paseo/plugins/paseo-dsh-direct/<uuid>/checkout/`，`config.json` 以 source=directory 注册指向它）。本次 `paseo plugin update paseo-dsh-direct --ref v0.2.1 --yes` 把 checkout 从 e2dca33（0.2.0）钉到 54beac7（v0.2.1），插件 running。
+- 排障：plugin reload 后 dsh provider 仍拉 0.1.7-rc.2——根因是 paseo 守护（09-26 启动）自身环境 PATH 含旧 dsh 安装 bin 绝对路径且排在 shims 前；`systemctl --user restart paseo` 后新 provider 挂 0.2.0-rc.1。经验：dsh 本体换版本线后必须 restart 守护，reload 插件不够。
+- 验证（真机 0.2.0-rc.1 + v0.2.1）：plugin running；provider 8 模型（CPA-an/rs 各 4）；`paseo run --provider dsh-pi` 真实回合回 pong；存量会话恢复；journal 无版本不匹配警告。09-28 条标注的「daemon 内加载与重启未复测」就此补上。
+- 附带：`~/.dsh/profiles/paseo/cordis.patch.yml` 的 llm-deepseek 条目 name 跟进 dsh 0.2 改名（`@deepseek-ai/dsh-llm-deepseek-api-key`），旧名整条被静默 skip。
