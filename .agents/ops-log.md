@@ -162,3 +162,9 @@
 - GitHub：`gh repo rename` → Jecvay/paseo-dsh-direct（旧 URL 自动跳转），Project #1 标题同步改名。
 - 本机：源码目录移到 `~/src/paseo-dsh-direct`，旧路径 `~/src/paseo-dsh-pi` 留软链接（已有 Paseo agent 的 cwd 仍可用）；看板 systemd 单元改名 `paseo-dsh-direct-board.{service,timer}`（systemd-analyze verify 通过，timer 下次 09-29 09:00），`~/.config/paseo-dsh-direct/`、`~/.local/state/paseo-dsh-direct/` 同步改名。
 - Paseo：备份 `~/.paseo/config.json.bak-20260928-pre-rename-dsh-direct` 后 `paseo plugin remove paseo-dsh-pi` + `install ~/src/paseo-dsh-direct`；新插件 running，Provider id `dsh-pi` 不变，`paseo provider models dsh-pi` 10 个模型正常。
+
+## 2026-09-28 — v0.1.1 上线即加载失败，v0.1.2 修复
+
+- 合并 PR #19 并打 `v0.1.1` 后 `paseo plugin reload`，插件变 failed：`server/plugin-version.ts` 运行时 import `../package.json`，Paseo 插件加载器拒绝 client/server/shared 以外的模块。单测与 CI 都不经过 Paseo 加载器，没拦住。故障期间无运行中的 dsh-pi 会话。
+- 处置：主工作树切修复分支（版本号改由 `npm run build` 生成 `server/generated-version.ts`）后 reload，插件恢复 running；真实会话（dsh 0.1.7-rc.2）正常回复且无版本警告。修复经 PR #20 合并，打 `v0.1.2`，主工作树回到 main 再 reload，running。
+- 护栏：新增 `server/module-boundary.test.ts`，插件模块相对 import 出界即失败，已验证能拦住 0.1.1 的写法。`v0.1.1` tag 保留不挪，CHANGELOG 注明勿装。
