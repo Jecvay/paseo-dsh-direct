@@ -12,6 +12,8 @@ The validated alpha combination is:
 
 DSH must already be installed on the host running the Paseo Daemon; no other DSH add-on is needed. This repository does not publish an npm package.
 
+The plugin's `major.minor` tracks the dsh line it supports (this `0.1.x` release works with dsh `0.1.*`); install the tag matching your local dsh version. See [Compatibility](compatibility.md) for the full versioning rule.
+
 ## Install from source
 
 ```bash
