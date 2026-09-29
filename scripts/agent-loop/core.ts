@@ -4,14 +4,23 @@
  * decisions it returns. Design: .agents/notes/implemented/process/2026-09-29-github-driven-agent-loop.md
  */
 
+import { APP_SLUG, type AppConfig } from './app-auth.ts'
+
 /** Hidden marker appended to every comment the service posts; such comments are never instructions. */
 export const MARKER = '<!-- paseo-dsh-agent -->'
 
 /** Label an owner adds to an issue to start work. */
 export const GO_LABEL = 'agent:go'
 
-/** Instruction prefix an owner comment must start with. */
-export const PREFIX = '@agent'
+/**
+ * Instruction prefix an owner comment must start with. Not an @-mention
+ * (`@agent` is a real GitHub account and would be notified) and not a
+ * generic slash word like `/agent` that other bots may claim.
+ */
+export const PREFIX = '/jecbot'
+
+/** `/jecbot` at the start of the text, followed by whitespace or the end. */
+const PREFIX_RE = /^\/jecbot(?=\s|$)/
 
 // ---------- config ----------
 
@@ -34,10 +43,19 @@ export interface LoopConfig {
   credentials: string
   /** Poll interval in seconds. */
   pollSeconds: number
+  /** GitHub App the bot acts as; absent = act as the owner's gh login (fallback). */
+  app?: AppConfig
 }
 
 /** Credential files hidden from the sandbox unless agent.json overrides the list. */
 export const DEFAULT_HIDE = ['~/.config/gh', '~/.ssh', '~/.git-credentials', '~/.npmrc', '~/.netrc', '~/.docker/config.json']
+
+/** Everything hidden from the sandbox: the configured list plus the App private key. */
+export function sandboxHidden(config: Pick<LoopConfig, 'hidePaths' | 'app'>): string[] {
+  const paths = [...config.hidePaths]
+  if (config.app && !paths.includes(config.app.privateKeyPath)) paths.push(config.app.privateKeyPath)
+  return paths
+}
 
 export function parseConfig(raw: unknown, home: string): LoopConfig {
   if (!raw || typeof raw !== 'object') throw new Error('agent.json 不是 JSON 对象')
@@ -62,6 +80,15 @@ export function parseConfig(raw: unknown, home: string): LoopConfig {
   if (obj.sandbox === 'none') throw new Error('agent.json: sandbox "none" 已不支持，dsh 必须跑在 bubblewrap 里')
   const dshHome = expand(typeof obj.dshHome === 'string' ? obj.dshHome : '~/.local/share/paseo-dsh-direct/dsh-home')
   if (dshHome === `${home}/.dsh` || dshHome.startsWith(`${home}/.dsh/`)) throw new Error('agent.json: dshHome 不能放在 ~/.dsh 下')
+  let app: AppConfig | undefined
+  if (obj.app !== undefined) {
+    const a = obj.app as Record<string, unknown> | null
+    if (!a || typeof a !== 'object') throw new Error('agent.json app 必须是对象')
+    const id = typeof a.id === 'number' ? String(a.id) : a.id
+    if (typeof id !== 'string' || !/^\d+$/.test(id)) throw new Error('agent.json app.id 必须是数字 App ID')
+    if (typeof a.privateKeyPath !== 'string' || !a.privateKeyPath) throw new Error('agent.json 缺少 app.privateKeyPath')
+    app = { id, privateKeyPath: expand(a.privateKeyPath), slug: typeof a.slug === 'string' && a.slug ? a.slug : APP_SLUG }
+  }
   return {
     owner,
     repo,
@@ -72,6 +99,7 @@ export function parseConfig(raw: unknown, home: string): LoopConfig {
     dshHome,
     credentials: expand(typeof obj.credentials === 'string' ? obj.credentials : '~/.dsh/.credentials.yaml'),
     pollSeconds: typeof obj.pollSeconds === 'number' && obj.pollSeconds >= 15 ? obj.pollSeconds : 60,
+    app,
   }
 }
 
@@ -101,17 +129,34 @@ export function hasMarker(body: string | null | undefined): boolean {
   return (body ?? '').includes(MARKER)
 }
 
-/** Owner comment whose first non-blank text is `@agent` (as a whole word), and not one the service wrote. */
-export function isOwnerInstruction(comment: GhComment, owner: string): boolean {
-  if (!comment.user || comment.user.login.toLowerCase() !== owner.toLowerCase()) return false
-  const body = comment.body ?? ''
-  if (hasMarker(body)) return false
-  return /^@agent(?![\w-])/i.test(body.trimStart())
+/** Bot accounts (the agent's own App user included) never give instructions. */
+export function isBot(login: string): boolean {
+  return /\[bot\]$/i.test(login)
 }
 
-/** The instruction text after the `@agent` prefix. */
+/**
+ * True when the first non-blank text of `body` is `/jecbot` followed by
+ * whitespace or the end. A first line indented 4+ columns is a Markdown code block, not a
+ * command; so is a fenced block or inline code, which start with a backtick.
+ */
+export function startsWithCommand(body: string): boolean {
+  const firstLine = body.replace(/^(?:[ \t]*\r?\n)+/, '').split('\n')[0]
+  const indent = firstLine.match(/^[ \t]*/)![0]
+  if (indent.includes('\t') || indent.length >= 4) return false
+  return PREFIX_RE.test(firstLine.trimStart())
+}
+
+/** Owner comment that starts with `/jecbot`, not written by a bot and not one the service wrote. */
+export function isOwnerInstruction(comment: GhComment, owner: string): boolean {
+  if (!comment.user || isBot(comment.user.login) || comment.user.login.toLowerCase() !== owner.toLowerCase()) return false
+  const body = comment.body ?? ''
+  if (hasMarker(body)) return false
+  return startsWithCommand(body)
+}
+
+/** The instruction text after the `/jecbot` prefix. */
 export function instructionText(body: string): string {
-  return body.trimStart().replace(/^@agent(?![\w-])[\s:：,，]*/i, '').trim()
+  return body.trimStart().replace(/^\/jecbot(?=\s|$)/, '').trim()
 }
 
 export function isOwnerGoLabel(event: GhIssueEvent, owner: string): boolean {
@@ -353,6 +398,8 @@ export interface ChildDirs {
   dshHome: string
   /** Per-task npm cache. */
   npmCache: string
+  /** Git author/committer environment (the App's bot user); absent = the host's git identity. */
+  identity?: Record<string, string>
 }
 
 /** Environment for dsh and gate commands: no GitHub or other credentials, agent-only DSH_HOME and npm cache. */
@@ -364,6 +411,7 @@ export function scrubEnv(env: NodeJS.ProcessEnv, dirs: ChildDirs): Record<string
     if (/^npm_config_/i.test(key)) continue
     if (SECRET_NAME.test(key)) continue
     if (key === 'SSH_AUTH_SOCK' || key === 'GIT_ASKPASS' || key === 'SSH_ASKPASS' || key === 'DSH_HOME') continue
+    if (/^GIT_(AUTHOR|COMMITTER)_/.test(key)) continue
     out[key] = value
   }
   out.GH_CONFIG_DIR = dirs.ghConfigDir
@@ -372,6 +420,7 @@ export function scrubEnv(env: NodeJS.ProcessEnv, dirs: ChildDirs): Record<string
   out.TMPDIR = '/tmp'
   out.GIT_TERMINAL_PROMPT = '0'
   out.DSH_PERMISSION_MODE = 'danger-full-access'
+  Object.assign(out, dirs.identity ?? {})
   return out
 }
 
@@ -459,7 +508,7 @@ function trustTag(author: string, owner: string): string {
 export function renderThread(input: Pick<PromptInput, 'owner' | 'title' | 'body' | 'author' | 'entries'>): string {
   const lines = [`标题：${input.title}`, '', `--- 正文，作者 ${trustTag(input.author, input.owner)} ---`, input.body.trim() || '（空）']
   for (const entry of input.entries) {
-    const who = hasMarker(entry.body) ? `${entry.author}（本服务之前代发的 agent 回复）` : trustTag(entry.author, input.owner)
+    const who = hasMarker(entry.body) || isBot(entry.author) ? `${entry.author}（本服务之前代发的 agent 回复）` : trustTag(entry.author, input.owner)
     lines.push('', `--- 评论，作者 ${who}${entry.createdAt ? `，${entry.createdAt}` : ''} ---`, entry.body.replace(MARKER, '').trim())
   }
   return lines.join('\n')

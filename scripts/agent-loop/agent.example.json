@@ -16,5 +16,9 @@
   ],
   "pollSeconds": 60,
   "dshHome": "~/.local/share/paseo-dsh-direct/dsh-home",
-  "credentials": "~/.dsh/.credentials.yaml"
+  "credentials": "~/.dsh/.credentials.yaml",
+  "app": {
+    "id": 123456,
+    "privateKeyPath": "~/.config/paseo-dsh-direct/agent-app.pem"
+  }
 }

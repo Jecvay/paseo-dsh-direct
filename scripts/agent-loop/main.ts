@@ -40,6 +40,7 @@ import {
   scanBoard,
   scanComments,
   scanEvents,
+  sandboxHidden,
   scrubEnv,
   selectDsh,
   stageAfterReply,
@@ -53,6 +54,7 @@ import {
   type ThreadEntry,
   type Trigger,
 } from './core.ts'
+import { TokenCache, botIdentity, botLogin, identityEnv, parseInstallationToken, pushAuth, signAppJwt } from './app-auth.ts'
 
 const HOME = homedir()
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -157,10 +159,59 @@ function git(args: string[], cwd = REPO_ROOT): RunResult {
 
 let config: LoopConfig
 
+/**
+ * The GitHub App the bot acts as. Everything the bot says or does (comments,
+ * label removal, pushes, PRs) uses its installation token; reads and board
+ * moves use the owner's gh login. Undefined = no `app` in agent.json, so
+ * everything runs as the owner (fallback).
+ */
+interface AppRuntime { tokens: TokenCache; identity: Record<string, string>; login: string }
+let app: AppRuntime | undefined
+
+/**
+ * A GitHub REST call authenticated with a bearer credential. The credential
+ * goes to curl on stdin as a header file, never on a command line.
+ */
+function bearerApi(method: string, path: string, bearer: string, body?: unknown): string {
+  const args = ['-sS', '--fail-with-body', '--max-time', '30', '-X', method, '-H', '@-']
+  if (body !== undefined) args.push('--data-binary', JSON.stringify(body))
+  args.push(`https://api.github.com/${path}`)
+  const headers = `Authorization: Bearer ${bearer}\nAccept: application/vnd.github+json\nX-GitHub-Api-Version: 2022-11-28\n`
+  const result = run('curl', args, { input: headers, timeout: 60_000 })
+  if (result.status !== 0) throw new Error(`GitHub API ${method} ${path} 失败（curl 退出码 ${result.status}）：${(result.stdout || result.stderr).trim().slice(0, 500)}`)
+  return result.stdout
+}
+
+function setupApp(): void {
+  if (!config.app) {
+    say('警告：agent.json 没有 app 配置，评论、推送和 PR 都用 owner 的 gh 身份')
+    return
+  }
+  const { id, privateKeyPath, slug } = config.app
+  const key = readFileSync(privateKeyPath, 'utf8')
+  const jwt = (): string => signAppJwt(id, key, Date.now() / 1000)
+  const installation = (JSON.parse(bearerApi('GET', `repos/${config.repo}/installation`, jwt())) as { id: number }).id
+  const repoName = config.repo.split('/')[1]
+  const tokens = new TokenCache(() => parseInstallationToken(
+    bearerApi('POST', `app/installations/${installation}/access_tokens`, jwt(), { repositories: [repoName] }),
+  ))
+  tokens.get()
+  const login = botLogin(slug)
+  const userId = Number(gh(['api', `users/${encodeURIComponent(login)}`, '--jq', '.id'], `查 ${login} 的用户 id`).trim())
+  if (!Number.isInteger(userId) || userId <= 0) throw new Error(`查不到 ${login} 的用户 id`)
+  app = { tokens, identity: identityEnv(botIdentity(slug, userId)), login }
+  say(`以 GitHub App ${slug}（App ID ${id}，installation ${installation}）身份发言和推送，提交作者 ${app.identity.GIT_AUTHOR_NAME} <${app.identity.GIT_AUTHOR_EMAIL}>`)
+}
+
+/** Environment for a gh call that acts as the bot (installation token in GH_TOKEN), or undefined when there is no App. */
+function botEnv(): NodeJS.ProcessEnv | undefined {
+  return app ? { ...process.env, GH_TOKEN: app.tokens.get() } : undefined
+}
+
 /** gh with a short retry on GitHub 5xx / connection errors; anything else fails at once. */
-function gh(args: string[], what: string): string {
+function gh(args: string[], what: string, env?: NodeJS.ProcessEnv): string {
   for (let attempt = 1; ; attempt++) {
-    const result = run('gh', args)
+    const result = run('gh', args, { env })
     const transient = /HTTP 5\d\d|Server Error|timeout|connection reset|EOF/i.test(result.stderr)
     if (result.status === 0 || !transient || attempt >= 3) return must(result, what)
     say(`${what} 遇到 GitHub 临时错误，${attempt * 5} 秒后重试：${result.stderr.trim().slice(0, 200)}`)
@@ -192,8 +243,17 @@ function moveCard(number: number | undefined, stage: string, log: (m: string) =>
 }
 
 function comment(number: number, body: string): string {
-  const out = gh(['api', `repos/${config.repo}/issues/${number}/comments`, '-f', `body=${withMarker(body)}`, '--jq', '.html_url'], `评论 #${number}`)
+  const out = gh(['api', `repos/${config.repo}/issues/${number}/comments`, '-f', `body=${withMarker(body)}`, '--jq', '.html_url'], `评论 #${number}`, botEnv())
   return out.trim()
+}
+
+/** Push from the service's own repo: as the App over https when there is one, else over origin as the owner. */
+function pushBranch(ref: string, branch: string): void {
+  const refspec = `${ref}:refs/heads/${branch}`
+  if (!app) { must(git(['push', '--quiet', '--no-verify', 'origin', refspec]), 'git push'); return }
+  const auth = pushAuth(app.tokens.get())
+  const args = ['-c', 'core.hooksPath=/dev/null', ...auth.config, 'push', '--quiet', '--no-verify', `https://github.com/${config.repo}.git`, refspec]
+  must(run('git', args, { env: { ...process.env, ...auth.env } }), 'git push')
 }
 
 // ---------- polling ----------
@@ -291,7 +351,7 @@ function poll(state: LoopState): void {
 interface Box { writable: string[]; dshHome: string; npmCache: string }
 
 function hiddenPaths(): { path: string; isDir: boolean }[] {
-  return config.hidePaths
+  return sandboxHidden(config)
     .filter((p) => existsSync(p))
     .map((p) => ({ path: p, isDir: statSync(p).isDirectory() }))
 }
@@ -312,7 +372,7 @@ function sandboxArgv(command: string[], cwd: string, box: Box): string[] {
 
 function boxEnv(box: Box): Record<string, string> {
   mkdirSync(EMPTY_GH_DIR, { recursive: true })
-  return scrubEnv(process.env, { ghConfigDir: EMPTY_GH_DIR, dshHome: box.dshHome, npmCache: box.npmCache })
+  return scrubEnv(process.env, { ghConfigDir: EMPTY_GH_DIR, dshHome: box.dshHome, npmCache: box.npmCache, identity: app?.identity })
 }
 
 function runSandboxed(command: string[], cwd: string, box: Box, timeout: number): RunResult {
@@ -502,7 +562,7 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
   const cardIssue = info.isPr ? thread.issue : trigger.number
   const previousStage = cardIssue ? stageOf(cardIssue) : null
   comment(trigger.number, `收到，开始。日志编号 \`${id}\`。`)
-  if (trigger.source === 'label') run('gh', ['api', '-X', 'DELETE', `repos/${config.repo}/issues/${trigger.number}/labels/${encodeURIComponent(GO_LABEL)}`])
+  if (trigger.source === 'label') run('gh', ['api', '-X', 'DELETE', `repos/${config.repo}/issues/${trigger.number}/labels/${encodeURIComponent(GO_LABEL)}`], { env: botEnv() })
   moveCard(cardIssue, '进行中', log)
 
   // Stable per-thread path: a dsh session's cwd cannot change between follow-ups.
@@ -588,10 +648,10 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
 
     switch (outcome.kind) {
       case 'failed':
-        report(`任务没完成：${outcome.reason}。${newCommits > 0 ? `有 ${newCommits} 个提交没有推送。` : ''}同一条指令不会自动重试，要重来请再发一次 \`@agent ...\`。\n\n${sessionLine}。`, '受阻')
+        report(`任务没完成：${outcome.reason}。${newCommits > 0 ? `有 ${newCommits} 个提交没有推送。` : ''}同一条指令不会自动重试，要重来请再发一次 \`/jecbot ...\`。\n\n${sessionLine}。`, '受阻')
         return
       case 'blocked':
-        report(`**需要你拍板**（回复 \`@agent ...\` 后接着同一个会话继续）：\n\n${outcome.question}${outcome.reply ? `\n\n---\n\n${outcome.reply}` : ''}\n\n${sessionLine}。`, '受阻')
+        report(`**需要你拍板**（回复 \`/jecbot ...\` 后接着同一个会话继续）：\n\n${outcome.question}${outcome.reply ? `\n\n---\n\n${outcome.reply}` : ''}\n\n${sessionLine}。`, '受阻')
         return
       case 'no-output':
         report(`dsh 正常结束，但既没有提交也没有写 \`.agent-out/reply.md\`，不知道结果是什么。\n\n${sessionLine}。`, '受阻')
@@ -612,7 +672,7 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
     }
     // Everything below runs in the service's own repo, never in the dsh-writable clone.
     const commits = git(['log', '--reverse', '--format=- %h %s', `${start.compareSha}..${agentRef}`]).stdout.trim()
-    must(git(['push', '--quiet', '--no-verify', 'origin', `${agentRef}:refs/heads/${branch}`]), 'git push')
+    pushBranch(agentRef, branch)
     log(`已推送 ${branch}：\n${commits}`)
     const tested = gates.map((g) => `- \`npm run ${g.name}\` 通过${g.summary ? `（${g.summary}）` : ''}`).join('\n')
 
@@ -625,7 +685,7 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
       ].join('\n'))
       const bodyPath = join(LOG_DIR, `${id}.pr-body.md`)
       writeFileSync(bodyPath, body)
-      const url = gh(['pr', 'create', '--repo', config.repo, '--base', base, '--head', branch, '--title', title, '--body-file', bodyPath], '开 PR').trim().split('\n').pop()!
+      const url = gh(['pr', 'create', '--repo', config.repo, '--base', base, '--head', branch, '--title', title, '--body-file', bodyPath], '开 PR', botEnv()).trim().split('\n').pop()!
       const prNumber = Number(url.match(/\/pull\/(\d+)/)?.[1])
       if (prNumber) { thread.pr = prNumber; state.prThreads[String(prNumber)] = key }
       log(`已开 PR ${url}`)
@@ -654,7 +714,7 @@ function recoverInterrupted(state: LoopState): void {
   const { trigger, logId: id } = state.running
   say(`上次的任务 ${trigger.id} 被中断（日志编号 ${id}），不自动重试`)
   try {
-    comment(trigger.number, `服务重启，这条指令的任务被中断了，没有完成。同一条指令不会自动重试，要重来请再发一次 \`@agent ...\`。\n\n日志编号 \`${id}\`。`)
+    comment(trigger.number, `服务重启，这条指令的任务被中断了，没有完成。同一条指令不会自动重试，要重来请再发一次 \`/jecbot ...\`。\n\n日志编号 \`${id}\`。`)
   } catch (error) {
     say(`报告中断失败：${String(error)}`)
   }
@@ -669,6 +729,7 @@ async function main(): Promise<void> {
   for (const dir of [SERVICE_DIR, LOG_DIR, WORKTREE_DIR, TASK_DIR]) mkdirSync(dir, { recursive: true })
   acquireLock()
   config = parseConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf8')), HOME)
+  setupApp()
   say(`启动：仓库 ${config.repo}，owner ${config.owner}，dsh 线 ${Object.keys(config.dsh).join('/')}，DSH_HOME ${config.dshHome}/<线>${config.onlyLabel ? `，只处理带 ${config.onlyLabel} 标签的` : ''}，每 ${config.pollSeconds} 秒轮询`)
   const state = loadState()
   recoverInterrupted(state)
