@@ -318,6 +318,8 @@ export interface DshRunSummary {
   sessionId?: string
   finalText?: string
   turnEnd?: string
+  /** Message of the error the last turn_end reported, when it carried one. */
+  turnEndError?: string
   errors: string[]
 }
 
@@ -337,8 +339,12 @@ export function parseDshEvents(jsonl: string): DshRunSummary {
     else if (event.type === 'final' && typeof event.text === 'string') summary.finalText = event.text
     else if (event.type === 'error') summary.errors.push(typeof event.message === 'string' ? event.message : JSON.stringify(event))
     else if (event.type === 'status' && event.phase === 'turn_end') {
-      const reason = event.reason as { kind?: string } | undefined
+      const reason = event.reason as { kind?: string; error?: { message?: unknown } } | undefined
       summary.turnEnd = reason?.kind
+      if (reason?.kind === 'error') {
+        const message = reason?.error?.message
+        if (typeof message === 'string' && message.trim()) summary.turnEndError = message
+      } else delete summary.turnEndError // a later turn_end that succeeded clears an earlier error
     }
   }
   return summary
@@ -356,10 +362,16 @@ export interface RunFacts {
   reply?: string
   prTitle?: string
   blocked?: string
+  /** Kind of dsh's last turn_end event ('error' = the model turn failed). */
+  turnEnd?: string
+  /** Error message that turn_end carried, when it has one. */
+  turnEndError?: string
+  /** Tail of dsh's own stderr, kept separately from the service log. */
+  stderrTail?: string
 }
 
 export type Outcome =
-  | { kind: 'failed'; reason: string }
+  | { kind: 'failed'; reason: string; cause?: string; rateLimited?: boolean }
   | { kind: 'blocked'; question: string; reply?: string }
   | { kind: 'push'; reply: string; prTitle?: string }
   | { kind: 'reply'; reply: string }
@@ -371,9 +383,14 @@ const clean = (text: string | undefined): string | undefined => {
 }
 
 export function decideOutcome(facts: RunFacts): Outcome {
-  if (facts.killedFor === 'timeout') return { kind: 'failed', reason: '超过 60 分钟时限，已被终止' }
-  if (facts.killedFor === 'reply-timeout') return { kind: 'failed', reason: '15 分钟内既没有改动代码也没有写完回复，已被终止' }
-  if (facts.exitCode !== 0) return { kind: 'failed', reason: `dsh 异常退出（退出码 ${facts.exitCode}）` }
+  if (facts.killedFor === 'timeout') return { kind: 'failed', reason: '这次运行超过了 60 分钟的上限，服务把它终止了' }
+  if (facts.killedFor === 'reply-timeout') return { kind: 'failed', reason: '15 分钟内既没有改动代码也没有写完回复，服务把它终止了' }
+  if (facts.exitCode !== 0 || facts.turnEnd === 'error') {
+    const base = facts.exitCode === 0 ? 'dsh 结束时报告了错误' : `dsh 异常退出（退出码 ${facts.exitCode}）`
+    const rateLimited = isRateLimited(failureSource(facts))
+    // Conclusion first: the quota line is the cause a human can act on, the exit is just the mechanism.
+    return { kind: 'failed', reason: rateLimited ? `服务调用模型的额度用完了，${base}` : base, cause: failureCause(facts), rateLimited }
+  }
   const blocked = clean(facts.blocked)
   const reply = clean(facts.reply)
   if (blocked) return { kind: 'blocked', question: blocked, reply }
@@ -385,6 +402,71 @@ export function decideOutcome(facts: RunFacts): Outcome {
 /** Card stage after a reply-only task: keep 待审 cards there, everything else waits for a human in 已评估. */
 export function stageAfterReply(previous: string | null): string {
   return previous === '待审' ? '待审' : '已评估'
+}
+
+// ---------- failure cause ----------
+
+/** Longest stretch of dsh output quoted as a failure cause. */
+export const CAUSE_MAX_CHARS = 500
+
+/** Lines of dsh stderr quoted when turn_end carried no message. */
+export const STDERR_CAUSE_LINES = 5
+
+/** `sk-…` tokens and URLs never reach an issue comment. */
+export function redact(text: string): string {
+  return text
+    .replace(/https?:\/\/[^\s"'<>)\]]+/gi, '<redacted>')
+    .replace(/sk-[A-Za-z0-9._-]*[A-Za-z0-9_-]/g, '<redacted>')
+}
+
+/** True when the failure text smells of model-provider rate limiting (HTTP 429 / RATE_LIMIT). */
+export function isRateLimited(text: string): boolean {
+  return /\b429\b|RATE_LIMIT/i.test(text)
+}
+
+/** The dsh output a failure comment quotes: turn_end's error message, else the last stderr lines. */
+export function failureSource(facts: Pick<RunFacts, 'turnEndError' | 'stderrTail'>): string {
+  return facts.turnEndError?.trim() || tail(facts.stderrTail ?? '', STDERR_CAUSE_LINES).trim()
+}
+
+/**
+ * Plain-language line for a rate-limited run, naming the reset time when the
+ * error carries one so the human does not have to dig through the quote.
+ */
+export function rateLimitHint(source: string): string {
+  const reset = source.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)?.[0]
+  return reset
+    ? `限额将在 ${reset} 重置，到点后再发一次 \`/jecbot ...\`。`
+    : '等限额重置后再发一次 `/jecbot ...`。'
+}
+
+/**
+ * Failure cause for a comment: dsh's own words in a code block — the turn_end
+ * error message when there is one, else the last stderr lines — redacted and
+ * clipped to CAUSE_MAX_CHARS, plus the rate-limit hint when it applies.
+ */
+export function failureCause(facts: Pick<RunFacts, 'turnEndError' | 'stderrTail'>): string | undefined {
+  const source = failureSource(facts)
+  if (!source) return undefined
+  const quote = redact(source)
+  const parts = ['````', quote.slice(0, CAUSE_MAX_CHARS), '````']
+  if (quote.length > CAUSE_MAX_CHARS) parts.push('', '（报错更长，已截断）')
+  if (isRateLimited(source)) parts.push('', rateLimitHint(source))
+  return parts.join('\n')
+}
+
+/** Body of the failure comment; the service appends the session and log-id lines. */
+export function failedReport(outcome: Extract<Outcome, { kind: 'failed' }>, newCommits: number): string {
+  const parts = [`任务没完成：${outcome.reason}。`]
+  if (newCommits > 0) parts.push(`有 ${newCommits} 个提交没有推送。`)
+  if (outcome.cause) parts.push(`失败原因（dsh 报的原始错误，原样贴出便于排查）：\n\n${outcome.cause}`)
+  // A rate-limited run already says, in the cause, to re-send /jecbot after the reset.
+  if (!outcome.rateLimited) {
+    parts.push(outcome.cause
+      ? '同一条指令不会自动重试，可以先重发一次 `/jecbot ...` 试试；连着失败，就按评论末尾的日志编号翻完整日志。'
+      : '同一条指令不会自动重试，要重来请再发一次 `/jecbot ...`。')
+  }
+  return parts.join('\n\n')
 }
 
 // ---------- child environment and sandbox ----------

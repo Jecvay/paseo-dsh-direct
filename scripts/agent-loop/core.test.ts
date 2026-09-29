@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
+  CAUSE_MAX_CHARS,
   MARKER,
   OUT_MAX_BYTES,
   clipOut,
+  failureCause,
+  failedReport,
   isInside,
+  isRateLimited,
+  redact,
   baseBranchFor,
   buildPrompt,
   bwrapArgv,
@@ -32,6 +38,7 @@ import {
   withMarker,
   type GhComment,
   type GhIssueEvent,
+  type Outcome,
 } from './core.ts'
 
 const OWNER = 'Jecvay'
@@ -42,6 +49,15 @@ const comment = (id: number, login: string | null, body: string, issue = 7): GhC
   issue_url: `https://api.github.com/repos/Jecvay/paseo-dsh-direct/issues/${issue}`,
   html_url: `https://github.com/Jecvay/paseo-dsh-direct/issues/${issue}#issuecomment-${id}`,
 })
+
+/** A fixture file shipped next to this test. */
+const fixture = (name: string): string => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
+
+/** The failed variant of Outcome, asserted to be one. */
+const failed = (outcome: Outcome): Extract<Outcome, { kind: 'failed' }> => {
+  assert.equal(outcome.kind, 'failed')
+  return outcome as Extract<Outcome, { kind: 'failed' }>
+}
 
 describe('isOwnerInstruction', () => {
   it('accepts an owner comment that starts with /jecbot', () => {
@@ -263,6 +279,28 @@ describe('parseDshEvents', () => {
     ].join('\n')
     assert.deepEqual(parseDshEvents(jsonl), { sessionId: 'session-abc', finalText: 'OK', turnEnd: 'completed', errors: [] })
   })
+
+  it('keeps the error message of a failed turn_end', () => {
+    const jsonl = [
+      '{"type":"session","sessionId":"session-abc","cwd":"/w"}',
+      '{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"429 over quota","code":"RATE_LIMIT"}}}',
+      '{"type":"final","text":""}',
+    ].join('\n')
+    assert.deepEqual(parseDshEvents(jsonl), { sessionId: 'session-abc', finalText: '', turnEnd: 'error', turnEndError: '429 over quota', errors: [] })
+  })
+
+  it('leaves turnEndError unset when the error carries no usable message', () => {
+    const jsonl = ['{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"code":"RATE_LIMIT"}}}'].join('\n')
+    assert.deepEqual(parseDshEvents(jsonl), { turnEnd: 'error', errors: [] })
+  })
+
+  it('clears turnEndError when a later turn_end succeeds', () => {
+    const jsonl = [
+      '{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"429 over quota"}}}',
+      '{"type":"status","phase":"turn_end","turn":2,"reason":{"kind":"completed"}}',
+    ].join('\n')
+    assert.deepEqual(parseDshEvents(jsonl), { turnEnd: 'completed', errors: [] })
+  })
 })
 
 describe('decideOutcome', () => {
@@ -270,6 +308,27 @@ describe('decideOutcome', () => {
     assert.equal(decideOutcome({ exitCode: null, killedFor: 'timeout', newCommits: 2 }).kind, 'failed')
     assert.equal(decideOutcome({ exitCode: null, killedFor: 'reply-timeout', newCommits: 0 }).kind, 'failed')
     assert.equal(decideOutcome({ exitCode: 1, newCommits: 0, reply: 'x' }).kind, 'failed')
+  })
+
+  it('fails with the quoted cause and names the quota when dsh crashes on a 429', () => {
+    const outcome = failed(decideOutcome({ exitCode: 1, newCommits: 0, turnEnd: 'error', turnEndError: '429 已达到 5 小时的使用上限。您的限额将在 2026-09-29 23:16:49 重置。', reply: '半截回复' }))
+    assert.equal(outcome.reason, '服务调用模型的额度用完了，dsh 异常退出（退出码 1）')
+    assert.equal(outcome.rateLimited, true)
+    assert.match(outcome.cause!, /````\n429 已达到 5 小时的使用上限/)
+    assert.match(outcome.cause!, /限额将在 2026-09-29 23:16:49 重置，到点后再发一次 `\/jecbot \.\.\.`。/)
+  })
+
+  it('fails when the last turn ended in error, even with exit code 0 and commits', () => {
+    const outcome = failed(decideOutcome({ exitCode: 0, newCommits: 1, turnEnd: 'error', turnEndError: 'boom' }))
+    assert.equal(outcome.reason, 'dsh 结束时报告了错误')
+    assert.equal(outcome.rateLimited, false)
+    assert.match(outcome.cause!, /boom/)
+  })
+
+  it('carries no cause when there is nothing to quote', () => {
+    const outcome = failed(decideOutcome({ exitCode: null, killedFor: 'timeout', newCommits: 0 }))
+    assert.equal(outcome.cause, undefined)
+    assert.match(outcome.reason, /服务把它终止了/)
   })
 
   it('prefers blocked.md over commits and replies', () => {
@@ -289,6 +348,115 @@ describe('decideOutcome', () => {
     assert.equal(stageAfterReply('待审'), '待审')
     assert.equal(stageAfterReply('待办'), '已评估')
     assert.equal(stageAfterReply(null), '已评估')
+  })
+})
+
+describe('failure cause', () => {
+  it('quotes the turn_end error message, not the stderr', () => {
+    const cause = failureCause({ turnEndError: 'ECONNREFUSED connection refused', stderrTail: 'line that must not appear' })
+    assert.match(cause!, /^````\nECONNREFUSED connection refused\n````$/)
+    assert.ok(!cause!.includes('must not appear'))
+  })
+
+  it('falls back to the last stderr lines when turn_end has no message', () => {
+    const stderr = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'].join('\n')
+    const cause = failureCause({ stderrTail: stderr })
+    assert.match(cause!, /````\nthree\nfour\nfive\nsix\nseven\n````/)
+    assert.ok(!cause!.includes('one\n'))
+  })
+
+  it('detects rate limiting, and only rate limiting', () => {
+    assert.equal(isRateLimited('dsh: RATE_LIMIT: 429 {"type":"error"}'), true)
+    assert.equal(isRateLimited('HTTP 429 Too Many Requests'), true)
+    assert.equal(isRateLimited('error 14295 somewhere in an id'), false)
+    assert.equal(isRateLimited('500 Internal Server Error'), false)
+  })
+
+  it('adds the plain-language hint only for a rate limit, with the reset time when there is one', () => {
+    assert.ok(failureCause({ turnEndError: 'dsh: RATE_LIMIT: 429 已达到使用上限。您的限额将在 2026-09-29 23:16:49 重置。' })!.includes('限额将在 2026-09-29 23:16:49 重置'))
+    assert.ok(failureCause({ stderrTail: 'HTTP 429 Too Many Requests' })!.includes('等限额重置后再发一次 `/jecbot ...`'))
+    const other = failureCause({ turnEndError: '500 Internal Server Error' })!
+    assert.ok(!other.includes('限额'))
+    assert.ok(!other.includes('额度'))
+  })
+
+  it('redacts sk- tokens and URLs from whatever is quoted', () => {
+    assert.equal(redact('see (https://x.example/y) and key sk-deadbeef99.'), 'see (<redacted>) and key <redacted>.')
+    assert.equal(redact('GET https://api.example.com/v1?key=sk-abc123.DEF failed'), 'GET <redacted> failed')
+    const cause = failureCause({ turnEndError: 'GET https://api.example.com/v1?key=sk-abc123XYZ failed' })!
+    assert.ok(cause.includes('<redacted>'), cause)
+    assert.ok(!cause.includes('sk-abc123XYZ'))
+    assert.ok(!cause.includes('api.example.com'))
+  })
+
+  it('caps the quoted cause at 500 characters', () => {
+    const cause = failureCause({ turnEndError: `x${'a'.repeat(600)}` })!
+    const quoted = cause.match(/````\n([\s\S]*?)\n````/)?.[1]
+    assert.ok(quoted !== undefined)
+    assert.ok(quoted.length <= CAUSE_MAX_CHARS)
+    assert.ok(cause.includes('已截断'))
+  })
+})
+
+describe('failedReport', () => {
+  it('says the quota ran out up front and keeps the retry advice out of the rate-limit case', () => {
+    const outcome = failed(decideOutcome({ exitCode: 1, newCommits: 0, turnEndError: '429 已达到使用上限。您的限额将在 2026-09-29 23:16:49 重置。' }))
+    const rate = failedReport(outcome, 0)
+    assert.ok(rate.startsWith('任务没完成：服务调用模型的额度用完了，dsh 异常退出（退出码 1）。'), rate)
+    assert.ok(rate.includes('失败原因（dsh 报的原始错误，原样贴出便于排查）：'))
+    assert.ok(rate.includes('限额将在 2026-09-29 23:16:49 重置，到点后再发一次 `/jecbot ...`。'))
+    assert.ok(!rate.includes('不会自动重试'))
+  })
+
+  it('points repeated failures at the log id for any other quoted error', () => {
+    const outcome = failed(decideOutcome({ exitCode: 1, newCommits: 0, turnEndError: 'ECONNREFUSED connection refused' }))
+    const plain = failedReport(outcome, 0)
+    assert.ok(plain.includes('同一条指令不会自动重试，可以先重发一次 `/jecbot ...` 试试；连着失败，就按评论末尾的日志编号翻完整日志。'))
+    assert.ok(!plain.includes('限额'))
+  })
+
+  it('keeps the plain retry line when there is nothing to quote', () => {
+    const plain = failedReport({ kind: 'failed', reason: '这次运行超过了 60 分钟的上限，服务把它终止了' }, 2)
+    assert.ok(plain.includes('有 2 个提交没有推送。'))
+    assert.ok(plain.includes('同一条指令不会自动重试，要重来请再发一次 `/jecbot ...`。'))
+    assert.ok(!plain.includes('失败原因'))
+  })
+})
+
+describe('failure comment from the real #40 logs', () => {
+  const id = '20260929-223205-issue-40'
+
+  /** The comment main.ts posts: failedReport plus the session and log-id lines. */
+  const commentFor = (stderrTail?: string): string => {
+    const summary = parseDshEvents(fixture(`${id}.jsonl`))
+    const facts = { exitCode: 1, newCommits: 0, turnEnd: summary.turnEnd, turnEndError: summary.turnEndError, stderrTail }
+    return `${failedReport(failed(decideOutcome(facts)), 0)}\n\ndsh 0.2.0-rc.1，会话 \`${summary.sessionId}\`。\n\n日志编号 \`${id}\`。`
+  }
+
+  it('explains the rate limit from the turn_end event (primary source)', () => {
+    const text = commentFor('stderr that must lose to turn_end')
+    assert.ok(text.includes('额度'), text)
+    assert.ok(text.includes('23:16:49'), text)
+    assert.ok(!text.includes('https://'), text)
+    assert.ok(!text.includes('sk-'), text)
+    assert.ok(!text.includes('must lose'), text)
+  })
+
+  it('falls back to the dsh stderr line from the .log when turn_end has no message', () => {
+    // The .log interleaves the service's own `[timestamp]` lines with dsh's stderr;
+    // in production stderr is captured separately, so keep only dsh's lines here.
+    const stderr = fixture(`${id}.log`)
+      .split('\n')
+      .filter((line) => line && !/^\[\d{4}-\d{2}-\d{2}T/.test(line))
+      .join('\n')
+    assert.match(stderr, /^dsh: RATE_LIMIT: 429 /)
+    const summary = parseDshEvents(fixture(`${id}.jsonl`))
+    const text = `${failedReport(failed(decideOutcome({ exitCode: 1, newCommits: 0, turnEnd: 'error', stderrTail: stderr })), 0)}\n\ndsh 0.2.0-rc.1，会话 \`${summary.sessionId}\`。\n\n日志编号 \`${id}\`。`
+    assert.ok(text.includes('额度'), text)
+    assert.ok(text.includes('23:16:49'), text)
+    assert.ok(!text.includes('https://'), text)
+    assert.ok(!text.includes('sk-'), text)
+    assert.ok(!text.includes('issuecomment-'), text)
   })
 })
 

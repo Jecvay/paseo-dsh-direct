@@ -11,3 +11,6 @@ coverage/
 *.secret
 *.token
 .agent-out/
+# Real dsh run logs kept as test fixtures (scripts/agent-loop/core.test.ts).
+!scripts/agent-loop/fixtures/*.log
+!scripts/agent-loop/fixtures/*.jsonl
