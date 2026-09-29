@@ -1,6 +1,7 @@
 # 决策记录: GitHub 看板工单循环（agent 拉单，人拖单）
 
 Status: implemented
+Archived: 2026-09-29
 
 ## 问题
 
