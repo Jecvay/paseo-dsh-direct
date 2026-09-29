@@ -1,0 +1,6 @@
+{"type":"session","sessionId":"session-e904ae83-0c18-40d9-8f2c-2b0c22035f08","cwd":"/home/jecvay/.local/state/paseo-dsh-direct/agent/worktrees/issue-40"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":0,"outputTokens":0,"totalTokens":0}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"All credentials for model bm-an-glm are cooling down via provider claude (last error: [1308][已达到 5 小时的使用上限。您的限额将在 2026-09-29 23:16:49 重置。][20260929222327cc2f15b0d7ba4fc5])\"}}","code":"RATE_LIMIT"}}}
+{"type":"final","text":""}
