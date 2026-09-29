@@ -2,7 +2,8 @@
 # ~/.config/paseo-dsh-direct/dsh-headless.patch.yml, fill in the
 # placeholders, and point "patch" in agent.json at it. It is passed as
 # `dsh --profile headless --patch <file>` and works on the 0.1 and 0.2
-# lines. The API key comes from ~/.dsh/.credentials.yaml (apiKeyEnv).
+# lines. The API key comes from the agent DSH_HOME's .credentials.yaml
+# (~/.dsh/.credentials.yaml bound read-only into it; apiKeyEnv).
 # Permissions are not set here: the service runs dsh with
 # DSH_PERMISSION_MODE=danger-full-access inside bubblewrap.
 - id: agent-default-model

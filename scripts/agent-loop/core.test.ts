@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   MARKER,
+  OUT_MAX_BYTES,
+  clipOut,
+  isInside,
   baseBranchFor,
   buildPrompt,
   bwrapArgv,
@@ -193,8 +196,9 @@ describe('config', () => {
     assert.equal(cfg.dsh['0.2'], '/home/u/bin/dsh')
     assert.equal(cfg.patch, '/home/u/p.yml')
     assert.equal(cfg.owner, 'Jecvay')
-    assert.equal(cfg.sandbox, 'bwrap')
-    assert.deepEqual(cfg.hidePaths, ['/home/u/.config/gh', '/home/u/.ssh', '/home/u/.git-credentials'])
+    assert.deepEqual(cfg.hidePaths, ['/home/u/.config/gh', '/home/u/.ssh', '/home/u/.git-credentials', '/home/u/.npmrc', '/home/u/.netrc', '/home/u/.docker/config.json'])
+    assert.equal(cfg.dshHome, '/home/u/.local/share/paseo-dsh-direct/dsh-home')
+    assert.equal(cfg.credentials, '/home/u/.dsh/.credentials.yaml')
     assert.equal(cfg.onlyLabel, undefined)
     assert.equal(cfg.pollSeconds, 60)
   })
@@ -202,6 +206,12 @@ describe('config', () => {
   it('rejects malformed dsh maps', () => {
     assert.throws(() => parseConfig({}, '/h'), /dsh/)
     assert.throws(() => parseConfig({ dsh: { latest: '/x' } }, '/h'), /major\.minor/)
+  })
+
+  it('refuses to run without the sandbox or with the agent DSH_HOME inside ~/.dsh', () => {
+    assert.throws(() => parseConfig({ dsh: { '0.2': '/x' }, sandbox: 'none' }, '/h'), /bubblewrap/)
+    assert.throws(() => parseConfig({ dsh: { '0.2': '/x' }, dshHome: '~/.dsh' }, '/h'), /~\/\.dsh/)
+    assert.throws(() => parseConfig({ dsh: { '0.2': '/x' }, dshHome: '~/.dsh/agent' }, '/h'), /~\/\.dsh/)
   })
 })
 
@@ -246,27 +256,45 @@ describe('decideOutcome', () => {
 })
 
 describe('child environment', () => {
-  it('drops GitHub and other credentials and points gh at an empty config', () => {
+  it('drops GitHub and other credentials and points dsh, npm and gh at agent-only dirs', () => {
     const env = scrubEnv({
       PATH: '/usr/bin', HOME: '/home/u', GH_TOKEN: 'x', GITHUB_TOKEN: 'y', GH_HOST: 'z', NPM_TOKEN: 'n',
       AWS_SECRET_ACCESS_KEY: 's', SSH_AUTH_SOCK: '/tmp/agent', GH_CONFIG_DIR: '/home/u/.config/gh',
-    }, '/state/empty')
+      DSH_HOME: '/home/u/.dsh', npm_config_userconfig: '/home/u/.npmrc',
+    }, { ghConfigDir: '/state/empty', dshHome: '/agent/dsh-home/0.2', npmCache: '/state/tasks/t/npm-cache' })
     assert.deepEqual(env, {
-      PATH: '/usr/bin', HOME: '/home/u', GH_CONFIG_DIR: '/state/empty', GIT_TERMINAL_PROMPT: '0', DSH_PERMISSION_MODE: 'danger-full-access',
+      PATH: '/usr/bin', HOME: '/home/u', GH_CONFIG_DIR: '/state/empty', DSH_HOME: '/agent/dsh-home/0.2',
+      npm_config_cache: '/state/tasks/t/npm-cache', TMPDIR: '/tmp', GIT_TERMINAL_PROMPT: '0', DSH_PERMISSION_MODE: 'danger-full-access',
     })
   })
 
-  it('builds bwrap argv with read-only, writable and hidden mounts in order', () => {
+  it('builds bwrap argv: read-only root, private /tmp and pid namespace, only the listed paths writable', () => {
     const argv = bwrapArgv(['dsh', '--version'], {
-      readOnlyPaths: ['/repo'], writablePaths: ['/repo/.git'],
-      hidePaths: [{ path: '/h/.config/gh', isDir: true }, { path: '/h/.git-credentials', isDir: false }],
+      writable: ['/state/worktrees/issue-1', '/agent/dsh-home/0.2'],
+      readOnlyFiles: [{ src: '/h/.dsh/.credentials.yaml', dest: '/agent/dsh-home/0.2/.credentials.yaml' }],
+      hide: [{ path: '/h/.config/gh', isDir: true }, { path: '/h/.npmrc', isDir: false }],
+      cwd: '/state/worktrees/issue-1',
     })
     assert.deepEqual(argv, [
-      'bwrap', '--dev-bind', '/', '/', '--die-with-parent',
-      '--ro-bind', '/repo', '/repo', '--bind', '/repo/.git', '/repo/.git',
-      '--tmpfs', '/h/.config/gh', '--ro-bind', '/dev/null', '/h/.git-credentials',
-      '--', 'dsh', '--version',
+      'bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp', '--unshare-pid', '--die-with-parent',
+      '--bind', '/state/worktrees/issue-1', '/state/worktrees/issue-1', '--bind', '/agent/dsh-home/0.2', '/agent/dsh-home/0.2',
+      '--ro-bind', '/h/.dsh/.credentials.yaml', '/agent/dsh-home/0.2/.credentials.yaml',
+      '--tmpfs', '/h/.config/gh', '--ro-bind', '/dev/null', '/h/.npmrc',
+      '--chdir', '/state/worktrees/issue-1', '--', 'dsh', '--version',
     ])
+    // Nothing is writable except what is listed: the only rw binds are the explicit ones.
+    const rw = argv.flatMap((a, i) => (a === '--bind' || a === '--dev-bind' ? [argv[i + 1]] : []))
+    assert.deepEqual(rw, ['/state/worktrees/issue-1', '/agent/dsh-home/0.2'])
+  })
+
+  it('treats result files as bounded data', () => {
+    assert.equal(isInside('/w/.agent-out', '/w/.agent-out/reply.md'), true)
+    assert.equal(isInside('/w/.agent-out', '/home/u/.config/gh/hosts.yml'), false)
+    assert.equal(isInside('/w/.agent-out', '/w/.agent-out-evil/x'), false)
+    assert.equal(clipOut('短'), '短')
+    const long = 'a'.repeat(OUT_MAX_BYTES + 10)
+    assert.ok(Buffer.byteLength(clipOut(long)) < OUT_MAX_BYTES + 100)
+    assert.match(clipOut(long), /已截断/)
   })
 
   it('builds the dsh 0.2 headless argv, resuming when a session is known', () => {
