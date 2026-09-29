@@ -127,9 +127,9 @@
 
 ## 2026-09-26 — 向上游 dsh-pi-tui 提交官方 co-author 身份请求（issue #185）
 
-- 事件：本仓 commit 4ec1047（历史改写前为 a424601）携带 `Co-Authored-By: Claude` trailer，GitHub 据此把 Claude 列为 contributor；实际工具为 XMoon 的 dsh-pi-tui。GitHub co-author 头像只能由持有对应已验证邮箱的账号（个人或 App bot）渲染，组织不能验证邮箱，需上游发布官方身份。
+- 事件：本仓 commit 3a53bfb（历史改写前为 a424601、4ec1047）携带 `Co-Authored-By: Claude` trailer，GitHub 据此把 Claude 列为 contributor；实际工具为 XMoon 的 dsh-pi-tui。GitHub co-author 头像只能由持有对应已验证邮箱的账号（个人或 App bot）渲染，组织不能验证邮箱，需上游发布官方身份。
 - 操作：以 Jecvay 账号在 XMoon/dsh-pi-tui 提交 issue #185（英文），请求其注册官方账号并公布统一署名行；未要求实现方式。
-- 后续：上游若公布官方 trailer，本仓新 commit 采用之；此前不加 co-author trailer。既有 4ec1047（原 a424601）是否改写历史待定。
+- 后续：上游若公布官方 trailer，本仓新 commit 采用之；此前不加 co-author trailer。既有 3a53bfb（历史改写前为 a424601、4ec1047）是否改写历史待定。
 
 ## 2026-09-26 — GitHub 看板工单循环上线（Project + systemd 轮询）
 
@@ -152,7 +152,7 @@
 
 ## 2026-09-28 — PR #18 合并上线（插件改跑 paseo profile）
 
-- 20:45 左右 rebase 合并 PR #18 进 main（CI 两轮 pass），主工作树 ff 到 0461137（历史改写前为 3e7f0d0），`npm run build` 后 `paseo plugin reload paseo-dsh-pi`；reload 前 6 个 dsh-pi agent 均 idle。
+- 20:45 左右 rebase 合并 PR #18 进 main（CI 两轮 pass），主工作树 ff 到 0dd2fda（历史改写前为 3e7f0d0、0461137），`npm run build` 后 `paseo plugin reload paseo-dsh-pi`；reload 前 6 个 dsh-pi agent 均 idle。
 - 线上验收：`paseo provider models dsh-pi` 列出 10 个模型（CPA-an/CPA-rs 各 4 + deepseek-official 2），dsh 子进程以 `--profile paseo` 运行；真实 agent（bm-an-glm-flash）bash 工具调用 `uname -r` 输出与本机一致，四个 preset 均出现在模式列表。本机 permission 为 danger-full-access，CLI 无法切权限 preset，审批弹窗未在线上复测（桥层已验证）。测试 agent 已删除。
 - dsh 0.2.0-rc.1 当日发布但无法安装：`@deepseek-ai/dsh-web-app@0.2.0-rc.1` 依赖的 `@deepseek-ai/dsh-client-ui-settings-account@0.2.0-rc.1` 未发布（官方 registry 绕缓存查实，全树 252 包仅缺这一个），与本机 npm 源无关；未提上游 issue。
 
@@ -235,3 +235,11 @@
 - 实测：用 `main.ts --sandbox-probe` 跑和真实任务相同的沙箱，写 `~/.config/systemd/user`、`~/.dsh/profiles`、`$HOME`、服务 clone 的 `.git/config` 和代码、状态文件，读 `~/.config/gh/hosts.yml`、`~/.npmrc` 全部失败，写 worktree 和 agent DSH_HOME 成功。10:51 起临时加回 `onlyLabel: agent-test` 复测用例 1、2、6（#34–#37），测试 PR 已关闭并删分支、工单已关闭并移出看板、`agent-test` 标签已删。
 - 11:06 去掉 `onlyLabel`，重启服务，正常轮询。
 - 遗留：第一版跑测试工单时 dsh 用的是 `~/.dsh`，在 `~/.dsh/sessions/` 下留了 6 个 `--home-jecvay-.local-state-paseo-dsh-direct-agent-worktrees-issue-*--` 会话目录（10:09–10:39），按「不改 ~/.dsh」的约定没有删，需要时手动清理。
+
+## 2026-09-29 — 采用 dsh-pi-tui 官方署名，改写 main 线历史里的 Claude trailer
+
+- 上游：官方账号 `dsh-pi-tui`（ID 335136240，带头像与 bio）09-28 建立，09-29 在 issue XMoon/dsh-pi-tui#185 回复 "how about me?"；官方署名行定为 `Co-Authored-By: dsh-pi-tui <335136240+dsh-pi-tui@users.noreply.github.com>`，并已写进 AGENTS.md「给 agent 的约定」。
+- 溯源（Claude 怎么漏进来的）：dsh 包源码、git 钩子（仅 lefthook pre-commit）、git 配置（无 template）、会话日志（无 Claude 模型 ID）均无注入痕迹——trailer 是 agent 模型自己写进 commit message 的，模仿 Claude Code 署名习惯自报 "Claude Opus 5.5"/"Claude Sonnet 5"（模型名随会话变化，证明非固定注入）。
+- 改写：本仓 `git filter-repo --refs refs/heads/main + v0.1.1/v0.1.2/v0.2.0/v0.2.1` 只改 message：31 个提交的 `Co-Authored-By: Claude*` 替换为官方行；tip 4180f28→812ef9b、4ec1047→3a53bfb、v0.2.1（54beac7→1bd2030）；45 个提交数与全部 tag tree 校验一致。
+- 范围：按用户指示只做 main 线；`release/0.1`、`origin/agent-loop`（agent 服务 clone 的推送分支）及 v0.1.3/v0.1.4 两个 tag 未动，其上仍有旧 Claude trailer。
+- 影响：npm 包与 GitHub（无 Release 对象）不受影响；线上插件 checkout 仍钉旧 54beac7，下次 `paseo plugin update` 拉到改写后的 v0.2.1（tree 相同，无需重建）；`~/src/paseo-dsh-direct-live` worktree 仍 detach 在旧 54beac7，未动。备份：改写前三条分支完整历史在 `~/src/tmp-rewrite/paseo-dsh-direct-before-trailer-rewrite.bundle`，ref 清单同目录 `refs-before-trailer-rewrite.txt`。

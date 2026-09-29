@@ -78,5 +78,6 @@ grep -o 'https://www.npmjs.com/auth/cli/[a-z0-9-]*' /tmp/npm-publish.log
 - **仓外事件当时记**：发生 git 与部署流水线都查不到的事件（手工生产部署/回滚、外部服务配置变更、生产实测证据、跨仓协调），git 项目写 `.agents/ops-log.md`（文件不存在则在此时创建）；svn / 无版本控制项目写 `.agents/CHANGELOG.md`（全量事件史）。仓内改动不记日志——commit message 承担做了什么与验证结果。
 - **`docs/` 只写当前事实**：不写「以前如何、现在改成如何」，直接描述现在生效的机制。变更经过与理由的去向见「落点与查询」一节。
 - **提交检查自动执行（git 项目）**：本仓用 lefthook 挂 pre-commit 文档门禁（clone 后 `npm install` 完成安装；脚本在 `scripts/verify-*`，分工见 `lefthook.yml`），提交时自动跑笔记结构与文档链接检查。被拦＝骨架不合格，修好再提交；`--no-verify` 只在明确知情的紧急情况使用。svn / 无版本控制项目没有 git 钩子，门禁全靠本条约定执行。
+- **提交署名**：agent 会话写的 commit message 末尾加一行 `Co-Authored-By: dsh-pi-tui <335136240+dsh-pi-tui@users.noreply.github.com>`（上游 dsh-pi-tui 官方账号，issue XMoon/dsh-pi-tui#185）；禁止署 Claude/Anthropic 或自造身份——GitHub 会据此把无关方列为 contributor。
 - 若任务与本文件描述冲突，停下向用户确认。
 - 用户说「沉淀进本项目 harness / 文档 / skill」等时：核心原则/约定 → 更新本文件；细节/手册/踩坑 → `docs/<topic>.md` 并同步 `docs/README.md` 索引；决定与理由 → `.agents/notes/`；可复用流程 → `.agents/skills/<name>/`。
