@@ -2,8 +2,9 @@
  * GitHub-driven agent loop — the long-running service (systemd user unit
  * `paseo-dsh-direct-agent.service`). Every minute it asks GitHub for new
  * owner instructions, queues them, and runs them one at a time: a throwaway
- * worktree, a sandboxed `dsh --profile headless` run with no GitHub
- * credentials, then gates / push / PR / comments done here.
+ * clone, a sandboxed `dsh --profile headless` run (read-only host, no
+ * credentials), then the commits come back as a git bundle and gates /
+ * push / PR / comments are done here from the service's own repo.
  *
  * All decisions live in ./core.ts; this file only does I/O.
  * Mechanism and operations: docs/board.md.
@@ -15,14 +16,17 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, appendFileSync, openSync, closeSync } from 'node:fs'
+import { constants as fsConstants, existsSync, lstatSync, mkdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, appendFileSync, openSync, closeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   EMPTY_CURSOR,
   GO_LABEL,
   baseBranchFor,
+  OUT_MAX_BYTES,
   buildPrompt,
+  clipOut,
+  isInside,
   bwrapArgv,
   decideOutcome,
   dshArgv,
@@ -59,6 +63,7 @@ const STATE_FILE = join(SERVICE_DIR, 'state.json')
 const LOCK_FILE = join(SERVICE_DIR, 'lock')
 const LOG_DIR = join(STATE_DIR, 'logs')
 const WORKTREE_DIR = join(STATE_DIR, 'worktrees')
+const TASK_DIR = join(STATE_DIR, 'tasks')
 const EMPTY_GH_DIR = join(STATE_DIR, 'empty-gh-config')
 const ONCE = process.env.PASEO_AGENT_ONCE === '1'
 
@@ -152,8 +157,15 @@ function git(args: string[], cwd = REPO_ROOT): RunResult {
 
 let config: LoopConfig
 
+/** gh with a short retry on GitHub 5xx / connection errors; anything else fails at once. */
 function gh(args: string[], what: string): string {
-  return must(run('gh', args), what)
+  for (let attempt = 1; ; attempt++) {
+    const result = run('gh', args)
+    const transient = /HTTP 5\d\d|Server Error|timeout|connection reset|EOF/i.test(result.stderr)
+    if (result.status === 0 || !transient || attempt >= 3) return must(result, what)
+    say(`${what} 遇到 GitHub 临时错误，${attempt * 5} 秒后重试：${result.stderr.trim().slice(0, 200)}`)
+    spawnSync('sleep', [String(attempt * 5)])
+  }
 }
 
 function ghApiLines<T>(path: string, jq: string, paginate = false): T[] {
@@ -272,33 +284,50 @@ function poll(state: LoopState): void {
 
 // ---------- sandboxed child processes ----------
 
-function sandboxed(command: string[]): string[] {
-  if (config.sandbox === 'none') return command
-  const hide = config.hidePaths
+/**
+ * What one task's sandboxed processes may write. Everything else on the
+ * host is read-only inside bubblewrap, and credential files are hidden.
+ */
+interface Box { writable: string[]; dshHome: string; npmCache: string }
+
+function hiddenPaths(): { path: string; isDir: boolean }[] {
+  return config.hidePaths
     .filter((p) => existsSync(p))
     .map((p) => ({ path: p, isDir: statSync(p).isDirectory() }))
-  const readOnly = [...config.readOnlyPaths.filter((p) => existsSync(p)), REPO_ROOT, SERVICE_DIR]
-  return bwrapArgv(command, { hidePaths: hide, readOnlyPaths: readOnly, writablePaths: [join(REPO_ROOT, '.git')] })
 }
 
-function childEnv(): Record<string, string> {
+/** Agent DSH_HOME for one dsh line, with a placeholder the real credentials file is bound over. */
+function agentDshHome(line: string): string {
+  const home = join(config.dshHome, line)
+  mkdirSync(home, { recursive: true, mode: 0o700 })
+  const placeholder = join(home, '.credentials.yaml')
+  if (!existsSync(placeholder)) writeFileSync(placeholder, '', { mode: 0o600 })
+  return home
+}
+
+function sandboxArgv(command: string[], cwd: string, box: Box): string[] {
+  const readOnlyFiles = existsSync(config.credentials) ? [{ src: config.credentials, dest: join(box.dshHome, '.credentials.yaml') }] : []
+  return bwrapArgv(command, { writable: box.writable, readOnlyFiles, hide: hiddenPaths(), cwd })
+}
+
+function boxEnv(box: Box): Record<string, string> {
   mkdirSync(EMPTY_GH_DIR, { recursive: true })
-  return scrubEnv(process.env, EMPTY_GH_DIR)
+  return scrubEnv(process.env, { ghConfigDir: EMPTY_GH_DIR, dshHome: box.dshHome, npmCache: box.npmCache })
 }
 
-function runSandboxed(command: string[], cwd: string, timeout: number): RunResult {
-  const [cmd, ...args] = sandboxed(command)
-  return run(cmd, args, { cwd, env: childEnv(), timeout })
+function runSandboxed(command: string[], cwd: string, box: Box, timeout: number): RunResult {
+  const [cmd, ...args] = sandboxArgv(command, cwd, box)
+  return run(cmd, args, { cwd: '/', env: boxEnv(box), timeout })
 }
 
 let activeChild: ReturnType<typeof spawn> | undefined
 
 interface DshRun { exitCode: number | null; killedFor?: 'timeout' | 'reply-timeout'; jsonl: string }
 
-function runDsh(argv: string[], prompt: string, cwd: string, jsonlPath: string, logPath: string, startHead: string): Promise<DshRun> {
+function runDsh(argv: string[], prompt: string, cwd: string, box: Box, jsonlPath: string, logPath: string, startHead: string): Promise<DshRun> {
   return new Promise((resolvePromise) => {
-    const [cmd, ...args] = sandboxed(argv)
-    const child = spawn(cmd, args, { cwd, env: childEnv(), detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    const [cmd, ...args] = sandboxArgv(argv, cwd, box)
+    const child = spawn(cmd, args, { cwd: '/', env: boxEnv(box), detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
     activeChild = child
     let jsonl = ''
     let killedFor: DshRun['killedFor']
@@ -320,8 +349,9 @@ function runDsh(argv: string[], prompt: string, cwd: string, jsonlPath: string, 
       const elapsed = Date.now() - started
       if (elapsed > TASK_TIMEOUT_MS) kill('timeout')
       else if (elapsed > REPLY_TIMEOUT_MS && !killedFor) {
-        const head = git(['rev-parse', 'HEAD'], cwd).stdout.trim()
-        const dirty = git(['status', '--porcelain'], cwd).stdout.trim()
+        // The worktree is dsh-writable: inspect it only from inside the sandbox.
+        const head = runSandboxed(['git', 'rev-parse', 'HEAD'], cwd, box, 60_000).stdout.trim()
+        const dirty = runSandboxed(['git', 'status', '--porcelain'], cwd, box, 60_000).stdout.trim()
         if (head === startHead && !dirty) kill('reply-timeout')
       }
     }, 30_000)
@@ -335,9 +365,28 @@ function runDsh(argv: string[], prompt: string, cwd: string, jsonlPath: string, 
 
 // ---------- one task ----------
 
+/**
+ * Read a result file dsh left behind as plain data: a regular file directly
+ * under a real `.agent-out/` directory (no symlinks), clipped in size.
+ */
 function readOut(worktree: string, name: string): string | undefined {
-  const path = join(worktree, '.agent-out', name)
-  return existsSync(path) ? readFileSync(path, 'utf8') : undefined
+  const dir = join(worktree, '.agent-out')
+  try {
+    if (!lstatSync(dir).isDirectory()) return undefined
+    const path = join(dir, name)
+    if (!lstatSync(path).isFile()) return undefined
+    if (!isInside(realpathSync(dir), realpathSync(path))) return undefined
+    const fd = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW)
+    try {
+      const buffer = Buffer.alloc(OUT_MAX_BYTES + 1)
+      const size = readSync(fd, buffer, 0, buffer.length, 0)
+      return clipOut(buffer.subarray(0, size).toString('utf8'))
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
 }
 
 function threadEntries(number: number): ThreadEntry[] {
@@ -356,14 +405,74 @@ function reviewEntries(number: number): ThreadEntry[] {
   )
 }
 
+/** A fresh standalone clone (`--shared` with the service clone's objects) checked out at `sha`. */
+function freshClone(path: string, sha: string, branch: string | undefined): void {
+  rmSync(path, { recursive: true, force: true })
+  must(git(['clone', '--quiet', '--shared', '--no-checkout', REPO_ROOT, path]), '创建工作树')
+  must(git(branch ? ['checkout', '--quiet', '-B', branch, sha] : ['checkout', '--quiet', '--detach', sha], path), '检出工作树')
+  appendFileSync(join(path, '.git/info/exclude'), '\n.agent-out/\n')
+}
+
+const sha = (ref: string): string | undefined => {
+  const result = git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+  return result.status === 0 ? result.stdout.trim() : undefined
+}
+
+interface Start { startSha: string; compareSha: string; from: string }
+
+/**
+ * Where the task starts: this thread's unpushed commits (refs/agent/<key>)
+ * when they build on the remote branch, else the remote branch, else the base.
+ */
+function resolveStart(key: string, branch: string, base: string): Start {
+  const remote = sha(`refs/remotes/origin/${branch}`)
+  const compareSha = remote ?? sha(`refs/remotes/origin/${base}`)
+  if (!compareSha) throw new Error(`远端没有分支 ${base}`)
+  const agent = sha(`refs/agent/${key}`)
+  if (agent && agent !== compareSha && git(['merge-base', '--is-ancestor', compareSha, agent]).status === 0) {
+    return { startSha: agent, compareSha, from: `上次没推送的提交 refs/agent/${key}` }
+  }
+  return { startSha: compareSha, compareSha, from: remote ? `origin/${branch}` : `origin/${base}` }
+}
+
+const MAX_BUNDLE_BYTES = 200 * 1024 * 1024
+
+/**
+ * Carry dsh's commits out of the dsh-writable repo: a sandboxed
+ * `git bundle create`, then a fetch of that bundle into the service's own
+ * repo as refs/agent/<key>. Returns how many commits it has beyond compareSha.
+ */
+function collectCommits(worktree: string, outDir: string, box: Box, key: string, compareSha: string, log: (m: string) => void): number {
+  const agentRef = `refs/agent/${key}`
+  const bundle = join(outDir, 'work.bundle')
+  const made = runSandboxed(['git', 'bundle', 'create', bundle, 'HEAD', `^${compareSha}`], worktree, box, 5 * 60_000)
+  let stat
+  try { stat = lstatSync(bundle) } catch { stat = undefined }
+  if (!stat) {
+    log(`没有可收集的提交（git bundle：${tail(made.stderr, 3).trim()}）`)
+    git(['update-ref', '-d', agentRef])
+    return 0
+  }
+  if (!stat.isFile() || stat.size > MAX_BUNDLE_BYTES) throw new Error(`收集提交失败：bundle 不是普通文件或超过 ${MAX_BUNDLE_BYTES} 字节`)
+  must(git(['bundle', 'verify', '--quiet', bundle]), '校验 bundle')
+  must(git(['fetch', '--quiet', '--no-tags', bundle, `+HEAD:${agentRef}`]), '从 bundle 取回提交')
+  return Number(git(['rev-list', '--count', `${compareSha}..${agentRef}`]).stdout.trim() || '0')
+}
+
 interface Gate { name: string; ok: boolean; summary: string; output: string }
 
-function runGates(worktree: string, log: (m: string) => void): Gate[] {
-  const pkg = JSON.parse(readFileSync(join(worktree, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
-  const names = ['build', 'typecheck', 'test', 'verify:notes', 'verify:docs'].filter((n) => n !== 'build' || pkg.scripts?.build)
+/** Run the gates on a clean checkout of exactly the commit that will be pushed. */
+function runGates(gateDir: string, agentRef: string, box: Box, log: (m: string) => void): Gate[] {
+  // The gate clone has no refs/agent/*; check out the commit id (objects come via alternates).
+  const commit = sha(agentRef)
+  if (!commit) throw new Error(`找不到 ${agentRef}`)
+  freshClone(gateDir, commit, undefined)
+  const install = runSandboxed(['npm', 'ci', '--no-audit', '--no-fund'], gateDir, box, GATE_TIMEOUT_MS)
+  if (install.status !== 0) return [{ name: 'ci', ok: false, summary: '', output: `${install.stdout}\n${install.stderr}` }]
   const gates: Gate[] = []
-  for (const name of names) {
-    const result = runSandboxed(['npm', 'run', name], worktree, GATE_TIMEOUT_MS)
+  for (const name of ['build', 'typecheck', 'test', 'verify:notes', 'verify:docs']) {
+    const args = name === 'build' ? ['npm', 'run', '--if-present', name] : ['npm', 'run', name]
+    const result = runSandboxed(args, gateDir, box, GATE_TIMEOUT_MS)
     const output = `${result.stdout}\n${result.stderr}`
     const counts = name === 'test' ? output.match(/^(?:ℹ|#) (?:pass|fail) \d+$/gm)?.map((l) => l.slice(2)).join(', ') ?? '' : ''
     const gate = { name, ok: result.status === 0, summary: counts, output }
@@ -372,36 +481,6 @@ function runGates(worktree: string, log: (m: string) => void): Gate[] {
     if (!gate.ok) break
   }
   return gates
-}
-
-function prepareWorktree(path: string, branch: string, base: string, log: (m: string) => void): { start: string; compareRef: string } {
-  if (existsSync(path)) {
-    git(['worktree', 'remove', '--force', path])
-    rmSync(path, { recursive: true, force: true })
-  }
-  git(['worktree', 'prune'])
-  const remote = `origin/${branch}`
-  const hasRemote = git(['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}`]).status === 0
-  const hasLocal = git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).status === 0
-  const localAhead = hasLocal && (!hasRemote || git(['merge-base', '--is-ancestor', remote, branch]).status === 0)
-  if (localAhead) {
-    must(git(['worktree', 'add', path, branch]), '创建工作树')
-    log(`工作树 ${path}：沿用本地分支 ${branch}`)
-  } else {
-    const startPoint = hasRemote ? remote : `origin/${base}`
-    must(git(['worktree', 'add', '-B', branch, path, startPoint]), '创建工作树')
-    log(`工作树 ${path}：分支 ${branch} 从 ${startPoint} 拉出`)
-  }
-  const compareRef = hasRemote ? remote : `origin/${base}`
-  return { start: git(['rev-parse', 'HEAD'], path).stdout.trim(), compareRef }
-}
-
-function ensureExclude(): void {
-  const common = git(['rev-parse', '--git-common-dir']).stdout.trim()
-  const excludePath = resolve(REPO_ROOT, common, 'info/exclude')
-  mkdirSync(resolve(excludePath, '..'), { recursive: true })
-  const current = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : ''
-  if (!current.split('\n').includes('.agent-out/')) appendFileSync(excludePath, `${current.endsWith('\n') || !current ? '' : '\n'}.agent-out/\n`)
 }
 
 async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
@@ -426,7 +505,13 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
   if (trigger.source === 'label') run('gh', ['api', '-X', 'DELETE', `repos/${config.repo}/issues/${trigger.number}/labels/${encodeURIComponent(GO_LABEL)}`])
   moveCard(cardIssue, '进行中', log)
 
+  // Stable per-thread path: a dsh session's cwd cannot change between follow-ups.
   const worktree = join(WORKTREE_DIR, key)
+  const taskDir = join(TASK_DIR, id)
+  const outDir = join(taskDir, 'out')
+  const npmCache = join(taskDir, 'npm-cache')
+  const gateDir = join(taskDir, 'gate')
+  const agentRef = `refs/agent/${key}`
   const report = (text: string, stage: string | null): void => {
     const url = comment(trigger.number, `${text}\n\n日志编号 \`${id}\`。`)
     log(`已评论 ${url}`)
@@ -434,7 +519,10 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
   }
 
   try {
-    must(git(['fetch', '--prune', 'origin']), 'git fetch')
+    mkdirSync(outDir, { recursive: true })
+    mkdirSync(npmCache, { recursive: true })
+    mkdirSync(gateDir, { recursive: true })
+    must(git(['fetch', '--quiet', '--prune', 'origin']), 'git fetch')
     let branch: string
     let base: string
     if (info.isPr) {
@@ -451,18 +539,24 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
     }
     thread.branch = branch
     thread.base = base
-    ensureExclude()
-    const { start, compareRef } = prepareWorktree(worktree, branch, base, log)
+    const start = resolveStart(key, branch, base)
 
-    const pkg = JSON.parse(readFileSync(join(worktree, 'package.json'), 'utf8')) as { version: string }
+    // Pick dsh from the service's own copy of package.json, not from the worktree.
+    const pkg = JSON.parse(must(git(['show', `${start.startSha}:package.json`]), '读取 package.json')) as { version: string }
     const choice = selectDsh(pkg.version, config.dsh)
     if (!choice.ok) { log(`选 dsh 失败：${choice.reason}`); report(`没有开工：${choice.reason}。`, '受阻'); return }
-    const version = run(choice.exe, ['--version'], { cwd: worktree, env: childEnv() })
+    const dshHome = agentDshHome(choice.line)
+    const box: Box = { writable: [worktree, outDir, npmCache, dshHome], dshHome, npmCache }
+    const gateBox: Box = { writable: [gateDir, npmCache], dshHome, npmCache }
+
+    freshClone(worktree, start.startSha, branch)
+    log(`工作树 ${worktree}（独立 clone）：分支 ${branch} 从 ${start.from} 开始`)
+    const version = runSandboxed([choice.exe, '--version'], worktree, box, 60_000)
     if (version.status !== 0) { report(`没有开工：dsh（${choice.exe}）跑 --version 失败：${tail(version.stderr, 10)}`, '受阻'); return }
     const dshVersion = version.stdout.trim()
-    log(`基线 ${base}，package.json ${pkg.version} → dsh ${choice.line} 线：${choice.exe}（--version ${dshVersion}）`)
+    log(`基线 ${base}，package.json ${pkg.version} → dsh ${choice.line} 线：${choice.exe}（--version ${dshVersion}），DSH_HOME ${dshHome}`)
 
-    const install = runSandboxed(['npm', 'ci', '--no-audit', '--no-fund'], worktree, GATE_TIMEOUT_MS)
+    const install = runSandboxed(['npm', 'ci', '--no-audit', '--no-fund'], worktree, box, GATE_TIMEOUT_MS)
     if (install.status !== 0) { log(`npm ci 失败：${tail(install.stderr, 20)}`); report(`没有开工：工作树里 \`npm ci\` 失败。\n\n\`\`\`\n${tail(install.stderr, 30)}\n\`\`\``, '受阻'); return }
     log('npm ci 完成')
 
@@ -475,7 +569,7 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
     writeFileSync(join(LOG_DIR, `${id}.prompt.md`), prompt)
     const argv = dshArgv(choice.exe, config.patch, resume)
     log(`启动 dsh：${argv.join(' ')}${resume ? `（接着会话 ${resume}）` : '（新会话）'}`)
-    const dsh = await runDsh(argv, prompt, worktree, join(LOG_DIR, `${id}.jsonl`), logPath, start)
+    const dsh = await runDsh(argv, prompt, worktree, box, join(LOG_DIR, `${id}.jsonl`), logPath, start.startSha)
     const summary = parseDshEvents(dsh.jsonl)
     if (summary.sessionId) {
       thread.sessionId = summary.sessionId
@@ -484,7 +578,7 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
     log(`dsh 结束：退出码 ${dsh.exitCode}${dsh.killedFor ? `，被终止（${dsh.killedFor}）` : ''}，会话 ${summary.sessionId ?? '未知'}，turn_end=${summary.turnEnd ?? '无'}`)
     saveState(state)
 
-    const newCommits = Number(git(['rev-list', '--count', `${compareRef}..HEAD`], worktree).stdout.trim() || '0')
+    const newCommits = collectCommits(worktree, outDir, box, key, start.compareSha, log)
     const outcome: Outcome = decideOutcome({
       exitCode: dsh.exitCode, killedFor: dsh.killedFor, newCommits,
       reply: readOut(worktree, 'reply.md'), prTitle: readOut(worktree, 'pr-title.txt'), blocked: readOut(worktree, 'blocked.md'),
@@ -494,7 +588,7 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
 
     switch (outcome.kind) {
       case 'failed':
-        report(`任务没完成：${outcome.reason}。${newCommits > 0 ? `本地有 ${newCommits} 个提交没有推送。` : ''}同一条指令不会自动重试，要重来请再发一次 \`@agent ...\`。\n\n${sessionLine}。`, '受阻')
+        report(`任务没完成：${outcome.reason}。${newCommits > 0 ? `有 ${newCommits} 个提交没有推送。` : ''}同一条指令不会自动重试，要重来请再发一次 \`@agent ...\`。\n\n${sessionLine}。`, '受阻')
         return
       case 'blocked':
         report(`**需要你拍板**（回复 \`@agent ...\` 后接着同一个会话继续）：\n\n${outcome.question}${outcome.reply ? `\n\n---\n\n${outcome.reply}` : ''}\n\n${sessionLine}。`, '受阻')
@@ -510,21 +604,21 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
         break
     }
 
-    const gates = runGates(worktree, log)
+    const gates = runGates(gateDir, agentRef, gateBox, log)
     const failed = gates.find((g) => !g.ok)
     if (failed) {
-      report(`改动已经提交在本地，但门禁 \`npm run ${failed.name}\` 没过，所以没有推送。\n\n\`\`\`\n${tail(failed.output, 60)}\n\`\`\`\n\n${sessionLine}。`, '受阻')
+      report(`改动已经提交，但门禁 \`npm run ${failed.name}\` 没过，所以没有推送。\n\n\`\`\`\n${tail(failed.output, 60)}\n\`\`\`\n\n${sessionLine}。`, '受阻')
       return
     }
-    // List the commits before pushing: the push moves origin/<branch>, which may be compareRef.
-    const commits = git(['log', '--reverse', '--format=- %h %s', `${compareRef}..HEAD`], worktree).stdout.trim()
-    must(git(['push', '--no-verify', 'origin', `HEAD:refs/heads/${branch}`], worktree), 'git push')
+    // Everything below runs in the service's own repo, never in the dsh-writable clone.
+    const commits = git(['log', '--reverse', '--format=- %h %s', `${start.compareSha}..${agentRef}`]).stdout.trim()
+    must(git(['push', '--quiet', '--no-verify', 'origin', `${agentRef}:refs/heads/${branch}`]), 'git push')
     log(`已推送 ${branch}：\n${commits}`)
     const tested = gates.map((g) => `- \`npm run ${g.name}\` 通过${g.summary ? `（${g.summary}）` : ''}`).join('\n')
 
     const existing = JSON.parse(gh(['pr', 'list', '--repo', config.repo, '--head', branch, '--state', 'open', '--json', 'number,url'], '查 PR')) as { number: number; url: string }[]
     if (existing.length === 0 && !info.isPr) {
-      const title = outcome.prTitle ?? git(['log', '-1', '--format=%s'], worktree).stdout.trim()
+      const title = outcome.prTitle ?? git(['log', '-1', '--format=%s', agentRef]).stdout.trim()
       const body = withMarker([
         `Closes #${trigger.number}`, '', '## 改了什么', '', outcome.reply, '', '## 提交', '', commits, '',
         '## 怎么测的', '', '服务在推送前重新跑了门禁，全部通过：', '', tested, '', `${sessionLine}，日志编号 \`${id}\`。`,
@@ -547,11 +641,8 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
     log(`出错：${message}`)
     try { report(`服务出错，任务没完成：${tail(message, 20)}\n\n同一条指令不会自动重试。`, '受阻') } catch (inner) { log(`报告失败：${String(inner)}`) }
   } finally {
-    if (existsSync(worktree)) {
-      git(['worktree', 'remove', '--force', worktree])
-      rmSync(worktree, { recursive: true, force: true })
-      git(['worktree', 'prune'])
-    }
+    rmSync(worktree, { recursive: true, force: true })
+    rmSync(taskDir, { recursive: true, force: true })
     log('结束')
   }
 }
@@ -575,10 +666,10 @@ function recoverInterrupted(state: LoopState): void {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 async function main(): Promise<void> {
-  for (const dir of [SERVICE_DIR, LOG_DIR, WORKTREE_DIR]) mkdirSync(dir, { recursive: true })
+  for (const dir of [SERVICE_DIR, LOG_DIR, WORKTREE_DIR, TASK_DIR]) mkdirSync(dir, { recursive: true })
   acquireLock()
   config = parseConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf8')), HOME)
-  say(`启动：仓库 ${config.repo}，owner ${config.owner}，dsh 线 ${Object.keys(config.dsh).join('/')}，沙箱 ${config.sandbox}${config.onlyLabel ? `，只处理带 ${config.onlyLabel} 标签的` : ''}，每 ${config.pollSeconds} 秒轮询`)
+  say(`启动：仓库 ${config.repo}，owner ${config.owner}，dsh 线 ${Object.keys(config.dsh).join('/')}，DSH_HOME ${config.dshHome}/<线>${config.onlyLabel ? `，只处理带 ${config.onlyLabel} 标签的` : ''}，每 ${config.pollSeconds} 秒轮询`)
   const state = loadState()
   recoverInterrupted(state)
 
@@ -614,7 +705,34 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
+/**
+ * `main.ts --sandbox-probe <line> -- <command...>`: run one command with the
+ * exact sandbox a task on that dsh line gets (worktree, out dir, npm cache
+ * and agent DSH_HOME writable; everything else read-only), for checking the
+ * boundary by hand. Uses a throwaway `probe` worktree.
+ */
+function sandboxProbe(argv: string[]): void {
+  config = parseConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf8')), HOME)
+  const line = argv[0]
+  const command = argv.slice(argv.indexOf('--') + 1)
+  const worktree = join(WORKTREE_DIR, 'probe')
+  const taskDir = join(TASK_DIR, 'probe')
+  const outDir = join(taskDir, 'out')
+  const npmCache = join(taskDir, 'npm-cache')
+  for (const dir of [worktree, outDir, npmCache]) mkdirSync(dir, { recursive: true })
+  const dshHome = agentDshHome(line)
+  const box: Box = { writable: [worktree, outDir, npmCache, dshHome], dshHome, npmCache }
+  const full = sandboxArgv(command, worktree, box)
+  console.log(`# ${full.join(' ')}`)
+  const [cmd, ...args] = full
+  const result = spawnSync(cmd, args, { cwd: '/', env: boxEnv(box), stdio: 'inherit' })
+  rmSync(worktree, { recursive: true, force: true })
+  rmSync(taskDir, { recursive: true, force: true })
+  process.exit(result.status ?? 1)
+}
+
+if (process.argv[2] === '--sandbox-probe') sandboxProbe(process.argv.slice(3))
+else main().catch((error) => {
   console.error(`agent-loop: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
   process.exit(1)
 })

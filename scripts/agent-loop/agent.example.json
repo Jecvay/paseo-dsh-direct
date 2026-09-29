@@ -6,8 +6,15 @@
     "0.1": "~/<path-to>/dsh-0.1/bin/dsh"
   },
   "patch": "~/.config/paseo-dsh-direct/dsh-headless.patch.yml",
-  "sandbox": "bwrap",
-  "hidePaths": ["~/.config/gh", "~/.ssh", "~/.git-credentials"],
-  "readOnlyPaths": ["~/src"],
-  "pollSeconds": 60
+  "hidePaths": [
+    "~/.config/gh",
+    "~/.ssh",
+    "~/.git-credentials",
+    "~/.npmrc",
+    "~/.netrc",
+    "~/.docker/config.json"
+  ],
+  "pollSeconds": 60,
+  "dshHome": "~/.local/share/paseo-dsh-direct/dsh-home",
+  "credentials": "~/.dsh/.credentials.yaml"
 }

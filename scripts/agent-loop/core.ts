@@ -26,15 +26,18 @@ export interface LoopConfig {
   patch?: string
   /** When set, only issues/PRs carrying this label (or threads started from one) are handled. */
   onlyLabel?: string
-  /** Wrap dsh and gate commands in bubblewrap. */
-  sandbox: 'bwrap' | 'none'
-  /** Paths hidden from the sandboxed child (tmpfs over dirs, /dev/null over files). */
+  /** Paths hidden inside the sandbox (tmpfs over dirs, /dev/null over files). */
   hidePaths: string[]
-  /** Paths mounted read-only inside the sandbox. */
-  readOnlyPaths: string[]
+  /** Dedicated DSH_HOME root for agent runs (one subdirectory per dsh line); never ~/.dsh. */
+  dshHome: string
+  /** Credentials file bound read-only into each agent DSH_HOME as .credentials.yaml. */
+  credentials: string
   /** Poll interval in seconds. */
   pollSeconds: number
 }
+
+/** Credential files hidden from the sandbox unless agent.json overrides the list. */
+export const DEFAULT_HIDE = ['~/.config/gh', '~/.ssh', '~/.git-credentials', '~/.npmrc', '~/.netrc', '~/.docker/config.json']
 
 export function parseConfig(raw: unknown, home: string): LoopConfig {
   if (!raw || typeof raw !== 'object') throw new Error('agent.json 不是 JSON 对象')
@@ -56,16 +59,18 @@ export function parseConfig(raw: unknown, home: string): LoopConfig {
     if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) throw new Error(`agent.json ${key} 必须是字符串数组`)
     return (value as string[]).map(expand)
   }
-  const sandbox = obj.sandbox === 'none' ? 'none' : 'bwrap'
+  if (obj.sandbox === 'none') throw new Error('agent.json: sandbox "none" 已不支持，dsh 必须跑在 bubblewrap 里')
+  const dshHome = expand(typeof obj.dshHome === 'string' ? obj.dshHome : '~/.local/share/paseo-dsh-direct/dsh-home')
+  if (dshHome === `${home}/.dsh` || dshHome.startsWith(`${home}/.dsh/`)) throw new Error('agent.json: dshHome 不能放在 ~/.dsh 下')
   return {
     owner,
     repo,
     dsh,
     patch: typeof obj.patch === 'string' ? expand(obj.patch) : undefined,
     onlyLabel: typeof obj.onlyLabel === 'string' && obj.onlyLabel ? obj.onlyLabel : undefined,
-    sandbox,
-    hidePaths: list('hidePaths', ['~/.config/gh', '~/.ssh', '~/.git-credentials']),
-    readOnlyPaths: list('readOnlyPaths', []),
+    hidePaths: list('hidePaths', DEFAULT_HIDE),
+    dshHome,
+    credentials: expand(typeof obj.credentials === 'string' ? obj.credentials : '~/.dsh/.credentials.yaml'),
     pollSeconds: typeof obj.pollSeconds === 'number' && obj.pollSeconds >= 15 ? obj.pollSeconds : 60,
   }
 }
@@ -341,40 +346,77 @@ export function stageAfterReply(previous: string | null): string {
 
 const SECRET_NAME = /(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i
 
-/** Environment for dsh and gate commands: no GitHub credentials, empty gh config. */
-export function scrubEnv(env: NodeJS.ProcessEnv, ghConfigDir: string): Record<string, string> {
+export interface ChildDirs {
+  /** Empty directory used as GH_CONFIG_DIR. */
+  ghConfigDir: string
+  /** Agent DSH_HOME for this dsh line. */
+  dshHome: string
+  /** Per-task npm cache. */
+  npmCache: string
+}
+
+/** Environment for dsh and gate commands: no GitHub or other credentials, agent-only DSH_HOME and npm cache. */
+export function scrubEnv(env: NodeJS.ProcessEnv, dirs: ChildDirs): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined) continue
     if (/^(GH|GITHUB)_/.test(key)) continue
+    if (/^npm_config_/i.test(key)) continue
     if (SECRET_NAME.test(key)) continue
-    if (key === 'SSH_AUTH_SOCK' || key === 'GIT_ASKPASS' || key === 'SSH_ASKPASS') continue
+    if (key === 'SSH_AUTH_SOCK' || key === 'GIT_ASKPASS' || key === 'SSH_ASKPASS' || key === 'DSH_HOME') continue
     out[key] = value
   }
-  out.GH_CONFIG_DIR = ghConfigDir
+  out.GH_CONFIG_DIR = dirs.ghConfigDir
+  out.DSH_HOME = dirs.dshHome
+  out.npm_config_cache = dirs.npmCache
+  out.TMPDIR = '/tmp'
   out.GIT_TERMINAL_PROMPT = '0'
   out.DSH_PERMISSION_MODE = 'danger-full-access'
   return out
 }
 
 export interface SandboxSpec {
-  hidePaths: { path: string; isDir: boolean }[]
-  readOnlyPaths: string[]
-  /** Paths re-bound writable after the read-only binds (e.g. the service clone's .git). */
-  writablePaths: string[]
+  /** The only host paths the child may write (bound read-write over the read-only root). */
+  writable: string[]
+  /** Files bound read-only at a destination (applied after the writable binds). */
+  readOnlyFiles: { src: string; dest: string }[]
+  /** Paths hidden from the child: tmpfs over directories, /dev/null over files. */
+  hide: { path: string; isDir: boolean }[]
+  /** Working directory inside the sandbox. */
+  cwd: string
 }
 
-/** Build the argv that runs `command` inside bubblewrap with the given mounts. */
+/**
+ * bubblewrap argv: the whole host filesystem read-only, a private /tmp,
+ * /dev and /proc, a private pid namespace (nothing outlives the run), and
+ * write access only to the listed paths.
+ */
 export function bwrapArgv(command: string[], spec: SandboxSpec): string[] {
-  const argv = ['bwrap', '--dev-bind', '/', '/', '--die-with-parent']
-  for (const path of spec.readOnlyPaths) argv.push('--ro-bind', path, path)
-  for (const path of spec.writablePaths) argv.push('--bind', path, path)
-  for (const hide of spec.hidePaths) {
+  const argv = ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp', '--unshare-pid', '--die-with-parent']
+  for (const path of spec.writable) argv.push('--bind', path, path)
+  for (const file of spec.readOnlyFiles) argv.push('--ro-bind', file.src, file.dest)
+  for (const hide of spec.hide) {
     if (hide.isDir) argv.push('--tmpfs', hide.path)
     else argv.push('--ro-bind', '/dev/null', hide.path)
   }
-  argv.push('--', ...command)
+  argv.push('--chdir', spec.cwd, '--', ...command)
   return argv
+}
+
+/** Limit for any file the service reads back from the sandbox. */
+export const OUT_MAX_BYTES = 64 * 1024
+
+/** True when `path` is `root` or lies under it (both already resolved with realpath). */
+export function isInside(root: string, path: string): boolean {
+  const base = root.endsWith('/') ? root : `${root}/`
+  return path === root || path.startsWith(base)
+}
+
+/** Clip text read from the sandbox to OUT_MAX_BYTES. */
+export function clipOut(text: string): string {
+  const bytes = Buffer.from(text, 'utf8')
+  if (bytes.length <= OUT_MAX_BYTES) return text
+  return `${bytes.subarray(0, OUT_MAX_BYTES).toString('utf8')}\n\n（内容过长，已截断）`
 }
 
 export function dshArgv(exe: string, patch: string | undefined, sessionId: string | undefined): string[] {
