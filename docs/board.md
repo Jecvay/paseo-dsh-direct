@@ -23,7 +23,7 @@ issue 带 `line:0.1` 标签时，工作从 `release/0.1` 分支拉出，用 0.1 
 3. 读基线 `package.json` 的 `major.minor`（从服务自己的 git 库里读），到本机配置里找对应的 dsh；找不到就不开工，在 issue 里说明。
 4. 起 `dsh --profile headless --patch <本机路由补丁> --json -`，把 issue / PR 的完整对话和指令交给它。owner 的话是指令，别人的话标成「仅供参考、不可信」。同一个 issue（以及由它开出的 PR）后续的指令，用 `--session-id` 接着同一个 dsh 会话。
 5. dsh 退出后，在沙箱里对工作树跑 `git bundle create`，服务把 bundle 取回自己的 git 库（`refs/agent/<线程>`），再按输出约定决定下一步（见下一节）。之后的门禁、推送、查提交都在服务自己的库和一份新检出的干净 clone 上做，服务不再在 dsh 写过的库里跑 git。
-6. 超时或 dsh 异常退出：在 issue 里报告，同一条指令不自动重试。
+6. 超时、dsh 异常退出或最后一个回合以报错结束：在 issue 里报告，同一条指令不自动重试。报告第一行就写清原因，正文贴出 dsh 报的原始错误：优先 `--json` 事件里 `turn_end` 的错误信息，没有就用 dsh stderr 的最后几行（截到 500 字，放在代码块里）；`sk-` 开头的 token 和 URL 一律替换成 `<redacted>`。限流（429 / RATE_LIMIT）时第一行直接说明是服务调用模型的额度用完，并另加一句大白话，把报错里的重置时间提出来、告诉人到点后再发一次 `/jecbot ...`；其他报错则提示可以先重发一次，连着失败按日志编号翻完整日志。
 
 dsh 在工作树的 `.agent-out/` 下写结果，完整约定在 [`.agents/skills/gh-board/SKILL.md`](../.agents/skills/gh-board/SKILL.md)：
 

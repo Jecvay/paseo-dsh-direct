@@ -31,6 +31,7 @@ import {
   decideOutcome,
   dshArgv,
   enqueue,
+  failedReport,
   inScope,
   issueBranch,
   logId,
@@ -72,6 +73,8 @@ const ONCE = process.env.PASEO_AGENT_ONCE === '1'
 const TASK_TIMEOUT_MS = 60 * 60 * 1000
 const REPLY_TIMEOUT_MS = 15 * 60 * 1000
 const GATE_TIMEOUT_MS = 20 * 60 * 1000
+/** How much of dsh's stderr is kept in memory for the failure comment. */
+const STDERR_TAIL_CHARS = 16 * 1024
 
 // ---------- state ----------
 
@@ -382,7 +385,7 @@ function runSandboxed(command: string[], cwd: string, box: Box, timeout: number)
 
 let activeChild: ReturnType<typeof spawn> | undefined
 
-interface DshRun { exitCode: number | null; killedFor?: 'timeout' | 'reply-timeout'; jsonl: string }
+interface DshRun { exitCode: number | null; killedFor?: 'timeout' | 'reply-timeout'; jsonl: string; stderrTail: string }
 
 function runDsh(argv: string[], prompt: string, cwd: string, box: Box, jsonlPath: string, logPath: string, startHead: string): Promise<DshRun> {
   return new Promise((resolvePromise) => {
@@ -390,13 +393,17 @@ function runDsh(argv: string[], prompt: string, cwd: string, box: Box, jsonlPath
     const child = spawn(cmd, args, { cwd: '/', env: boxEnv(box), detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
     activeChild = child
     let jsonl = ''
+    let stderrTail = ''
     let killedFor: DshRun['killedFor']
     const started = Date.now()
     child.stdout.on('data', (chunk: Buffer) => {
       jsonl += chunk.toString('utf8')
       appendFileSync(jsonlPath, chunk)
     })
-    child.stderr.on('data', (chunk: Buffer) => appendFileSync(logPath, chunk))
+    child.stderr.on('data', (chunk: Buffer) => {
+      appendFileSync(logPath, chunk)
+      stderrTail = (stderrTail + chunk.toString('utf8')).slice(-STDERR_TAIL_CHARS)
+    })
     child.stdin.end(prompt)
     const kill = (why: 'timeout' | 'reply-timeout'): void => {
       if (killedFor) return
@@ -418,7 +425,7 @@ function runDsh(argv: string[], prompt: string, cwd: string, box: Box, jsonlPath
     child.on('close', (code) => {
       clearInterval(timer)
       activeChild = undefined
-      resolvePromise({ exitCode: code, killedFor, jsonl })
+      resolvePromise({ exitCode: code, killedFor, jsonl, stderrTail })
     })
   })
 }
@@ -642,13 +649,14 @@ async function runTask(state: LoopState, trigger: Trigger): Promise<void> {
     const outcome: Outcome = decideOutcome({
       exitCode: dsh.exitCode, killedFor: dsh.killedFor, newCommits,
       reply: readOut(worktree, 'reply.md'), prTitle: readOut(worktree, 'pr-title.txt'), blocked: readOut(worktree, 'blocked.md'),
+      turnEnd: summary.turnEnd, turnEndError: summary.turnEndError, stderrTail: dsh.stderrTail,
     })
     log(`新提交 ${newCommits} 个，结论 ${outcome.kind}`)
     const sessionLine = `dsh ${dshVersion}，会话 \`${summary.sessionId ?? '未知'}\``
 
     switch (outcome.kind) {
       case 'failed':
-        report(`任务没完成：${outcome.reason}。${newCommits > 0 ? `有 ${newCommits} 个提交没有推送。` : ''}同一条指令不会自动重试，要重来请再发一次 \`/jecbot ...\`。\n\n${sessionLine}。`, '受阻')
+        report(`${failedReport(outcome, newCommits)}\n\n${sessionLine}。`, '受阻')
         return
       case 'blocked':
         report(`**需要你拍板**（回复 \`/jecbot ...\` 后接着同一个会话继续）：\n\n${outcome.question}${outcome.reply ? `\n\n---\n\n${outcome.reply}` : ''}\n\n${sessionLine}。`, '受阻')

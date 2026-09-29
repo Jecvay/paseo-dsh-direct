@@ -64,7 +64,7 @@ hlab 上跑一个常驻的轮询服务（systemd user 单元 `paseo-dsh-direct-a
    - 写了 `blocked.md`：作为提问发出去，卡片移到「受阻」，本次提交留在 `refs/agent/<线程>` 不推送，下次从这里接着做；Jecvay 回复 `/jecbot ...` 后接着同一个会话继续。
    - 有新提交：在只含这些提交的干净 clone 上跑门禁（`build`、`typecheck`、`test`、`verify:notes`、`verify:docs`）。全绿就从服务自己的库 push：issue 任务开 PR，正文 `Closes #N`、提交列表和门禁结果；PR 任务推到原分支并在 PR 下回复。卡片移到「待审」。门禁没过就不 push，在 issue 里贴失败输出，卡片移到「受阻」。
    - 没有提交、只写了 `reply.md`：作为评论发出去，卡片移到「已评估」（原本在「待审」的留在「待审」）。
-8. 超时或 dsh 非零退出：在 issue 里报告并附日志编号，同一条指令不自动重试。服务在任务中途被停掉，下次启动时在 issue 里说明这条指令没做完。
+8. 超时、dsh 非零退出或最后一个回合以报错结束：在 issue 里报告并附日志编号，评论第一行写明原因、正文贴出 dsh 报的原始错误（优先 `turn_end` 的错误信息，其次 dsh stderr 最后几行，截到 500 字，`sk-` token 和 URL 脱敏成 `<redacted>`）；限流时第一行点明是服务调用模型的额度用完、另加一句把报错里的重置时间提出来的大白话，其他报错则提示可重发一次、连着失败按日志编号查完整日志。同一条指令不自动重试。服务在任务中途被停掉，下次启动时在 issue 里说明这条指令没做完。
 
 ### 输出约定
 
@@ -113,6 +113,6 @@ commit message 由 dsh 自己写，遵守英文、kernel 风格的 commit 规范
 
 ## 怎么验证的
 
-- `scripts/agent-loop/core.test.ts` 覆盖：非 owner 评论和伪造的 `/jecbot` 事件不触发、不以 `/jecbot` 加空白开头的评论不触发（`@agent`、`/agent`、`/jecbotx`、句子中间、代码块里的都不算）、带标记或机器人账号发的评论不触发、游标首次初始化不回放、重复扫描不重复触发、标签事件核对 actor、看板卡片每次进入「待开工」只触发一次、按 `package.json` 和 `agent.json` 选 dsh、输出约定的判定、子进程环境变量清理、bubblewrap 参数（只有列出的路径可写）、结果文件的路径与大小限制、App 私钥总被盖住；`app-auth.test.ts` 覆盖 App JWT 的 claims 和签名（测试里现生成的 RSA 密钥）、installation token 的缓存与提前 5 分钟刷新、bot 提交身份、push 用的 credential helper 只从环境变量交出 token（用 `git credential fill` 实测）。
+- `scripts/agent-loop/core.test.ts` 覆盖：非 owner 评论和伪造的 `/jecbot` 事件不触发、不以 `/jecbot` 加空白开头的评论不触发（`@agent`、`/agent`、`/jecbotx`、句子中间、代码块里的都不算）、带标记或机器人账号发的评论不触发、游标首次初始化不回放、重复扫描不重复触发、标签事件核对 actor、看板卡片每次进入「待开工」只触发一次、按 `package.json` 和 `agent.json` 选 dsh、输出约定的判定、子进程环境变量清理、bubblewrap 参数（只有列出的路径可写）、结果文件的路径与大小限制、App 私钥总被盖住；失败评论的报错原因（`turn_end` 优先、stderr 兜底、限流加大白话、token 与 URL 脱敏、500 字截断）用 #40 的真实日志 `20260929-223205-issue-40.{jsonl,log}` 当样本测过（样本就存在 `scripts/agent-loop/fixtures/`）；`app-auth.test.ts` 覆盖 App JWT 的 claims 和签名（测试里现生成的 RSA 密钥）、installation token 的缓存与提前 5 分钟刷新、bot 提交身份、push 用的 credential helper 只从环境变量交出 token（用 `git credential fill` 实测）。
 - 沙箱负向测试：用 `main.ts --sandbox-probe` 跑和真实任务相同的 argv，写 `~/.config/systemd/user`、`~/.dsh/profiles`、`$HOME`、服务 clone 的 `.git/config` 和代码、状态文件，读 `~/.config/gh/hosts.yml`、`~/.npmrc` 都失败；写 worktree 和 agent DSH_HOME 成功。
 - 验收用例在 GitHub 上真实跑过，证据（issue / PR 链接、日志编号、dsh 会话 id 和版本）记在实现这条记录的 PR 里。
