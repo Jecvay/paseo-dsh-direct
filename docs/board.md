@@ -92,3 +92,5 @@ npm run board -- archive <N>         # 归档
 看板操作在 `scripts/board.ts`，服务在 `scripts/agent-loop/`（`core.ts` 是不碰外部的判断逻辑，有单元测试；`main.ts` 负责调用 GitHub、git 和 dsh）。项目和字段的 ID 不进仓库，脚本按字段名查。
 
 标题和所有给人看的产出（评论、PR 文案）要说人话，规则见 [`.agents/skills/gh-board/SKILL.md`](../.agents/skills/gh-board/SKILL.md)「人读内容风格」节。
+
+<!-- app identity test -->
