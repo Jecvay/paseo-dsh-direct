@@ -9,7 +9,8 @@
  *   sync                         开着的 issue 全量入板、补默认阶段(待办)与优先级(从正文 P0-P3)、归档已关闭项
  *   pick --for analysis          待办列未评估卡（优先级升序）
  *   pick --for work              待开工卡；已存在进行中卡时输出空列表（WIP=1）
- *   move <number> <stage>        设置阶段（stage ∈ 待办|已评估|待开工|进行中|待审|受阻）
+ *   move <number> <stage>        设置阶段（stage ∈ 待办|已评估|待开工|进行中|待审|受阻）；不在看板上的 issue 先入板
+ *   stage <number>               查询阶段（JSON：{number, stage}，不在看板上为 null）
  *   attach <parent> <child>      把 child 挂为 parent 的 sub-issue（并单）
  *   children <number>            列出 sub-issue（JSON）
  *   archive <number>             归档该 issue 的看板项
@@ -349,12 +350,15 @@ function cmdMove(number: number, stage: string): void {
   }
   const board = items()
   const item = board.find((i) => i.number === number)
-  if (!item) {
-    console.error(`board: #${number} 不在看板上，先运行 sync`)
-    process.exit(1)
-  }
-  setStage(item.itemId, number, stage as Stage)
+  // An issue not yet on the board is added first (item-add is idempotent).
+  const itemId = item?.itemId ?? itemAdd(`https://github.com/${REPO}/issues/${number}`).id
+  setStage(itemId, number, stage as Stage)
   console.log(`#${number} → ${stage}`)
+}
+
+function cmdStage(number: number): void {
+  const item = items().find((i) => i.number === number && !i.archived)
+  console.log(JSON.stringify({ number, stage: item?.stage ?? null }))
 }
 
 function cmdAttach(parentNumber: number, childNumber: number): void {
@@ -414,6 +418,11 @@ try {
       if (!Number.isInteger(number) || !argv[2]) { console.error('board: 用法 move <number> <stage>'); process.exit(1) }
       cmdMove(number, argv[2]); break
     }
+    case 'stage': {
+      const number = Number(argv[1])
+      if (!Number.isInteger(number)) { console.error('board: 用法 stage <number>'); process.exit(1) }
+      cmdStage(number); break
+    }
     case 'attach': {
       const parent = Number(argv[1]); const child = Number(argv[2])
       if (!Number.isInteger(parent) || !Number.isInteger(child)) { console.error('board: 用法 attach <parent> <child>'); process.exit(1) }
@@ -430,7 +439,7 @@ try {
       cmdArchive(number); break
     }
     default:
-      console.error('board: 未知命令。可用：status | sync | pick --for analysis|work | move | attach | children | archive')
+      console.error('board: 未知命令。可用：status | sync | pick --for analysis|work | move | stage | attach | children | archive')
       process.exit(1)
   }
 } catch (error) {
