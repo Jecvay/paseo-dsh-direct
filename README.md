@@ -8,7 +8,7 @@ Version `0.1.3` registers the provider `dsh-pi`, shown in Paseo as **DeepSeek Ha
 
 ## Install locally
 
-The validated alpha combination is Paseo `0.9.2`, DSH `0.1.7-rc.2`, and a supported Node.js runtime. DSH must already be installed on the Paseo Daemon host; no other DSH add-on is needed.
+The validated alpha combination is Paseo `0.9.2`, DSH `0.1.7-rc.2`, and a supported Node.js runtime. DSH must already be installed on the machine that runs the Paseo daemon; no other DSH add-on is needed.
 
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-direct.git
