@@ -1,0 +1,19 @@
+# Copy to ~/.config/systemd/user/ and adjust the PATH line to where node,
+# npm, gh, git, bwrap and dsh live on the machine. Machine-local config:
+# ~/.config/paseo-dsh-direct/agent.json (see scripts/agent-loop/agent.example.json).
+[Unit]
+Description=paseo-dsh-direct agent loop (GitHub instructions -> dsh headless)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/paseo-dsh-direct/agent-loop
+Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/share/paseo-dsh-direct/agent-loop/node_modules/.bin/tsx scripts/agent-loop/main.ts
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

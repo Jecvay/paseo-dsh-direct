@@ -1,0 +1,13 @@
+{
+  "owner": "Jecvay",
+  "repo": "Jecvay/paseo-dsh-direct",
+  "dsh": {
+    "0.2": "~/<path-to>/dsh-0.2/bin/dsh",
+    "0.1": "~/<path-to>/dsh-0.1/bin/dsh"
+  },
+  "patch": "~/.config/paseo-dsh-direct/dsh-headless.patch.yml",
+  "sandbox": "bwrap",
+  "hidePaths": ["~/.config/gh", "~/.ssh", "~/.git-credentials"],
+  "readOnlyPaths": ["~/src"],
+  "pollSeconds": 60
+}
