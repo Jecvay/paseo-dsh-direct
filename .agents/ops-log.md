@@ -219,3 +219,11 @@
 - 发布：`paseo-dsh-direct@0.2.1` 从 tag `v0.2.1` 的干净 clone 发为 `latest`；`paseo-dsh-direct@0.1.4` 从 tag `v0.1.4`（`release/0.1` 上 cherry-pick 了打包改动）发为 `dsh-0.1`。npm 账号 `jecvay` 为此开了 Security Key 两步验证，第一次发布由人在浏览器里确认。
 - 验证：在临时 Paseo daemon（单独的 home、端口和 DSH_HOME，不碰线上）里真实安装两个来源都通过。`npm:paseo-dsh-direct` 配 dsh 0.2.0-rc.1，插件 running 0.2.1，能列出模型；`npm:paseo-dsh-direct@dsh-0.1` 配 dsh 0.1.7-rc.2，插件 running 0.1.4，能列出模型；两次日志都没有版本不一致警告。0.1.4 刚发布后第一次安装报过一次 `ETARGET`（npm 各节点还没同步），重试就好了。
 - 线上插件没有动，仍是 git 源的 v0.2.1（54beac7）。
+
+## 2026-09-29 — hlab 上线 GitHub 指令驱动的 agent 服务，停掉每日看板 timer
+
+- 安装：服务专用 clone `~/.local/share/paseo-dsh-direct/agent-loop`（从 GitHub clone，detached 在 `agent-loop` 分支，`npm ci`）；本机配置 `~/.config/paseo-dsh-direct/agent.json`（0.2 → mise shim `dsh`，0.1 → 0.1.7-rc.2 安装目录里的 `dsh`）和路由补丁 `dsh-headless.patch.yml`（CPA-an / bm-an-glm，含私有 baseURL，0600）；systemd user 单元 `paseo-dsh-direct-agent.service`；状态目录 `~/.local/state/paseo-dsh-direct/agent/`。仓库新建标签 `agent:go`、`line:0.1`。
+- 事先验证：dsh 0.2.0-rc.1 和 0.1.7-rc.2 都接受 `dsh --profile headless --patch <file> --json [--session-id <id>] -`；`--json` 第一个事件是 `{"type":"session","sessionId":…}`，`--session-id` 能接上会话；两条线的 headless bundle 都从 `DSH_PERMISSION_MODE` 取权限；bwrap 里 `~/.config/gh` 为空、`GH_TOKEN`/`GITHUB_TOKEN` 不在环境里。
+- 实测：10:07 起服务先加临时开关 `onlyLabel: agent-test`，只处理带这个标签的测试工单，跑完验收用例（#25–#32、PR #26 和 #30，证据在实现 PR 里）。测试 PR 未合并已关闭并删分支，测试工单已关闭并移出看板，`agent-test` 标签已删除，服务 clone 里的 `agent/*` 本地分支和状态里的测试线程已清掉。
+- 切换（10:41）：`agent.json` 去掉 `onlyLabel`；`paseo-dsh-direct-board.timer` stop + disable，删除 `~/.config/systemd/user/paseo-dsh-direct-board.{service,timer}`；`systemctl --user enable --now paseo-dsh-direct-agent.service`，正常轮询。旧的 `~/.config/paseo-dsh-direct/board-patch.yml` 和 `~/.local/state/paseo-dsh-direct/` 下旧 timer 的日志没动。
+- 待办：实现 PR 合并后，在服务 clone 里 `git checkout --detach origin/main` 再重启服务。
