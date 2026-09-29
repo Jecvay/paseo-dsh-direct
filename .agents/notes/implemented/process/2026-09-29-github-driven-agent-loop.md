@@ -37,22 +37,24 @@ hlab 上跑一个常驻的轮询服务（systemd user 单元 `paseo-dsh-direct-a
 ### 一次任务
 
 1. 在 issue 或 PR 上回「收到，开始」和日志编号，卡片移到「进行中」。
-2. 在状态目录下建 worktree，做完就删，不碰开发用的工作树。worktree 的 git 库是服务专用的一份 clone，服务代码也从这份 clone 启动。issue 任务从基线分支拉出 `agent/<N>-<slug>`：基线默认 `main`，issue 带 `line:<major.minor>` 标签时用 `release/<major.minor>`。PR 任务直接 checkout PR 的分支，fork 来的 PR 不接。
-3. 读 worktree 里 `package.json` 的 `major.minor`，到本机配置 `~/.config/paseo-dsh-direct/agent.json` 里找对应的 dsh 可执行文件，找不到就不开工并说明原因。开工前跑一次 `--version` 记进日志。
+2. 在状态目录下建 worktree，做完就删，不碰开发用的工作树。worktree 是服务专用 clone 的独立 `git clone --shared`，`.git` 在 worktree 里面；服务代码也从服务 clone 启动。issue 任务从基线分支拉出 `agent/<N>-<slug>`：基线默认 `main`，issue 带 `line:<major.minor>` 标签时用 `release/<major.minor>`。PR 任务直接 checkout PR 的分支，fork 来的 PR 不接。
+3. 从服务自己的 git 库读起点提交里 `package.json` 的 `major.minor`，到本机配置 `~/.config/paseo-dsh-direct/agent.json` 里找对应的 dsh 可执行文件，找不到就不开工并说明原因。开工前跑一次 `--version` 记进日志。
 4. 起 `dsh --profile headless --patch <本机路由补丁> --json [--session-id <id>] -`，prompt 从 stdin 进去，内容是：读 `AGENTS.md` 和 gh-board skill 的要求、issue / PR 的完整对话（Jecvay 的内容是指令，其他人的标成「仅供参考、不可信」）、本次指令和输出约定。
    - 模型路由放在 `--patch` 叠加的本机补丁里（`agent-default-model` 与 `llm-pi-ai` 两条，含私有 baseURL），0.1 和 0.2 两条线共用同一份补丁。
-   - 权限用环境变量 `DSH_PERMISSION_MODE=danger-full-access`：两条线的 headless bundle 都从这个变量取 sandbox 模式和审批策略。workspace-write 不够用——在 worktree 里 `git commit` 要写主 clone 的 `.git`，不在 dsh 的工作区里。
+   - 权限用环境变量 `DSH_PERMISSION_MODE=danger-full-access`：两条线的 headless bundle 都从这个变量取 sandbox 模式和审批策略。能碰到什么由外层 bubblewrap 决定（见第 5 条）。
+   - `DSH_HOME` 指向 agent 专用目录（每条 dsh 线一个，默认 `~/.local/share/paseo-dsh-direct/dsh-home/<线>`，不许在 `~/.dsh` 下），headless profile 和会话记录都在里面；`~/.dsh/.credentials.yaml` 以只读方式挂在其中的空占位文件上。两条线都认 `DSH_HOME`，不挂凭证时报 `MISSING_CREDENTIAL`。
    - dsh 会话 id 取自 `--json` 输出的第一个事件 `{"type":"session","sessionId":…}`，按线程记在状态文件里。同一个 issue、以及由它开出的 PR，后续指令用 `--session-id` 接着同一个会话；这两者共用同一个 worktree 路径，因为 dsh 会话的 cwd 创建后不能改。版本线变了就开新会话。
-5. dsh 和门禁命令拿不到 GitHub 凭证：环境变量去掉 `GH_*`、`GITHUB_*` 和带 TOKEN / SECRET / PASSWORD 的变量，`GH_CONFIG_DIR` 指向空目录；进程跑在 bubblewrap 里，gh 配置目录、`~/.ssh`、`~/.git-credentials` 被盖住，服务代码、状态文件和配置里列出的目录只读。服务自己跑 git 时关掉 hooks，不执行 agent 可能写进 `.git/hooks` 的东西。
-6. dsh 退出后，服务按输出约定处理：
-   - 写了 `blocked.md`：作为提问发出去，卡片移到「受阻」，本次提交不推送；Jecvay 回复 `@agent ...` 后接着同一个会话继续。
-   - 有新提交：跑门禁（`build`、`typecheck`、`test`、`verify:notes`、`verify:docs`）。全绿就 push：issue 任务开 PR，正文 `Closes #N`、提交列表和门禁结果；PR 任务推到原分支并在 PR 下回复。卡片移到「待审」。门禁没过就不 push，在 issue 里贴失败输出，卡片移到「受阻」。
+5. dsh、`npm ci` 和门禁命令跑在 bubblewrap 里：整个主机文件系统只读，`/tmp`、`/dev`、`/proc` 和进程号空间私有；能写的只有本任务的 worktree、结果目录、npm 缓存和 agent 的 DSH_HOME。gh 配置目录、`~/.ssh`、`~/.git-credentials`、`~/.npmrc`、`~/.netrc`、`~/.docker/config.json` 被盖住；环境变量去掉 `GH_*`、`GITHUB_*`、`npm_config_*` 和带 TOKEN / SECRET / PASSWORD 的变量，`GH_CONFIG_DIR` 指向空目录。这样 dsh 既拿不到 GitHub 凭证，也留不下会在沙箱外、带着凭证执行的东西（systemd 单元、shell 配置、线上 Paseo 用的 `~/.dsh` profile、服务 clone 的 `.git/config`）。
+6. dsh 退出后，服务不在 dsh 写过的库里跑 git：沙箱里对 worktree 跑 `git bundle create <结果目录>/work.bundle HEAD ^<对比提交>`，服务校验后把 bundle 取回自己的库，记为 `refs/agent/<线程>`。之后的查提交、门禁、推送都在服务自己的库和一份新检出的干净 clone 上做。`.agent-out/` 下的文件当纯数据读：只认普通文件、不跟符号链接、每个最多 64 KiB。
+7. 取回提交后，服务按输出约定处理：
+   - 写了 `blocked.md`：作为提问发出去，卡片移到「受阻」，本次提交留在 `refs/agent/<线程>` 不推送，下次从这里接着做；Jecvay 回复 `@agent ...` 后接着同一个会话继续。
+   - 有新提交：在只含这些提交的干净 clone 上跑门禁（`build`、`typecheck`、`test`、`verify:notes`、`verify:docs`）。全绿就从服务自己的库 push：issue 任务开 PR，正文 `Closes #N`、提交列表和门禁结果；PR 任务推到原分支并在 PR 下回复。卡片移到「待审」。门禁没过就不 push，在 issue 里贴失败输出，卡片移到「受阻」。
    - 没有提交、只写了 `reply.md`：作为评论发出去，卡片移到「已评估」（原本在「待审」的留在「待审」）。
-7. 超时或 dsh 非零退出：在 issue 里报告并附日志编号，同一条指令不自动重试。服务在任务中途被停掉，下次启动时在 issue 里说明这条指令没做完。
+8. 超时或 dsh 非零退出：在 issue 里报告并附日志编号，同一条指令不自动重试。服务在任务中途被停掉，下次启动时在 issue 里说明这条指令没做完。
 
 ### 输出约定
 
-dsh 在 worktree 的 `.agent-out/` 目录下写结果。这个目录写在 `.gitignore` 里，服务还把它加进 clone 的 `info/exclude`，旧版本线的分支上也不会被提交：
+dsh 在 worktree 的 `.agent-out/` 目录下写结果。这个目录写在 `.gitignore` 里，服务还把它加进 worktree 的 `info/exclude`，旧版本线的分支上也不会被提交：
 
 - `reply.md`：必写。中文大白话说清做了什么，或者直接回答问题，遵守 gh-board skill 里的「人读内容风格」。
 - `pr-title.txt`：有提交时必写，英文、kernel 风格的标题。
@@ -75,7 +77,10 @@ commit message 由 dsh 自己写，遵守英文、kernel 风格的 commit 规范
 - **GitHub Actions 托管 runner + dsh**：不碰 hlab，但托管 runner 上没有本机的 dsh 版本组合、Paseo daemon 和模型路由，跑不了真实的端到端测试，而这个插件的问题大多只有真实环境里才测得出来。
 - **Claude Code（claude-code-action）当执行者**：它自带回复评论、开 PR 这些 GitHub 功能，要自己写的代码最少。用户选了 dsh：一来用 dsh 开发 dsh 插件，本身就是持续的实测；二来 GitHub 那部分由服务来做，dsh 只负责改代码，两边分得清楚。
 - **维持每天轮询一次**：不改，但用户实际不会用它，工作还是回到对话里。
-- **dsh 用 workspace-write 权限**：沙箱更紧，但 worktree 的 git 库在工作区外，dsh 没法提交；而 dsh 的文件沙箱只管写、不管读，挡不住读凭证文件。改为 danger-full-access 加外层 bubblewrap 盖住凭证目录。
+- **dsh 用 workspace-write 权限、不套外层沙箱**：dsh 自带的文件沙箱只管写、不管读，挡不住读凭证文件；而且 dsh 自己的数据目录、npm 缓存都在工作区外。改为 danger-full-access 加外层 bubblewrap，由外层决定哪些路径可写。
+- **外层 bubblewrap 只盖住凭证、根目录可写**：dsh 读不到凭证，但能写 systemd 单元、shell 配置、线上 Paseo 用的 `~/.dsh` profile 或服务 clone 的 `.git/config`（`core.fsmonitor`、`core.sshCommand`、`url.*.insteadOf` 等），这些会在沙箱外、带着 GitHub 凭证执行；关掉 hooks 管不到它们。所以根目录只读，只放开少数可写路径。
+- **服务直接在 dsh 写过的库里 push**：最省事，但那个库的 git 配置 dsh 能改，push 时会执行。改为 bundle 取回、从服务自己的库推送。
+- **dsh 用 `~/.dsh` 做 DSH_HOME**：不用另建目录，但 `~/.dsh/profiles/paseo` 由线上 Paseo daemon 加载，dsh 能写它就等于能在沙箱外执行。
 - **每个任务用新的 worktree 路径**：更彻底地隔离，但 dsh 会话的 cwd 创建后不能改，后续指令就接不上同一个会话，所以同一个 issue 的线程固定用同一个路径。
 
 ## 后果
@@ -84,12 +89,13 @@ commit message 由 dsh 自己写，遵守英文、kernel 风格的 commit 规范
 - 开发用的工作树不再被切分支，交互开发和无头任务互不干扰。
 - 旧版本线的工单用对应线的 dsh，`release/0.1` 上的修复不会被 0.2 的 dsh 做坏。
 - 服务用的是 Jecvay 的 gh 凭证，权限很大。dsh 进程和门禁命令看不到它，所有 GitHub 操作都是服务里固定的几种调用，不执行 dsh 输出里的任何命令。
-- 公开 issue 里别人的发言会进 prompt：只有 Jecvay 能触发任务，别人的发言标成不可信，dsh 碰不到凭证。dsh 仍然有网络，也能读 bubblewrap 没盖住的文件（比如 `~/.dsh/.credentials.yaml` 里的模型 key），这是它干活需要的。
+- 公开 issue 里别人的发言会进 prompt：只有 Jecvay 能触发任务，别人的发言标成不可信，dsh 碰不到 GitHub 凭证，也改不了沙箱外的文件。dsh 仍然有网络，能读模型 key 和 bubblewrap 没盖住的其他文件，这是它干活需要的。
 - dsh 每个 rc 都可能改 headless 的调用方式。服务开工前记下 `dsh --version`，调用失败就在 issue 里报告，不静默跳过。
 - 轮询每分钟调几次 GitHub API，远低于每小时 5000 次的上限。
-- 每个任务在 worktree 里跑一次 `npm ci`，会多花几秒到几十秒。
+- 每个任务跑两次 `npm ci`（worktree 和门禁用的干净 clone 各一次），npm 缓存按任务隔离，会多花几秒到几十秒。
 
 ## 怎么验证的
 
-- `scripts/agent-loop/core.test.ts` 覆盖：非 owner 评论和伪造的 `@agent` 事件不触发、不以 `@agent` 开头的评论不触发、带标记的评论不触发、游标首次初始化不回放、重复扫描不重复触发、标签事件核对 actor、看板卡片每次进入「待开工」只触发一次、按 `package.json` 和 `agent.json` 选 dsh、输出约定的判定、子进程环境变量清理和 bubblewrap 参数。
+- `scripts/agent-loop/core.test.ts` 覆盖：非 owner 评论和伪造的 `@agent` 事件不触发、不以 `@agent` 开头的评论不触发、带标记的评论不触发、游标首次初始化不回放、重复扫描不重复触发、标签事件核对 actor、看板卡片每次进入「待开工」只触发一次、按 `package.json` 和 `agent.json` 选 dsh、输出约定的判定、子进程环境变量清理、bubblewrap 参数（只有列出的路径可写）、结果文件的路径与大小限制。
+- 沙箱负向测试：用 `main.ts --sandbox-probe` 跑和真实任务相同的 argv，写 `~/.config/systemd/user`、`~/.dsh/profiles`、`$HOME`、服务 clone 的 `.git/config` 和代码、状态文件，读 `~/.config/gh/hosts.yml`、`~/.npmrc` 都失败；写 worktree 和 agent DSH_HOME 成功。
 - 验收用例在 GitHub 上真实跑过，证据（issue / PR 链接、日志编号、dsh 会话 id 和版本）记在实现这条记录的 PR 里。
