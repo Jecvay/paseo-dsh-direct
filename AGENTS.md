@@ -72,7 +72,7 @@ grep -o 'https://www.npmjs.com/auth/cli/[a-z0-9-]*' /tmp/npm-publish.log
 
 - 动手前先读本文件 + 对应 `docs/`，以其为基准。
 - **人读内容先过风格关**：任何给人看的产出（工单标题/评论、PR 文案、文档、报告）落笔前必须回顾对应风格规则（看板产出见 `.agents/skills/gh-board/SKILL.md`「人读内容风格」节），重要产出写完后由 style subagent 专审可读性再定稿。标准：不点开上下文，人能否一眼看懂并做出判断。
-- **工作经 GitHub 调度**：工单 = GitHub issue，状态机 = [GitHub Projects 看板](https://github.com/users/Jecvay/projects/1)。owner 在 issue / PR 下评论 `@agent ...`、给 issue 加 `agent:go` 标签或把卡拖进「待开工」，本机轮询服务就在一次性工作树里起 dsh headless 干活，结果写回 GitHub（机制与启停见 `docs/board.md`，headless 会话的规约见 `.agents/skills/gh-board/SKILL.md`）。铁律：只认 owner 的指令；`待开工` 列只有人能拖进；**防稀碎默认并单**，一轮架构迭代一个 PR；WIP=1；门禁全绿才推送。服务不碰开发用的工作树，交互开发不受它影响。
+- **工作经 GitHub 调度**：工单 = GitHub issue，状态机 = [GitHub Projects 看板](https://github.com/users/Jecvay/projects/1)。owner 在 issue / PR 下评论 `/jecbot ...`、给 issue 加 `agent:go` 标签或把卡拖进「待开工」，本机轮询服务就在一次性工作树里起 dsh headless 干活，结果以 GitHub App `paseo-dsh-agent[bot]` 的身份写回 GitHub（机制与启停见 `docs/board.md`，headless 会话的规约见 `.agents/skills/gh-board/SKILL.md`）。铁律：只认 owner 的指令；`待开工` 列只有人能拖进；**防稀碎默认并单**，一轮架构迭代一个 PR；WIP=1；门禁全绿才推送。服务不碰开发用的工作树，交互开发不受它影响。
 - **方向性的决定要写进 `.agents/notes/`**：无论决定做还是决定不做，都写一篇（规则见 `.agents/notes/README.md`）。「方向性」在本项目指 **改变与 DSH/Paseo 的通信协议机制（如从 Direct 转为 ACP、调整 RPC 协议帧格式）、变更支持的 Paseo SDK 版本兼容性、调整前端/服务端目录边界或引入新的外部运行时依赖**；纯机械改动（错别字、格式、普通 bug 修复）不写。
 - **多步骤任务优先用 subagent 派发**：需要拆解成「想清楚再执行」的活，不写文件交接，直接在派发 subagent 的 prompt 里把设计决策全部前置写清楚——任何「执行时再看」都是缺陷。subagent 的产出（反馈、教训）当场读、当场判断是否要落进 `.agents/notes/`，仓外事件按判据记 `.agents/ops-log.md`，不建单独的交接文件。
 - **仓外事件当时记**：发生 git 与部署流水线都查不到的事件（手工生产部署/回滚、外部服务配置变更、生产实测证据、跨仓协调），git 项目写 `.agents/ops-log.md`（文件不存在则在此时创建）；svn / 无版本控制项目写 `.agents/CHANGELOG.md`（全量事件史）。仓内改动不记日志——commit message 承担做了什么与验证结果。

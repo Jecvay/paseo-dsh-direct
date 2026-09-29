@@ -24,11 +24,25 @@ hlab 上跑一个常驻的轮询服务（systemd user 单元 `paseo-dsh-direct-a
 
 只认 Jecvay 本人发出的三种指令，其他人的评论、标签一律不触发：
 
-1. issue 或 PR 上的评论，开头是 `@agent`。
+1. issue 或 PR 上的评论，开头是 `/jecbot`（前面只能有空白，后面是空白或评论结束；句子中间、代码块里的不算）。
 2. issue 被加上 `agent:go` 标签，且 issue 事件的 actor 是 Jecvay。服务开工时摘掉这个标签。
 3. 看板上的卡被拖进「待开工」。只有 owner 能改看板，这个动作本身就是开工令。
 
-服务用 Jecvay 的 gh 凭证发评论，所以它发的每条评论都带隐藏标记 `<!-- paseo-dsh-agent -->`，带标记的评论一律不当指令，免得服务把自己的回复当成新指令。
+服务发的每条评论都带隐藏标记 `<!-- paseo-dsh-agent -->`，带标记的评论、机器人账号（包括服务自己的 `paseo-dsh-agent[bot]`）发的评论一律不当指令，免得服务把自己的回复当成新指令。没配 App、服务退回 Jecvay 的身份发言时，靠的就是这个标记。
+
+触发词用 `/jecbot`：不用 `@agent`，因为 GitHub 上有个真实的 `agent` 账号，`@agent` 会被链接成它的主页，还可能通知到它；也不用 `/agent`，这个词太通用，GitHub 自己的斜杠命令、Copilot 和别的机器人都可能认它。`@agent`、`/agent` 都不触发。
+
+### 身份：GitHub App `paseo-dsh-agent`
+
+服务在 GitHub 上说的话、做的事（评论、摘 `agent:go` 标签、推送、开 PR）都以 GitHub App `paseo-dsh-agent` 的机器人账号 `paseo-dsh-agent[bot]` 出面，agent 的提交作者和提交者也是这个账号（`<用户 id>+paseo-dsh-agent[bot]@users.noreply.github.com`）。这样 PR 的作者不是 Jecvay，Jecvay 能正常 approve；时间线上也分得清哪些是人说的、哪些是 agent 说的。
+
+- `agent.json` 的 `app` 给出 App ID 和私钥路径。服务启动时用 `node:crypto` 签 RS256 App JWT（`iat` 往前 60 秒、有效 10 分钟），查 `GET /repos/{owner}/{repo}/installation` 得到 installation，换一个只对本仓库有效的 installation token（1 小时），放在内存里、到期前 5 分钟换新。JWT 和 token 经 curl 的 stdin 传 header，不上命令行。
+- `gh` 调用用这一次调用的 `GH_TOKEN` 环境变量带 token。`git push` 改走 https：token 只在这一次 push 的环境变量里，命令行上的 credential helper 把它读出来交给 git；这次 push 忽略全局和系统 git 配置，别的 helper 存不下它，URL 改写规则也改不走它。服务的库 dsh 写不了，所以它的 `.git/config` 也不会被拿来截 token。
+- 提交身份靠 dsh 运行时的 `GIT_AUTHOR_*` / `GIT_COMMITTER_*` 环境变量，不涉及 token。
+- App 私钥在沙箱里总是被盖住（不管 `hidePaths` 怎么配）：dsh 有网络，读到私钥就能自己换 token。
+- 读 issue、评论、事件仍用 Jecvay 的 gh；owner 判断只看作者 / actor 是不是 Jecvay。
+- 看板挪卡仍用 Jecvay 的 gh：看板是用户 Jecvay 名下的 Projects v2，GitHub App 访问不了用户名下的 Projects。
+- `agent.json` 没有 `app` 时退回全部用 Jecvay 的 gh 和本机 git 身份，启动时打警告，App 建好之前服务照常跑。
 
 轮询进度（最后看到的评论 id、事件 id、「待开工」列里的卡）记在状态目录里。服务重启后接着往下看，第一次启动只记下当前进度、不回放历史。
 
@@ -47,7 +61,7 @@ hlab 上跑一个常驻的轮询服务（systemd user 单元 `paseo-dsh-direct-a
 5. dsh、`npm ci` 和门禁命令跑在 bubblewrap 里：整个主机文件系统只读，`/tmp`、`/dev`、`/proc` 和进程号空间私有；能写的只有本任务的 worktree、结果目录、npm 缓存和 agent 的 DSH_HOME。gh 配置目录、`~/.ssh`、`~/.git-credentials`、`~/.npmrc`、`~/.netrc`、`~/.docker/config.json` 被盖住；环境变量去掉 `GH_*`、`GITHUB_*`、`npm_config_*` 和带 TOKEN / SECRET / PASSWORD 的变量，`GH_CONFIG_DIR` 指向空目录。这样 dsh 既拿不到 GitHub 凭证，也留不下会在沙箱外、带着凭证执行的东西（systemd 单元、shell 配置、线上 Paseo 用的 `~/.dsh` profile、服务 clone 的 `.git/config`）。
 6. dsh 退出后，服务不在 dsh 写过的库里跑 git：沙箱里对 worktree 跑 `git bundle create <结果目录>/work.bundle HEAD ^<对比提交>`，服务校验后把 bundle 取回自己的库，记为 `refs/agent/<线程>`。之后的查提交、门禁、推送都在服务自己的库和一份新检出的干净 clone 上做。`.agent-out/` 下的文件当纯数据读：只认普通文件、不跟符号链接、每个最多 64 KiB。
 7. 取回提交后，服务按输出约定处理：
-   - 写了 `blocked.md`：作为提问发出去，卡片移到「受阻」，本次提交留在 `refs/agent/<线程>` 不推送，下次从这里接着做；Jecvay 回复 `@agent ...` 后接着同一个会话继续。
+   - 写了 `blocked.md`：作为提问发出去，卡片移到「受阻」，本次提交留在 `refs/agent/<线程>` 不推送，下次从这里接着做；Jecvay 回复 `/jecbot ...` 后接着同一个会话继续。
    - 有新提交：在只含这些提交的干净 clone 上跑门禁（`build`、`typecheck`、`test`、`verify:notes`、`verify:docs`）。全绿就从服务自己的库 push：issue 任务开 PR，正文 `Closes #N`、提交列表和门禁结果；PR 任务推到原分支并在 PR 下回复。卡片移到「待审」。门禁没过就不 push，在 issue 里贴失败输出，卡片移到「受阻」。
    - 没有提交、只写了 `reply.md`：作为评论发出去，卡片移到「已评估」（原本在「待审」的留在「待审」）。
 8. 超时或 dsh 非零退出：在 issue 里报告并附日志编号，同一条指令不自动重试。服务在任务中途被停掉，下次启动时在 issue 里说明这条指令没做完。
@@ -76,6 +90,9 @@ commit message 由 dsh 自己写，遵守英文、kernel 风格的 commit 规范
 - **GitHub Actions + hlab self-hosted runner**：GitHub 事件一来几秒就开工，但公开仓库上 fork 来的 PR 能在 hlab 上跑任意代码（见上文），不用。
 - **GitHub Actions 托管 runner + dsh**：不碰 hlab，但托管 runner 上没有本机的 dsh 版本组合、Paseo daemon 和模型路由，跑不了真实的端到端测试，而这个插件的问题大多只有真实环境里才测得出来。
 - **Claude Code（claude-code-action）当执行者**：它自带回复评论、开 PR 这些 GitHub 功能，要自己写的代码最少。用户选了 dsh：一来用 dsh 开发 dsh 插件，本身就是持续的实测；二来 GitHub 那部分由服务来做，dsh 只负责改代码，两边分得清楚。
+- **开一个机器用户账号，用它的 PAT 发言和推送**：同样能让 PR 作者不是 Jecvay，但要多养一个 GitHub 账号，PAT 长期有效、泄露了要手动吊销。App 的 installation token 1 小时过期、只对本仓库有效，机器人账号也由 GitHub 管。
+- **触发词保留 `@agent`**：顺手，但 GitHub 上有真实的 `agent` 账号，每条指令都会被链接过去、可能打扰到陌生人。
+- **触发词用 `/agent` 或 `/dsh-agent`**：`/agent` 太通用，别的机器人可能也认；`/jecbot` 短、不会撞名。
 - **维持每天轮询一次**：不改，但用户实际不会用它，工作还是回到对话里。
 - **dsh 用 workspace-write 权限、不套外层沙箱**：dsh 自带的文件沙箱只管写、不管读，挡不住读凭证文件；而且 dsh 自己的数据目录、npm 缓存都在工作区外。改为 danger-full-access 加外层 bubblewrap，由外层决定哪些路径可写。
 - **外层 bubblewrap 只盖住凭证、根目录可写**：dsh 读不到凭证，但能写 systemd 单元、shell 配置、线上 Paseo 用的 `~/.dsh` profile 或服务 clone 的 `.git/config`（`core.fsmonitor`、`core.sshCommand`、`url.*.insteadOf` 等），这些会在沙箱外、带着 GitHub 凭证执行；关掉 hooks 管不到它们。所以根目录只读，只放开少数可写路径。
@@ -88,7 +105,7 @@ commit message 由 dsh 自己写，遵守英文、kernel 风格的 commit 规范
 - 下指令到开工在一分钟左右；issue、PR、看板三个入口都能用，PR 审完可以直接在 PR 下让它接着改。
 - 开发用的工作树不再被切分支，交互开发和无头任务互不干扰。
 - 旧版本线的工单用对应线的 dsh，`release/0.1` 上的修复不会被 0.2 的 dsh 做坏。
-- 服务用的是 Jecvay 的 gh 凭证，权限很大。dsh 进程和门禁命令看不到它，所有 GitHub 操作都是服务里固定的几种调用，不执行 dsh 输出里的任何命令。
+- 服务发言和推送用的是 App 的 installation token，只对本仓库有效、1 小时过期；读取和挪卡用的 Jecvay gh 凭证权限很大。dsh 进程和门禁命令两者都看不到，也读不到 App 私钥，所有 GitHub 操作都是服务里固定的几种调用，不执行 dsh 输出里的任何命令。
 - 公开 issue 里别人的发言会进 prompt：只有 Jecvay 能触发任务，别人的发言标成不可信，dsh 碰不到 GitHub 凭证，也改不了沙箱外的文件。dsh 仍然有网络，能读模型 key 和 bubblewrap 没盖住的其他文件，这是它干活需要的。
 - dsh 每个 rc 都可能改 headless 的调用方式。服务开工前记下 `dsh --version`，调用失败就在 issue 里报告，不静默跳过。
 - 轮询每分钟调几次 GitHub API，远低于每小时 5000 次的上限。
@@ -96,6 +113,6 @@ commit message 由 dsh 自己写，遵守英文、kernel 风格的 commit 规范
 
 ## 怎么验证的
 
-- `scripts/agent-loop/core.test.ts` 覆盖：非 owner 评论和伪造的 `@agent` 事件不触发、不以 `@agent` 开头的评论不触发、带标记的评论不触发、游标首次初始化不回放、重复扫描不重复触发、标签事件核对 actor、看板卡片每次进入「待开工」只触发一次、按 `package.json` 和 `agent.json` 选 dsh、输出约定的判定、子进程环境变量清理、bubblewrap 参数（只有列出的路径可写）、结果文件的路径与大小限制。
+- `scripts/agent-loop/core.test.ts` 覆盖：非 owner 评论和伪造的 `/jecbot` 事件不触发、不以 `/jecbot` 加空白开头的评论不触发（`@agent`、`/agent`、`/jecbotx`、句子中间、代码块里的都不算）、带标记或机器人账号发的评论不触发、游标首次初始化不回放、重复扫描不重复触发、标签事件核对 actor、看板卡片每次进入「待开工」只触发一次、按 `package.json` 和 `agent.json` 选 dsh、输出约定的判定、子进程环境变量清理、bubblewrap 参数（只有列出的路径可写）、结果文件的路径与大小限制、App 私钥总被盖住；`app-auth.test.ts` 覆盖 App JWT 的 claims 和签名（测试里现生成的 RSA 密钥）、installation token 的缓存与提前 5 分钟刷新、bot 提交身份、push 用的 credential helper 只从环境变量交出 token（用 `git credential fill` 实测）。
 - 沙箱负向测试：用 `main.ts --sandbox-probe` 跑和真实任务相同的 argv，写 `~/.config/systemd/user`、`~/.dsh/profiles`、`$HOME`、服务 clone 的 `.git/config` 和代码、状态文件，读 `~/.config/gh/hosts.yml`、`~/.npmrc` 都失败；写 worktree 和 agent DSH_HOME 成功。
 - 验收用例在 GitHub 上真实跑过，证据（issue / PR 链接、日志编号、dsh 会话 id 和版本）记在实现这条记录的 PR 里。
