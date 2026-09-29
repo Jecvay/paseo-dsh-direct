@@ -94,3 +94,4 @@ npm run board -- archive <N>         # 归档
 标题和所有给人看的产出（评论、PR 文案）要说人话，规则见 [`.agents/skills/gh-board/SKILL.md`](../.agents/skills/gh-board/SKILL.md)「人读内容风格」节。
 
 <!-- app identity test -->
+<!-- app identity follow-up -->
