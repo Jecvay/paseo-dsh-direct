@@ -227,3 +227,11 @@
 - 实测：10:07 起服务先加临时开关 `onlyLabel: agent-test`，只处理带这个标签的测试工单，跑完验收用例（#25–#32、PR #26 和 #30，证据在实现 PR 里）。测试 PR 未合并已关闭并删分支，测试工单已关闭并移出看板，`agent-test` 标签已删除，服务 clone 里的 `agent/*` 本地分支和状态里的测试线程已清掉。
 - 切换（10:41）：`agent.json` 去掉 `onlyLabel`；`paseo-dsh-direct-board.timer` stop + disable，删除 `~/.config/systemd/user/paseo-dsh-direct-board.{service,timer}`；`systemctl --user enable --now paseo-dsh-direct-agent.service`，正常轮询。旧的 `~/.config/paseo-dsh-direct/board-patch.yml` 和 `~/.local/state/paseo-dsh-direct/` 下旧 timer 的日志没动。
 - 待办：实现 PR 合并后，在服务 clone 里 `git checkout --detach origin/main` 再重启服务。
+
+## 2026-09-29 — agent 服务改成只读沙箱，重新上线
+
+- 原因：评审发现第一版沙箱只盖住了凭证，根目录仍可写，dsh 能写 systemd 单元、shell 配置、`~/.dsh` 下线上 Paseo 用的 profile 或服务 clone 的 `.git/config`，这些会在沙箱外带着 GitHub 凭证执行。
+- 本机改动：新建 agent 专用 DSH_HOME `~/.local/share/paseo-dsh-direct/dsh-home/{0.1,0.2}`（0700，各放一个空的 0600 `.credentials.yaml` 占位文件，运行时把 `~/.dsh/.credentials.yaml` 只读挂上去）；`agent.json` 去掉 `sandbox`、`readOnlyPaths` 和自定义 `hidePaths`（改用默认值，多盖住 `~/.npmrc` 等），加 `dshHome`、`credentials`。服务 clone 更新到新代码。
+- 实测：用 `main.ts --sandbox-probe` 跑和真实任务相同的沙箱，写 `~/.config/systemd/user`、`~/.dsh/profiles`、`$HOME`、服务 clone 的 `.git/config` 和代码、状态文件，读 `~/.config/gh/hosts.yml`、`~/.npmrc` 全部失败，写 worktree 和 agent DSH_HOME 成功。10:51 起临时加回 `onlyLabel: agent-test` 复测用例 1、2、6（#34–#37），测试 PR 已关闭并删分支、工单已关闭并移出看板、`agent-test` 标签已删。
+- 11:06 去掉 `onlyLabel`，重启服务，正常轮询。
+- 遗留：第一版跑测试工单时 dsh 用的是 `~/.dsh`，在 `~/.dsh/sessions/` 下留了 6 个 `--home-jecvay-.local-state-paseo-dsh-direct-agent-worktrees-issue-*--` 会话目录（10:09–10:39），按「不改 ~/.dsh」的约定没有删，需要时手动清理。
