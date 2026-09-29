@@ -57,4 +57,4 @@ npm run board:poll                   # 手动跑一轮轮询器（同 timer 行�
 
 - WIP=1 只约束无头会话；人在同一工作树上交互开发时，无头实现循环的 `git checkout` 可能与之冲突——避免在轮询器干活时在同一目录做交互改动（看板「进行中」有卡即代表无头会话在干活）。
 - 评估/实现会话消费真实模型 token（CPA-an 路由）；停用轮询：`systemctl --user stop paseo-dsh-direct-board.timer`。
-<!-- commander retest 2026-09-29 -->
+<!-- commander retest 2026-09-29 (PR follow-up) -->
