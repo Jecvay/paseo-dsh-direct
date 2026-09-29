@@ -243,3 +243,14 @@
 - 改写：本仓 `git filter-repo --refs refs/heads/main + v0.1.1/v0.1.2/v0.2.0/v0.2.1` 只改 message：31 个提交的 `Co-Authored-By: Claude*` 替换为官方行；tip 4180f28→812ef9b、4ec1047→3a53bfb、v0.2.1（54beac7→1bd2030）；45 个提交数与全部 tag tree 校验一致。
 - 范围：按用户指示只做 main 线；`release/0.1`、`origin/agent-loop`（agent 服务 clone 的推送分支）及 v0.1.3/v0.1.4 两个 tag 未动，其上仍有旧 Claude trailer。
 - 影响：npm 包与 GitHub（无 Release 对象）不受影响；线上插件 checkout 仍钉旧 54beac7，下次 `paseo plugin update` 拉到改写后的 v0.2.1（tree 相同，无需重建）；`~/src/paseo-dsh-direct-live` worktree 仍 detach 在旧 54beac7，未动。备份：改写前三条分支完整历史在 `~/src/tmp-rewrite/paseo-dsh-direct-before-trailer-rewrite.bundle`，ref 清单同目录 `refs-before-trailer-rewrite.txt`。
+
+## 2026-09-29 — agent 服务接上 GitHub App `paseo-dsh-agent`，触发词实测
+
+- 配置：用户建好 GitHub App `paseo-dsh-agent`（App ID 5124102，权限 contents / issues / pull_requests 写、metadata 读，只装在 Jecvay/paseo-dsh-direct，installation 166204754），私钥放在 `~/.config/paseo-dsh-direct/agent-app.pem`（0600），`agent.json` 新增 `app: { id, privateKeyPath }`。机器人用户 `paseo-dsh-agent[bot]` 的 id 是 335629279。App 没有 workflows 权限，agent 改 `.github/workflows/` 的分支推不上去。
+- 实测：23:52 把服务 clone `~/.local/share/paseo-dsh-direct/agent-loop` 临时切到 `origin/agent-app-identity` 并重启，启动日志显示以 App 身份运行。先用 `/agent` 触发词跑了 issue #42 / PR #43，按用户新决定改成 `/jecbot` 后 00:02 重新部署，再跑 issue #44 / PR #45：
+  - `@agent`、`/agent` 评论都没触发（#42、#43、#44 上各发了一条）；
+  - `/jecbot` 触发，「收到，开始」和「已开 PR」评论的作者都是 `paseo-dsh-agent[bot]`，PR #45 作者 `app/paseo-dsh-agent`，提交 2501db8 的 author / committer 都是 `paseo-dsh-agent[bot] <335629279+paseo-dsh-agent[bot]@users.noreply.github.com>`；
+  - Jecvay 用 `gh pr review --approve` 批准 PR #45 成功（作者不再是自己）；
+  - PR #45 下 `/jecbot` 追加指令接着同一个 dsh 会话，推上 bot 提交 1e4f365；
+  - 服务日志和 `~/.local/state/paseo-dsh-direct/agent/` 里查不到 installation token 或 JWT。
+- 收尾：00:13 PR #43、#45 关闭不合并并删掉分支，issue #42、#44 关闭、看板卡归档，服务 clone 删掉 `refs/agent/issue-42`、`refs/agent/issue-44`，切回 `origin/main`（4ebdc36）重启。在这个 PR 合并前，线上服务仍认 `@agent`、用 Jecvay 身份；`agent.json` 里的 `app` 块旧代码不读，不影响运行。
