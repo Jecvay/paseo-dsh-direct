@@ -1,0 +1,31 @@
+# Model routing overlay for the agent loop: copy to
+# ~/.config/paseo-dsh-direct/dsh-headless.patch.yml, fill in the
+# placeholders, and point "patch" in agent.json at it. It is passed as
+# `dsh --profile headless --patch <file>` and works on the 0.1 and 0.2
+# lines. The API key comes from ~/.dsh/.credentials.yaml (apiKeyEnv).
+# Permissions are not set here: the service runs dsh with
+# DSH_PERMISSION_MODE=danger-full-access inside bubblewrap.
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: <provider-id>
+    model: <model-id>
+    reasoningEffort: high
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      <provider-id>:
+        displayName: <display name>
+        apiKeyEnv: <KEY_NAME_IN_CREDENTIALS>
+        api: anthropic-messages
+        baseURL: <https://your-gateway.example/v1>
+        models:
+          - id: <model-id>
+            name: <model display name>
+            contextWindow: 1000000
+            maxTokens: 131072
+            reasoningEfforts:
+              low: low
+              high: high
+              max: max
