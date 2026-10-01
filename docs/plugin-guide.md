@@ -63,6 +63,8 @@ Git 安装通过 `paseo plugin update paseo-dsh-direct` 更新。安装固定版
 | `PASEO_DSH_EXECUTABLE` | DSH 可执行文件路径，默认 `dsh` |
 | `PASEO_DSH_PROFILE` | 改用另一个已存在的 profile，默认 `paseo`；这里指定的 profile 缺失时直接报错，不自动创建 |
 
+Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本，Node 不经 shell 无法直接启动它们。插件在 PATH 中找到 `dsh.cmd`（或 `PASEO_DSH_EXECUTABLE` 指向该包装脚本）时，改为执行包装脚本本身执行的 `node <包装脚本目录>/node_modules/@deepseek-ai/dsh/lib/bin.js`，包装脚本旁有 `node.exe` 时优先用它。`PASEO_DSH_EXECUTABLE` 指向 `.exe` 等真实可执行文件时原样启动，指向 `.js` 入口时用 `node` 启动。
+
 Paseo 提供的会话环境变量传入该会话的 DSH 子进程。已有历史恢复优先保留原生模型、preset、思考和权限配置；恢复后可通过 Paseo 的会话配置主动调整。
 
 `npm run smoke:bridge` 构建桥接并验证真实 profile 的目录、历史读取和关闭，不调用模型；`paseo` profile 不存在时会先创建它。`npm run smoke:bridge -- --prompt` 额外创建测试会话、调用模型并恢复历史，会产生模型用量。

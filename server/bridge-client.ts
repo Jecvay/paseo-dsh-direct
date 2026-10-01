@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { resolveDshLaunch } from "./dsh-launch.js";
 import type {
   BridgeInitializeResult,
   BridgeMethods,
@@ -167,11 +168,12 @@ function runProfileInit(
   timeoutMs: number,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(
+    const launch = resolveDshLaunch(
       executable,
       ["--profile", profile, "--from-default-profile", DEFAULT_PROFILE_TEMPLATE, "--dump-config"],
-      { env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
+      env,
     );
+    const child = spawn(launch.command, launch.args, { env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     let stderr = "";
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
@@ -221,7 +223,8 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
     { mode: 0o600 },
   );
 
-  const child = spawn(executable, ["--profile", profile, "--patch", patchPath], {
+  const launch = resolveDshLaunch(executable, ["--profile", profile, "--patch", patchPath], env);
+  const child = spawn(launch.command, launch.args, {
     env,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
