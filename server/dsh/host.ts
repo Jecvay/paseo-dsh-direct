@@ -125,6 +125,26 @@ export interface HostServices {
     }>;
   };
   agentDefaultModel: { currentSelection(): ModelSelection } | undefined;
+  /**
+   * Projection registry read cut. The `tokenUsage` and `contextPressure` units
+   * carry the figures Paseo renders as session usage; absent when the profile
+   * mounts no projection registry.
+   */
+  sessionProjections?: {
+    snapshot(
+      session: HostSession,
+      keys?: readonly string[],
+    ): { values: Partial<Record<string, unknown>> };
+    /** Change feed: fires once per client-visible unit whose raw view changed. */
+    onChanged(
+      listener: (
+        session: HostSession,
+        key: string,
+        value: unknown,
+        seq: number,
+      ) => void,
+    ): () => void;
+  };
   sessionTitle:
     { rename(session: HostSession, title: string): void } | undefined;
   approval: object | undefined;
