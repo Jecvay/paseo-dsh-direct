@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { resolveDshLaunch } from "./dsh-launch.js";
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 
@@ -38,8 +39,10 @@ function runVersionProbe(executable: string, options: DetectDshVersionOptions): 
 
     let child;
     try {
-      child = spawn(executable, ["--version"], {
-        env: options.env ?? process.env,
+      const env = options.env ?? process.env;
+      const launch = resolveDshLaunch(executable, ["--version"], env);
+      child = spawn(launch.command, launch.args, {
+        env,
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
       });
