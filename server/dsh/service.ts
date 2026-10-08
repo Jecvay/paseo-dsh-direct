@@ -42,6 +42,45 @@ interface RecordEntry {
   selection: ModelSelectionRef;
 }
 
+/**
+ * Display copy for the presets dsh ships, keyed by roster id.
+ *
+ * A shipped preset publishes its *unlocalized* name in `preset.yml`; dsh
+ * resolves the localized one through `presetDisplayText`, which takes the
+ * locale lookup as an argument. That dictionary lives only in the client
+ * bundles, so the Host bridge has nothing to call and would otherwise forward
+ * the raw catalog string — currently Chinese — into Paseo's mode picker.
+ *
+ * These values are the English entries of the keys `presetDisplayText` uses
+ * (`presetStandardName`, `presetPtcName`, `presetMinimalName`,
+ * `presetCordisName` and their `…Description` pairs). Paseo has no locale
+ * seam of its own, so the bridge carries the copy rather than the keys.
+ */
+const SHIPPED_PRESET_COPY: Record<
+  string,
+  { name: string; description: string }
+> = {
+  standard: {
+    name: "Standard mode",
+    description:
+      "Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.",
+  },
+  ptc: {
+    name: "PTC mode",
+    description:
+      "Full coding agent without the workflow tool; other tools are exposed through the PTC mode SDK so the model can combine multi-step operations in one TypeScript program.",
+  },
+  minimal: {
+    name: "Minimal mode",
+    description: "Single-tool coding agent with a persistent shell.",
+  },
+  cordis: {
+    name: "Creator mode",
+    description:
+      "Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance.",
+  },
+};
+
 function nonempty(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim())
     throw new Error(`${field} must be a nonempty string`);
@@ -281,11 +320,20 @@ export class BridgeService {
       models,
       presets: (await presets.list())
         .filter((preset) => !preset.broken)
-        .map((preset) => ({
-          id: preset.id,
-          name: preset.name,
-          description: preset.description,
-        })),
+        .map((preset) => {
+          // Same rule as presetDisplayText: only a shipped preset resolves
+          // through the copy table, so a user-authored preset that reuses a
+          // shipped id keeps its own metadata.
+          const shipped =
+            preset.trust === "system"
+              ? SHIPPED_PRESET_COPY[preset.id]
+              : undefined;
+          return {
+            id: preset.id,
+            name: shipped?.name ?? preset.name,
+            description: shipped?.description ?? preset.description,
+          };
+        }),
       defaultModel,
       defaultPreset: presets.defaultId,
       ...(permission && this.ctx.get("commands")
