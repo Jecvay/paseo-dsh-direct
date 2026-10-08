@@ -202,11 +202,30 @@ export interface BridgeMethods {
   };
   "bridge.shutdown": { params: {}; result: {} };
 }
+/**
+ * One session's token and context figures, in Paseo's usage vocabulary.
+ *
+ * Field names match `ProviderUsage` so the provider forwards this straight
+ * onto `session.usage` without a second translation table.
+ */
+export interface BridgeUsage {
+  /** Uncached prompt tokens reported by the provider. */
+  inputTokens?: number;
+  /** Prompt tokens served from the provider's cache. */
+  cachedInputTokens?: number;
+  /** Completion tokens produced by the model. */
+  outputTokens?: number;
+  /** Provider-reported prompt size of the newest request. */
+  contextWindowUsedTokens?: number;
+  /** Route context capacity paired with that pressure. */
+  contextWindowMaxTokens?: number;
+}
 export interface BridgeNotifications {
   "bridge.ready": { protocolVersion: 1 };
   "session.event": { sessionId: string; event: DshSessionEvent };
   "session.stream": { sessionId: string; frame: DshStreamFrame };
   "session.status": { sessionId: string; status: "idle" | "running" };
+  "session.usage": { sessionId: string; usage: BridgeUsage };
   "interaction.request": InteractionRequest;
   "interaction.closed": { requestId: string; sessionId: string };
 }

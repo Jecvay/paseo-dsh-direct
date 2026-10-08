@@ -6,6 +6,7 @@ import type {
   BridgeInitializeResult,
   BridgeMethods,
   BridgeNotifications,
+  BridgeUsage,
   DshSessionEvent,
   InteractionRequest,
   ModelSelection,
@@ -24,6 +25,7 @@ import type {
   HostContext,
   HostHandle,
   HostHelpers,
+  HostSession,
   ModelSelectionRef,
 } from "./host.js";
 
@@ -103,6 +105,8 @@ export class BridgeService {
   private readonly preapproved = new Map<string, ReadonlySet<string>>();
   private readonly interactions = new Map<string, PendingInteraction>();
   private readonly subscriptions: Array<() => void> = [];
+  /** Last usage payload sent per session, so an unchanged fold is not re-sent. */
+  private readonly lastUsage = new Map<string, string>();
   private stopping = false;
   private stopTask?: Promise<{}>;
 
@@ -139,6 +143,19 @@ export class BridgeService {
           notify("session.status", { sessionId: String(agent.id), status });
       }),
     );
+    // Usage rides the projection change feed rather than the session event
+    // stream: it fires exactly when the harness's token fold moves, so no
+    // session-event name has to be guessed and an idle session costs nothing.
+    const projections = ctx.get("sessionProjections");
+    if (projections) {
+      this.subscriptions.push(
+        projections.onChanged((session, key) => {
+          if (key === "tokenUsage" || key === "contextPressure") {
+            this.publishUsage(session);
+          }
+        }),
+      );
+    }
     this.subscriptions.push(
       ctx.on("approval/request", (request, next) => {
         const sessionId = this.rootFor(request.agent);
@@ -181,6 +198,70 @@ export class BridgeService {
         });
       }),
     );
+  }
+
+  /**
+   * Fold the harness's token projections into Paseo's usage vocabulary.
+   *
+   * `tokenUsage` totals and `contextPressure` carry every figure Paseo can
+   * render, and both are plain numbers, so no live harness object crosses the
+   * wire. Returns undefined when no projection registry is mounted or neither
+   * unit is registered: a profile without them degrades to no usage rather
+   * than failing the turn.
+   */
+  private readUsage(session: HostSession): BridgeUsage | undefined {
+    const projections = this.ctx.get("sessionProjections");
+    if (!projections) return undefined;
+    let values: Partial<Record<string, unknown>>;
+    try {
+      values = projections.snapshot(session, [
+        "tokenUsage",
+        "contextPressure",
+      ]).values;
+    } catch {
+      return undefined;
+    }
+    const tokens = values.tokenUsage as
+      | {
+          uncachedInputTokens?: number;
+          outputTokens?: number;
+          cacheReadTokens?: number;
+        }
+      | undefined;
+    const pressure = values.contextPressure as
+      | { contextWindow?: number; pressureTokens?: number }
+      | undefined;
+    const usage: BridgeUsage = {};
+    if (typeof tokens?.uncachedInputTokens === "number")
+      usage.inputTokens = tokens.uncachedInputTokens;
+    if (typeof tokens?.cacheReadTokens === "number")
+      usage.cachedInputTokens = tokens.cacheReadTokens;
+    if (typeof tokens?.outputTokens === "number")
+      usage.outputTokens = tokens.outputTokens;
+    if (typeof pressure?.pressureTokens === "number")
+      usage.contextWindowUsedTokens = pressure.pressureTokens;
+    if (typeof pressure?.contextWindow === "number")
+      usage.contextWindowMaxTokens = pressure.contextWindow;
+    // The units materialize at zero before any provider usage lands, so a
+    // payload carrying no measured token is warm-up noise, not a reading.
+    const measured =
+      (usage.inputTokens ?? 0) > 0 ||
+      (usage.cachedInputTokens ?? 0) > 0 ||
+      (usage.outputTokens ?? 0) > 0 ||
+      (usage.contextWindowUsedTokens ?? 0) > 0;
+    return measured ? usage : undefined;
+  }
+
+  /** Publish one tracked session's usage, skipping an unchanged fold. */
+  private publishUsage(session: HostSession): void {
+    const sessionId = String(session.id);
+    if (!this.tracked.has(sessionId)) return;
+    const usage = this.readUsage(session);
+    if (!usage) return;
+    const signature = JSON.stringify(usage);
+    if (this.lastUsage.get(sessionId) === signature) return;
+    this.lastUsage.set(sessionId, signature);
+    this.notify("session.usage", { sessionId, usage });
   }
 
   private rootFor(agent: HostAgent | undefined): string | undefined {
