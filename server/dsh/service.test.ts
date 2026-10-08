@@ -16,7 +16,10 @@ import type {
 } from "../../shared/bridge-protocol.js";
 
 function fixture(
-  options: Pick<Partial<HostServices>, "commands" | "skills" | "attachments" | "systemPrompt"> = {},
+  options: Pick<
+    Partial<HostServices>,
+    "commands" | "skills" | "attachments" | "systemPrompt" | "sessionProjections"
+  > = {},
 ) {
   const listeners = new Map<keyof HostEvents, unknown>();
   const notifications: Array<{
@@ -90,6 +93,7 @@ function fixture(
       },
     },
     agentDefaultModel: { currentSelection: () => models },
+    sessionProjections: options.sessionProjections,
     approval: {},
     permissionPresets: undefined,
     commands: options.commands,
@@ -368,6 +372,68 @@ test("session options add an agent-scoped system prompt and preapprove named too
   assert.ok(request, "an unlisted tool still asks the user");
   await f.bridge.handle("interaction.respond", { requestId: request.requestId, outcome: "rejected" });
   assert.equal(await pending, "rejected");
+  await f.bridge.handle("session.close", { sessionId });
+  await f.bridge.shutdown();
+});
+
+test("token projections become session usage without repeating an unchanged fold", async () => {
+  const listeners: Array<(session: unknown, key: string) => void> = [];
+  let values: Partial<Record<string, unknown>> = {};
+  const f = fixture({
+    sessionProjections: {
+      snapshot: () => ({ values }),
+      onChanged: (listener) => {
+        listeners.push(listener as (session: unknown, key: string) => void);
+        return () => undefined;
+      },
+    },
+  });
+  const { sessionId } = await f.bridge.handle("session.open", { cwd: "/tmp" });
+  assert.equal(listeners.length, 1, "the bridge subscribes to the projection change feed");
+  const fire = (key: string) => listeners[0]!({ id: sessionId }, key);
+  const usage = () =>
+    f.notifications
+      .filter((n) => n.method === "session.usage")
+      .map((n) => n.params as { sessionId: string; usage: Record<string, number> });
+
+  // The units materialize at zero before any provider usage lands.
+  values = {
+    tokenUsage: { uncachedInputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
+    contextPressure: { contextWindow: 262144 },
+  };
+  fire("tokenUsage");
+  assert.deepEqual(usage(), [], "a warm-up fold carrying no measured token is not sent");
+
+  values = {
+    tokenUsage: { uncachedInputTokens: 4923, cacheReadTokens: 21120, outputTokens: 51 },
+    contextPressure: { contextWindow: 262144, pressureTokens: 13076 },
+  };
+  fire("tokenUsage");
+  assert.deepEqual(usage(), [
+    {
+      sessionId,
+      usage: {
+        inputTokens: 4923,
+        cachedInputTokens: 21120,
+        outputTokens: 51,
+        contextWindowUsedTokens: 13076,
+        contextWindowMaxTokens: 262144,
+      },
+    },
+  ]);
+
+  fire("contextPressure");
+  assert.equal(usage().length, 1, "an unchanged fold is not re-sent");
+  fire("sessionStats");
+  assert.equal(usage().length, 1, "a projection the bridge does not track publishes nothing");
+
+  values = {
+    tokenUsage: { uncachedInputTokens: 5000, cacheReadTokens: 30000, outputTokens: 60 },
+    contextPressure: { contextWindow: 262144, pressureTokens: 14000 },
+  };
+  fire("tokenUsage");
+  assert.equal(usage().length, 2, "a changed fold is sent");
+
   await f.bridge.handle("session.close", { sessionId });
   await f.bridge.shutdown();
 });
