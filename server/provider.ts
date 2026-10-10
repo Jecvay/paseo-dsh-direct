@@ -11,6 +11,7 @@ import {
   type ProviderPermissionResponse,
   type ProviderRegistration,
   type ProviderSessionConfig,
+  type ProviderStatus,
 } from "@getpaseo/plugin/server/provider";
 import type {
   BridgeCatalog,
@@ -48,6 +49,8 @@ const PLAN_MODE_SETTING = "planMode";
 
 interface DshProviderOptions {
   createBridge(launch?: SessionLaunch): Promise<DshBridge>;
+  /** The dsh executable `createBridge` launches; `status()` probes this same path. */
+  executable: string;
   /** Detects the local dsh version for the startup compatibility check; defaults to spawning `<exe> --version`. */
   detectDshVersion?: (executable: string) => Promise<string>;
 }
@@ -88,6 +91,9 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
     icon: "dsh.svg",
     getCatalogCacheKey: async (options) =>
       options.scope === "workspace" ? `dsh-pi:${options.cwd}` : "dsh-pi:global",
+    async status() {
+      return dshStatus(options.executable, options.detectDshVersion ?? detectDshVersion);
+    },
     async connect(request) {
       if (!request.versions.includes(1)) throw new Error("Provider protocol version 1 is required");
       const bridge = await options.createBridge();
@@ -105,6 +111,30 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
       );
     },
   };
+}
+
+/**
+ * Availability of the local dsh for Paseo 0.11+ provider listings. A dsh that
+ * does not answer `--version` is unavailable; a version outside the plugin's
+ * major.minor line stays available with the same warning the session timeline
+ * shows, since only DSH's own handshake can reject a session.
+ */
+async function dshStatus(
+  executable: string,
+  detectVersion: (executable: string) => Promise<string>,
+): Promise<ProviderStatus> {
+  const dshVersion = await detectVersion(executable).catch(() => "");
+  if (!dshVersion) {
+    return {
+      available: false,
+      diagnostic:
+        `Could not run "${executable} --version". Install dsh or set PASEO_DSH_EXECUTABLE to its path, ` +
+        `then restart the Paseo daemon.`,
+    };
+  }
+  const match = matchVersionLine(PLUGIN_VERSION, dshVersion);
+  if (match === "match") return { available: true };
+  return { available: true, diagnostic: versionWarningMessage(match, PLUGIN_VERSION, dshVersion) };
 }
 
 function createConnection(

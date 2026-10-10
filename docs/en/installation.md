@@ -40,7 +40,7 @@ paseo provider models dsh-pi
 The CLI also accepts a Git ref that the Settings UI field cannot:
 
 ```bash
-paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin install github:Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
 
 If the Paseo Daemon has plugin loading disabled, set `pluginsEnabled` to `true` in its `config.json`, then run `paseo daemon reload`. Preserve the other configuration fields.

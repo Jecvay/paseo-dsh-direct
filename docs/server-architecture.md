@@ -26,6 +26,10 @@ DSH 的启动审计忽略被禁用的必需行，所以禁用这五行后 DSH �
 
 桥接通过官方 DSH 服务访问会话、agent、presets、模型、实时输出与交互请求。它不直接改写持久会话文件，也不在 Paseo 进程中加载另一套 DSH 运行时。
 
+## Provider 可用性
+
+Provider 注册提供 `status()`（Paseo 0.11 及以上调用）：对 `PASEO_DSH_EXECUTABLE`（未设置则取 `PATH` 里的 `dsh`）运行 `--version`，路径解析与桥接共用 `resolveDshExecutable`，结果按可执行路径缓存。无法运行时返回不可用并附原因；`major.minor` 线与插件不一致时返回可用并附与会话时间线相同的警告。不注册 `command`，`dsh` 由插件自己启动。
+
 ## 桥接资源
 
 `server/dsh/bridge.ts` 构建为 `dist/dsh-bridge.mjs`，同时生成嵌入服务端 bundle 的源码字符串。启动器把该资源写入专用临时目录，再通过绝对路径加载。资源定位不依赖 Paseo Daemon 的工作目录。
