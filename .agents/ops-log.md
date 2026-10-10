@@ -254,3 +254,9 @@
   - PR #45 下 `/jecbot` 追加指令接着同一个 dsh 会话，推上 bot 提交 1e4f365；
   - 服务日志和 `~/.local/state/paseo-dsh-direct/agent/` 里查不到 installation token 或 JWT。
 - 收尾：00:13 PR #43、#45 关闭不合并并删掉分支，issue #42、#44 关闭、看板卡归档，服务 clone 删掉 `refs/agent/issue-42`、`refs/agent/issue-44`，切回 `origin/main`（4ebdc36）重启。在这个 PR 合并前，线上服务仍认 `@agent`、用 Jecvay 身份；`agent.json` 里的 `app` 块旧代码不读，不影响运行。
+
+## 2026-10-10 — 发布 0.2.2（latest），Paseo 0.11.2 隔离实测
+
+- 发布：tag `v0.2.2`（`9894df9`）由人在本机推送；`paseo-dsh-direct@0.2.2` 由人在一台 SSH 的 Linux 机器上从该提交发为 `latest`，`npm login --auth-type=web` 和发布都在本地浏览器里确认。打包 24 个文件，含 `dsh.png`，shasum `8c136615e779a9cdb659d1f946c0d936546f88a7`。
+- 发布受阻记录：云端 agent 容器推送 tag 被会话的 git 通道拒绝（只放行工作分支）；容器里两次 `npm login --auth-type=web` 的确认页都报 "Invalid or Expired Token"，未查明原因，没有在容器里留下 npm 凭据。
+- 发布前实测：在隔离 home 的 Paseo 0.11.2 daemon 里本地目录安装插件，状态 running，manifest 的 name 和 icon 被接受；`provider ls` 显示 `dsh-pi` available，`provider models` 列出 2 个模型；把 `PASEO_DSH_EXECUTABLE` 指向不存在的路径后，provider 为 unavailable，`provider diagnostic` 输出插件自己的诊断文案。dsh 用 npm 的 0.2.0-rc.2，没有 API key，未跑真实回合。全新 home 的 `pluginsEnabled` 默认关闭，需在 `config.json` 顶层设为 `true`。
