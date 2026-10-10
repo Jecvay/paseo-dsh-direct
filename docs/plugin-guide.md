@@ -2,7 +2,7 @@
 
 ## 开发环境
 
-使用 Node.js 22.19+ 或 24+、npm、Paseo 0.8.0 以上，以及已安装的 DSH。具体实测版本与边界见 [兼容性说明](compatibility.md)。
+使用 Node.js 22.19+ 或 24+、npm、Paseo 0.11.0 以上，以及已安装的 DSH。具体实测版本与边界见 [兼容性说明](compatibility.md)。
 
 ```bash
 npm ci

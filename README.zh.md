@@ -6,7 +6,7 @@
 
 ## 安装
 
-运行 Paseo daemon 的机器上要装好 `dsh`，它的 `major.minor` 要和你装的插件线一致。
+需要 Paseo 0.11 及以上，并在运行 Paseo daemon 的机器上装好 `dsh`，它的 `major.minor` 要和你装的插件线一致。Paseo 0.8 至 0.10 请安装 `npm:paseo-dsh-direct@0.2.1`。
 
 在 Paseo 里打开 **Settings → Plugins → Install Plugin**，npm 和 Git 两种来源任填一个：
 

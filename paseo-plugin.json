@@ -1,7 +1,9 @@
 {
   "id": "paseo-dsh-direct",
+  "name": "DeepSeek Harness",
+  "icon": "dsh.png",
   "requirements": {
-    "paseo": ">=0.8.0"
+    "paseo": ">=0.11.0"
   },
   "build": [
     ["npm", "install", "--include=dev"],

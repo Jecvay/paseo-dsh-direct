@@ -6,7 +6,7 @@ English | [中文](README.zh.md)
 
 ## Install
 
-You need `dsh` on the machine that runs the Paseo daemon, with the same `major.minor` as the plugin line you install.
+You need Paseo 0.11 or later and `dsh` on the machine that runs the Paseo daemon, with the same `major.minor` as the plugin line you install. On Paseo 0.8 to 0.10, install `npm:paseo-dsh-direct@0.2.1`.
 
 In Paseo, open **Settings → Plugins → Install Plugin** and paste either the npm or the Git source:
 

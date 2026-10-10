@@ -1,12 +1,12 @@
 # paseo-dsh-direct — DeepSeek Harness 的 Paseo Provider Plugin
 
-本项目是为 Paseo（v0.8+）打造的第三方 Provider Plugin，旨在提供对本地 DeepSeek Harness（`dsh`）的原生级直连适配（Direct Provider），使 Paseo 用户（涵盖 iOS、Android、Desktop、Web）能直接驱动本地 DSH 智能体，获得平滑的流式响应、原生思考过程、工具审批与会话生命周期管理体验。
+本项目是为 Paseo（v0.11+）打造的第三方 Provider Plugin，旨在提供对本地 DeepSeek Harness（`dsh`）的原生级直连适配（Direct Provider），使 Paseo 用户（涵盖 iOS、Android、Desktop、Web）能直接驱动本地 DSH 智能体，获得平滑的流式响应、原生思考过程、工具审批与会话生命周期管理体验。
 
 本项目是一个 Paseo 外部扩展插件，不是独立运行的 Agent，不侵入修改 Paseo 核心，也不替代 DSH 自身。
 
 ## 核心原则
 
-- **严格遵守 Paseo 0.8 插件规范**：前后端三层分界明确（`server/` 运行于 Daemon 子进程，`client/` 运行于 App 前端，`shared/` 为跨端契约）。客户端代码禁止调用 Node.js 或 DOM 专属 API，必须保证移动端及跨平台兼容。
+- **严格遵守 Paseo 0.11 插件规范**：前后端三层分界明确（`server/` 运行于 Daemon 子进程，`client/` 运行于 App 前端，`shared/` 为跨端契约）。客户端代码禁止调用 Node.js 或 DOM 专属 API，必须保证移动端及跨平台兼容。
 - **敏感凭证绝不上仓**：API 密钥（如 `DEEPSEEK_API_KEY`）及本地敏感路径仅通过环境变量或 Paseo 凭证系统注入，禁止硬编码或提交入库。
 - **直连优先原则**：优先采用 Paseo 的 Direct Provider 接口对接 DSH 内部事件总线/RPC，绕过泛型 ACP 适配器带来的流式 chunk 拆包撕裂与交互能力降级。
 - **开源交付标准**：工程与文档保持自包含、清晰规范，原生适配 `paseo plugin add` 安装机制与 [paseo.cafe](https://paseo.cafe) 社区索引。
