@@ -57,8 +57,16 @@ Configure overrides in the Daemon environment:
 
 | Variable | Effect |
 |---|---|
-| `PASEO_DSH_EXECUTABLE` | Selects the `dsh` executable. |
+| `PASEO_DSH_EXECUTABLE` | Selects the `dsh` executable; takes precedence over the Paseo setting below. |
 | `PASEO_DSH_PROFILE` | Selects another existing DSH profile; default: `paseo`. A profile named here is not created automatically. |
+
+The provider registers `command: ["dsh"]`, so Paseo's own provider configuration can override the executable and its environment without an environment variable:
+
+```json
+{ "agents": { "providers": { "dsh-pi": { "command": ["/opt/dsh/bin/dsh"], "env": { "DSH_HOME": "/srv/dsh" } } } } }
+```
+
+The executable is chosen in this order: `PASEO_DSH_EXECUTABLE`, then `agents.providers.dsh-pi.command`, then `dsh` from `PATH`. Restart the Paseo Daemon after changing either.
 
 The provider exposes streamed assistant and reasoning output, tool execution and approval, user questions, configuration, interruption and persistent session recovery through Paseo's native UI.
 

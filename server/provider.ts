@@ -24,7 +24,14 @@ import type {
   SlashCommand,
 } from "../shared/bridge-protocol.js";
 import { slashLine } from "../shared/bridge-protocol.js";
-import type { BridgeMcpServer, DshBridge, SessionLaunch } from "./bridge-client.js";
+import {
+  describeDshLaunch,
+  resolveDshLaunch,
+  type BridgeMcpServer,
+  type DshBridge,
+  type DshLaunch,
+  type SessionLaunch,
+} from "./bridge-client.js";
 import { detectDshVersion } from "./dsh-version.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
 import { displayText, toPromptParts } from "./prompt-content.js";
@@ -47,12 +54,17 @@ const CAPABILITIES = [
 const PERMISSION_PRESET_SETTING = "permissionPreset";
 const PLAN_MODE_SETTING = "planMode";
 
+type DetectVersion = (
+  executable: string,
+  options?: { args?: readonly string[]; env?: Readonly<Record<string, string | undefined>> },
+) => Promise<string>;
+
 interface DshProviderOptions {
   createBridge(launch?: SessionLaunch): Promise<DshBridge>;
-  /** The dsh executable `createBridge` launches; `status()` probes this same path. */
-  executable: string;
+  /** The `PASEO_DSH_EXECUTABLE` value; it outranks the `launch` Paseo resolves. `status()` and `createBridge` use the same precedence. */
+  executable?: string;
   /** Detects the local dsh version for the startup compatibility check; defaults to spawning `<exe> --version`. */
-  detectDshVersion?: (executable: string) => Promise<string>;
+  detectDshVersion?: DetectVersion;
 }
 
 /** A prompt or command RPC in flight; it owns any turn DSH starts before the RPC returns. */
@@ -91,12 +103,20 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
     icon: "dsh.svg",
     getCatalogCacheKey: async (options) =>
       options.scope === "workspace" ? `dsh-pi:${options.cwd}` : "dsh-pi:global",
-    async status() {
-      return dshStatus(options.executable, options.detectDshVersion ?? detectDshVersion);
+    command: ["dsh"],
+    async status(request) {
+      return dshStatus(
+        resolveDshLaunch(options.executable, request?.launch),
+        request?.launch?.env,
+        options.detectDshVersion ?? detectDshVersion,
+      );
     },
     async connect(request) {
       if (!request.versions.includes(1)) throw new Error("Provider protocol version 1 is required");
-      const bridge = await options.createBridge();
+      const providerLaunch = request.launch;
+      const createBridge = (launch?: SessionLaunch) =>
+        options.createBridge(providerLaunch ? { ...launch, providerLaunch } : launch);
+      const bridge = await createBridge();
       const supported = CAPABILITIES.filter(
         (capability) =>
           capability !== "permission" ||
@@ -105,9 +125,10 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
       );
       return createConnection(
         bridge,
-        options.createBridge,
+        createBridge,
         negotiateProviderCapabilities(request.capabilities, supported),
         options.detectDshVersion ?? detectDshVersion,
+        providerLaunch?.env,
       );
     },
   };
@@ -120,15 +141,17 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
  * shows, since only DSH's own handshake can reject a session.
  */
 async function dshStatus(
-  executable: string,
-  detectVersion: (executable: string) => Promise<string>,
+  launch: DshLaunch,
+  env: Readonly<Record<string, string>> | undefined,
+  detectVersion: DetectVersion,
 ): Promise<ProviderStatus> {
-  const dshVersion = await detectVersion(executable).catch(() => "");
+  const dshVersion = await detectVersion(launch.command, { args: launch.args, ...(env ? { env } : {}) }).catch(() => "");
   if (!dshVersion) {
     return {
       available: false,
       diagnostic:
-        `Could not run "${executable} --version". Install dsh or set PASEO_DSH_EXECUTABLE to its path, ` +
+        `Could not run "${describeDshLaunch(launch)} --version". Install dsh, ` +
+        `set agents.providers.dsh-pi.command in Paseo config, or set PASEO_DSH_EXECUTABLE, ` +
         `then restart the Paseo daemon.`,
     };
   }
@@ -139,9 +162,10 @@ async function dshStatus(
 
 function createConnection(
   discoveryBridge: DshBridge,
-  createBridge: DshProviderOptions["createBridge"],
+  createBridge: (launch?: SessionLaunch) => Promise<DshBridge>,
   capabilities: readonly string[],
-  detectVersion: (executable: string) => Promise<string>,
+  detectVersion: DetectVersion,
+  launchEnv: Readonly<Record<string, string>> | undefined,
 ): ProviderConnection {
   const listeners = new Set<(event: ProviderEvent) => void>();
   const sessions = new Map<string, SessionState>();
@@ -158,7 +182,7 @@ function createConnection(
       if (closed) throw new Error("Provider connection is closed");
       validateAdmission(input, sessions, capabilities);
       queueMicrotask(() => {
-        void dispatch(input, { discoveryBridge, createBridge, sessions, emit, capabilities, detectVersion }).catch(
+        void dispatch(input, { discoveryBridge, createBridge, sessions, emit, capabilities, detectVersion, launchEnv }).catch(
           (error) => failInput(input, error, emit),
         );
       });
@@ -305,11 +329,12 @@ function failSession(
 
 interface DispatchState {
   discoveryBridge: DshBridge;
-  createBridge: DshProviderOptions["createBridge"];
+  createBridge: (launch?: SessionLaunch) => Promise<DshBridge>;
   sessions: Map<string, SessionState>;
   emit(event: ProviderEvent): void;
   capabilities: readonly string[];
-  detectVersion: (executable: string) => Promise<string>;
+  detectVersion: DetectVersion;
+  launchEnv: Readonly<Record<string, string>> | undefined;
 }
 
 async function dispatch(input: ProviderInput, state: DispatchState): Promise<void> {
@@ -470,7 +495,10 @@ async function openSession(
  * Never blocks the session: DSH's own handshake is what can fail startup.
  */
 async function warnOnDshVersionMismatch(session: SessionState, state: DispatchState): Promise<void> {
-  const dshVersion = await state.detectVersion(session.bridge.executable).catch(() => "");
+  const dshVersion = await state.detectVersion(session.bridge.executable, {
+    args: session.bridge.args ?? [],
+    ...(state.launchEnv ? { env: state.launchEnv } : {}),
+  }).catch(() => "");
   const status = matchVersionLine(PLUGIN_VERSION, dshVersion);
   if (status === "match") return;
   const message = versionWarningMessage(status, PLUGIN_VERSION, dshVersion);

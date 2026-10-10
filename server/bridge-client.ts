@@ -3,6 +3,8 @@ import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { detectDshVersion } from "./dsh-version.js";
+import type { ProviderLaunch } from "@getpaseo/plugin/server/provider";
 import type {
   BridgeInitializeResult,
   BridgeMethods,
@@ -16,8 +18,10 @@ type Notification = keyof BridgeNotifications;
 
 export interface DshBridge {
   readonly initialized: BridgeInitializeResult;
-  /** The resolved `dsh` executable this bridge was launched with (see `PASEO_DSH_EXECUTABLE`). */
+  /** The resolved `dsh` executable this bridge was launched with (see `resolveDshLaunch`). */
   readonly executable: string;
+  /** Arguments that precede dsh's own arguments, from Paseo's resolved `command`. */
+  readonly args?: readonly string[];
   request<Name extends Method>(
     method: Name,
     params: BridgeMethods[Name]["params"],
@@ -52,9 +56,12 @@ export interface SessionLaunch {
   /** Store sessions under the bridge's temporary directory, removed on close. */
   ephemeral?: boolean;
   mcpServers?: readonly BridgeMcpServer[];
+  /** The `launch` Paseo resolved for the provider connection: command, leading arguments and the complete daemon environment. */
+  providerLaunch?: ProviderLaunch;
 }
 
 export interface LaunchBridgeOptions extends SessionLaunch {
+  /** The `PASEO_DSH_EXECUTABLE` value; it takes precedence over `providerLaunch.command`. */
   executable?: string;
   profile?: string;
   bridgeSource: string;
@@ -123,6 +130,7 @@ export function createBridgePatch(options: {
  */
 export async function ensureDshProfile(options: {
   executable: string;
+  args?: readonly string[];
   profile: string;
   env: Readonly<Record<string, string | undefined>>;
   timeoutMs?: number;
@@ -139,7 +147,13 @@ export async function ensureDshProfile(options: {
   // Concurrent first launches share one creation run.
   let creation = profileCreations.get(directory);
   if (!creation) {
-    creation = runProfileInit(options.executable, options.profile, options.env, options.timeoutMs ?? 60_000).finally(
+    creation = runProfileInit(
+      options.executable,
+      options.args ?? [],
+      options.profile,
+      options.env,
+      options.timeoutMs ?? 60_000,
+    ).finally(
       () => profileCreations.delete(directory),
     );
     profileCreations.set(directory, creation);
@@ -162,6 +176,7 @@ async function isDirectory(directory: string): Promise<boolean> {
 
 function runProfileInit(
   executable: string,
+  leadingArgs: readonly string[],
   profile: string,
   env: Readonly<Record<string, string | undefined>>,
   timeoutMs: number,
@@ -169,7 +184,7 @@ function runProfileInit(
   return new Promise((resolve, reject) => {
     const child = spawn(
       executable,
-      ["--profile", profile, "--from-default-profile", DEFAULT_PROFILE_TEMPLATE, "--dump-config"],
+      [...leadingArgs, "--profile", profile, "--from-default-profile", DEFAULT_PROFILE_TEMPLATE, "--dump-config"],
       { env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
     );
     let stderr = "";
@@ -199,16 +214,135 @@ function runProfileInit(
   });
 }
 
-/** The `dsh` executable for a configured `PASEO_DSH_EXECUTABLE` value: the trimmed value, or `dsh` from `PATH` when it is blank or unset. */
-export function resolveDshExecutable(configured: string | undefined): string {
-  return configured?.trim() || "dsh";
+/** The command and leading arguments that start dsh. */
+export interface DshLaunch {
+  command: string;
+  args: readonly string[];
+}
+
+/**
+ * The dsh launch, by precedence: a non-blank `PASEO_DSH_EXECUTABLE` (the most
+ * specific signal, kept for existing installs), then the `launch` Paseo
+ * resolved from `command` / `agents.providers.dsh-pi.command`, then `dsh` from
+ * `PATH`. `launch.args` belong to `launch.command`, so they are dropped when
+ * the environment variable wins.
+ */
+export function resolveDshLaunch(configured: string | undefined, launch?: Pick<ProviderLaunch, "command" | "args">): DshLaunch {
+  const override = configured?.trim();
+  if (override) return { command: override, args: [] };
+  if (launch) return { command: launch.command, args: launch.args };
+  return { command: "dsh", args: [] };
+}
+
+/** The `dsh` executable chosen by `resolveDshLaunch`. */
+export function resolveDshExecutable(configured: string | undefined, launch?: Pick<ProviderLaunch, "command" | "args">): string {
+  return resolveDshLaunch(configured, launch).command;
+}
+
+/** Text for diagnostics: the command line with its leading arguments. */
+export function describeDshLaunch(launch: DshLaunch): string {
+  return [launch.command, ...launch.args].join(" ");
+}
+
+/** Row ids found in a dumped DSH configuration, in YAML (`id: x`) or JSON (`"id": "x"`) form. */
+export function dumpedRowIds(dump: string): Set<string> {
+  const ids = new Set<string>();
+  for (const match of dump.matchAll(/(?:^|[\s{,\-])["']?id["']?\s*:\s*["']?([A-Za-z0-9_.@/-]+)["']?/gm)) {
+    ids.add(match[1]!);
+  }
+  return ids;
+}
+
+/** The surface rows the launcher disables that the dumped configuration does not contain. */
+export function missingSurfaceRows(dump: string): string[] {
+  const present = dumpedRowIds(dump);
+  return DISABLED_SURFACE_ROWS.filter((row) => !present.has(row));
+}
+
+/**
+ * Fail loudly when the profile no longer has a row the launcher disables.
+ * Disabling an absent row has no effect, so a renamed row would leave the
+ * browser surface running beside the bridge. Returns normally when the dump
+ * cannot be obtained or is empty: the guard has no evidence then, and the real
+ * launch reports its own errors.
+ */
+export async function assertSurfaceRowsPresent(options: {
+  launch: DshLaunch;
+  profile: string;
+  env: Readonly<Record<string, string | undefined>>;
+  dshVersionOf: (launch: DshLaunch) => Promise<string>;
+  dump?: (launch: DshLaunch, profile: string, env: Readonly<Record<string, string | undefined>>) => Promise<string>;
+}): Promise<void> {
+  const dump = await (options.dump ?? dumpProfileConfig)(options.launch, options.profile, options.env).catch(() => "");
+  if (!dump.trim()) return;
+  const missing = missingSurfaceRows(dump);
+  if (missing.length === 0) return;
+  const version = (await options.dshVersionOf(options.launch).catch(() => "")) || "unknown";
+  throw new Error(
+    `DSH ${version} profile "${options.profile}" has no ${missing.map((row) => `"${row}"`).join(", ")} row. ` +
+      `The plugin disables ${DISABLED_SURFACE_ROWS.join(", ")} to keep the web surface from running beside the bridge, ` +
+      `so this dsh does not match the plugin. Install the dsh line this plugin release supports, ` +
+      `or recreate the profile from the web template.`,
+  );
+}
+
+/** `dsh --profile <profile> --dump-config` stdout; rejects when dsh fails or exceeds the timeout. */
+function dumpProfileConfig(
+  launch: DshLaunch,
+  profile: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(launch.command, [...launch.args, "--profile", profile, "--dump-config"], {
+      env,
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout = (stdout + chunk).slice(-1_048_576);
+    });
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("dsh --dump-config timed out"));
+    }, 20_000);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`dsh --dump-config exited with code ${String(code)}`));
+    });
+  });
+}
+
+/** Names of host services or methods the bridge needs that the handshake reported missing. */
+export function assertBridgeHandshake(initialized: BridgeInitializeResult, dshVersion: string): void {
+  if (initialized.protocolVersion !== 1) {
+    throw new Error(`Unsupported DSH bridge protocol ${initialized.protocolVersion}`);
+  }
+  const missing = initialized.missing ?? [];
+  if (missing.length === 0) return;
+  throw new Error(
+    `DSH ${dshVersion || "unknown"} does not provide what the bridge depends on: ${missing.join(", ")}. ` +
+      `This dsh does not match the plugin; install the dsh line this plugin release supports.`,
+  );
 }
 
 export async function launchDshBridge(options: LaunchBridgeOptions): Promise<DshBridge> {
   const profile = options.profile?.trim() || DEFAULT_PROFILE;
-  const executable = resolveDshExecutable(options.executable);
-  const env = { ...process.env, ...options.env };
-  await ensureDshProfile({ executable, profile, env });
+  const launch = resolveDshLaunch(options.executable, options.providerLaunch);
+  const env = { ...(options.providerLaunch?.env ?? process.env), ...options.env };
+  await ensureDshProfile({ executable: launch.command, args: launch.args, profile, env });
+  await assertSurfaceRowsPresent({
+    launch,
+    profile,
+    env,
+    dshVersionOf: (target) => detectDshVersion(target.command, { args: target.args, env }),
+  });
   const directory = await mkdtemp(path.join(tmpdir(), "paseo-dsh-direct-"));
   const bridgePath = path.join(directory, "dsh-bridge.mjs");
   const patchPath = path.join(directory, "patch.json");
@@ -226,17 +360,18 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
     { mode: 0o600 },
   );
 
-  const child = spawn(executable, ["--profile", profile, "--patch", patchPath], {
+  const child = spawn(launch.command, [...launch.args, "--profile", profile, "--patch", patchPath], {
     env,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
-  const client = new JsonlBridgeClient(child, directory, executable);
+  const client = new JsonlBridgeClient(child, directory, launch);
   try {
     await client.waitUntilReady(options.startupTimeoutMs ?? 15_000);
     client.initialized = await client.request("bridge.initialize", {});
-    if (client.initialized.protocolVersion !== 1) {
-      throw new Error(`Unsupported DSH bridge protocol ${client.initialized.protocolVersion}`);
+    if (client.initialized.protocolVersion !== 1 || (client.initialized.missing?.length ?? 0) > 0) {
+      const version = await detectDshVersion(launch.command, { args: launch.args, env }).catch(() => "");
+      assertBridgeHandshake(client.initialized, version);
     }
     return client;
   } catch (error) {
@@ -248,6 +383,7 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
 class JsonlBridgeClient implements DshBridge {
   initialized!: BridgeInitializeResult;
   readonly executable: string;
+  readonly args: readonly string[];
   private nextId = 1;
   private readonly pending = new Map<string | number, PendingRequest>();
   private readonly notifications = new Map<string, Set<(params: never) => void>>();
@@ -263,9 +399,10 @@ class JsonlBridgeClient implements DshBridge {
   constructor(
     private readonly child: ChildProcessWithoutNullStreams,
     private readonly temporaryDirectory: string,
-    executable: string,
+    launch: DshLaunch,
   ) {
-    this.executable = executable;
+    this.executable = launch.command;
+    this.args = launch.args;
     this.exited = new Promise((resolve) => {
       this.resolveExited = resolve;
     });

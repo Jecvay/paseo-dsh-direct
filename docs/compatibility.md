@@ -42,7 +42,7 @@ DSH 保持用户原有安装，插件不自动升级或替换它。插件只需�
 
 [paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.11.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.11.2`，可选 peer 依赖 `@getpaseo/client`、`@getpaseo/protocol` 同为 `0.11.2`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。清单带 `name` 与 `icon`（均要求 Paseo 0.11.0 及以上）；Paseo 0.8 至 0.10 的用户安装 `npm:paseo-dsh-direct@0.2.1`。
 
-Provider 注册了 `status()`：Paseo 0.11 及以上列出 Provider 时，用 `PASEO_DSH_EXECUTABLE`（未设置则取 `PATH` 里的 `dsh`）运行 `--version`（结果按可执行路径缓存）。`dsh` 无法运行时报告不可用并给出原因；`major.minor` 线与插件不一致时仍报告可用，附带与会话时间线相同的版本线警告。插件自己启动 `dsh`，所以不注册 `command`。`paseo-plugin.json` 的 `name` 为 `DeepSeek Harness`，`icon` 指向仓库根的 256x256 透明底 PNG `dsh.png`（由 `dsh.svg` 渲染）。
+Provider 注册了 `status()`：Paseo 0.11 及以上列出 Provider 时，用 `PASEO_DSH_EXECUTABLE`（未设置则取 `PATH` 里的 `dsh`）运行 `--version`（结果按可执行路径缓存；Paseo 配置了 `agents.providers.dsh-pi.command` 时探测该命令）。`dsh` 无法运行时报告不可用并给出原因；`major.minor` 线与插件不一致时仍报告可用，附带与会话时间线相同的版本线警告。Provider 注册 `command: ["dsh"]`，详见 [服务端架构](server-architecture.md#dsh-的选择)。`paseo-plugin.json` 的 `name` 为 `DeepSeek Harness`，`icon` 指向仓库根的 256x256 透明底 PNG `dsh.png`（由 `dsh.svg` 渲染）。
 
 插件注册 `dsh-pi`，不会覆盖名为 `dsh` 的既有自定义 Provider。
 

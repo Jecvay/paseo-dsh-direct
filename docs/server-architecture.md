@@ -28,7 +28,28 @@ DSH 的启动审计忽略被禁用的必需行，所以禁用这五行后 DSH �
 
 ## Provider 可用性
 
-Provider 注册提供 `status()`（Paseo 0.11 及以上调用）：对 `PASEO_DSH_EXECUTABLE`（未设置则取 `PATH` 里的 `dsh`）运行 `--version`，路径解析与桥接共用 `resolveDshExecutable`，结果按可执行路径缓存。无法运行时返回不可用并附原因；`major.minor` 线与插件不一致时返回可用并附与会话时间线相同的警告。不注册 `command`，`dsh` 由插件自己启动。
+Provider 注册 `command: ["dsh"]` 与 `status()`（Paseo 0.11 及以上调用）。
+
+### dsh 的选择
+
+Paseo 在 `status` 与 `connect` 请求里带 `launch`（`command`、`args`、`env`）：`command` 是 Daemon 解析后的可执行路径，默认值来自注册的 `command`，可被 Paseo 配置 `agents.providers.dsh-pi.command` 与 `env` 覆盖；`env` 是 Daemon 持有的完整环境（含覆盖项，已去掉父会话变量）。旧版 Daemon 或独立调用不带 `launch`。
+
+`resolveDshLaunch` 按以下顺序选可执行文件：
+
+1. 非空的 `PASEO_DSH_EXECUTABLE`：显式环境变量是最具体的信号，已有安装继续生效；此时 `launch.args` 属于被覆盖的命令，不使用。
+2. `launch.command`，`launch.args` 排在 dsh 自己的参数（`--profile` 等）之前。
+3. `PATH` 里的 `dsh`。
+
+桥接子进程的环境以 `launch.env` 为底（没有 `launch` 时用 `process.env`），再叠加会话环境变量。`status()` 对同一请求的 `launch` 套用同一顺序，对解析出的命令加参数运行 `--version`，结果按命令与参数缓存，探测使用 `launch.env`。无法运行时返回不可用，并提示安装 dsh、设置 `agents.providers.dsh-pi.command` 或 `PASEO_DSH_EXECUTABLE`，然后重启 Daemon；`major.minor` 线与插件不一致时返回可用并附与会话时间线相同的警告。
+
+### 漂移防护
+
+DSH 内部契约随版本变化。桥接启动有两道检查，任一失败都使连接失败并写明原因：
+
+- **profile 行检查**：profile 就绪后运行 `dsh --profile <profile> --dump-config`，断言禁用清单里的每一行（`web-startup`、`webserver`、`web-runtime`、`connection`、`api-remotes`）都在输出中；缺行时报错，点名缺失的行与 dsh 版本。禁用不存在的行不会报错，改名后的行会让浏览器界面与桥接并存，所以必须先断言。dump 失败或无输出时没有证据，检查放行，由真正的启动报告错误。
+- **握手检查**：`bridge.initialize` 的 `missing` 列出桥接依赖而 DSH 未提供的服务与方法（`agents.get/create/resume`、`sessionQuery.listSessions/readSession/observeSession`、`agentPresets.list/resolve/mount/select`、`llm.listProviders/listModels`），插件据此拒绝连接并列出缺项和 dsh 版本。字段缺省表示没有缺项，`protocolVersion` 保持 1。
+
+其他行是否也监听 `approval/request` 与 `user-questions/request`，无法从配置输出静态判断，Cordis 也不提供监听者枚举，因此不检查；真实 dsh 的审批与问答往返由 `server/e2e-interaction.test.ts` 覆盖（需要 `DEEPSEEK_API_KEY` 与可运行的 `dsh`，否则跳过）。
 
 ## 桥接资源
 

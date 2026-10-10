@@ -86,6 +86,12 @@ export interface BridgeInitializeResult {
     cancel: true;
   };
   catalog: BridgeCatalog;
+  /**
+   * DSH services or methods the bridge requires that this DSH does not provide,
+   * as `service` or `service.method`. Absent or empty when nothing is missing;
+   * the plugin refuses to connect otherwise.
+   */
+  missing?: string[];
 }
 export interface SessionOpenParams {
   sessionId?: string;

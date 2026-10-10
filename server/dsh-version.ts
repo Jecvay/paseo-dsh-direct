@@ -8,6 +8,8 @@ const cache = new Map<string, Promise<string>>();
 export interface DetectDshVersionOptions {
   timeoutMs?: number;
   env?: Readonly<Record<string, string | undefined>>;
+  /** Arguments placed before `--version`, from Paseo's resolved command. */
+  args?: readonly string[];
 }
 
 /**
@@ -18,10 +20,11 @@ export interface DetectDshVersionOptions {
  * executable path for the life of the process.
  */
 export function detectDshVersion(executable: string, options: DetectDshVersionOptions = {}): Promise<string> {
-  const cached = cache.get(executable);
+  const key = JSON.stringify([executable, ...(options.args ?? [])]);
+  const cached = cache.get(key);
   if (cached) return cached;
   const probe = runVersionProbe(executable, options);
-  cache.set(executable, probe);
+  cache.set(key, probe);
   return probe;
 }
 
@@ -38,7 +41,7 @@ function runVersionProbe(executable: string, options: DetectDshVersionOptions): 
 
     let child;
     try {
-      child = spawn(executable, ["--version"], {
+      child = spawn(executable, [...(options.args ?? []), "--version"], {
         env: options.env ?? process.env,
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
