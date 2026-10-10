@@ -6,13 +6,13 @@ The validated alpha combination is:
 
 | Component | Version |
 |---|---|
-| Paseo | `0.9.2` |
-| DeepSeek Harness | `0.2.0-rc.1` |
-| Node.js | `24.13.0` |
+| Paseo | `0.11.2` |
+| DeepSeek Harness | `0.2.0-rc.2` |
+| Node.js | `22` or `24` |
 
 DSH must already be installed on the host running the Paseo Daemon; no other DSH add-on is needed.
 
-The plugin's `major.minor` tracks the dsh line it supports (this `0.2.x` release works with dsh `0.2.*`); install the line matching your local dsh version. DSH `0.2.0-rc.1` installs cleanly with `npm install @deepseek-ai/dsh@0.2.0-rc.1`; [Compatibility](compatibility.md) shows the full versioning rule and a caveat for mise's npm backend on this package.
+The plugin's `major.minor` tracks the dsh line it supports (this `0.2.x` release works with dsh `0.2.*`); install the line matching your local dsh version. DSH `0.2.0-rc.2` installs cleanly with `npm install @deepseek-ai/dsh@0.2.0-rc.2`; [Compatibility](compatibility.md) shows the full versioning rule and a caveat for mise's npm backend on this package.
 
 ## Install from the Settings UI
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+- Requires Paseo `>=0.11.0`. Paseo 0.8 to 0.10 users install `npm:paseo-dsh-direct@0.2.1`.
+- The Paseo SDK types are pinned to `0.11.2`.
+- `paseo-plugin.json` carries the name `DeepSeek Harness` and the icon `dsh.png`.
+- The provider registers `status()`: Paseo shows whether dsh runs and, when it does not, the reason; a dsh on another version line stays available with the same line warning as the session timeline.
+- The README's GitHub install uses `github:Jecvay/paseo-dsh-direct`.
+- Tested with dsh `0.2.0-rc.2` (bridge handshake, model/preset catalogs, session list, and loading in a Paseo 0.11.2 Daemon). Real turns, tool calls, approvals, questions, `/compact`, `/plan` and resume were last run on dsh `0.2.0-rc.1`; see `docs/compatibility.md`.
+
 ## 0.2.1
 
 - Published to npm as `paseo-dsh-direct`. Paseo's **Settings → Plugins → Install Plugin** now accepts `npm:paseo-dsh-direct` or the Git URL; the dsh `0.1` line is `npm:paseo-dsh-direct@dsh-0.1`.
