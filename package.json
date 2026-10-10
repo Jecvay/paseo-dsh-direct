@@ -24,6 +24,7 @@
     "scripts/install-lefthook.mjs",
     "paseo-plugin.json",
     "dsh.svg",
+    "dsh.png",
     "!server/**/*.test.ts",
     "!server/generated-bridge.ts",
     "!server/generated-version.ts"
