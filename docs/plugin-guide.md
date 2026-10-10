@@ -79,4 +79,4 @@ DSH 会话写锁由原生运行时拥有。不要删除 `.lock` 文件来强行�
 
 - [Paseo Provider 开发指南](https://paseo.sh/docs/plugins/providers)
 - [Paseo Direct Provider 示例](https://github.com/getpaseo/paseo/tree/main/plugin-examples/provider-direct)
-- [DSH 0.2.0-rc.1 源码](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.0-rc.1)
+- [DSH 0.2.0-rc.2 源码](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.0-rc.2)

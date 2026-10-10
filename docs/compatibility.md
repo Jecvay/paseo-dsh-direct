@@ -19,20 +19,22 @@ Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git
 
 | 插件版本线 | 已实测的 DSH 版本 | 获取方式 |
 |---|---|---|
-| `0.2.x` | `0.2.0-rc.1`（安装方式见下） | `npm:paseo-dsh-direct`，或 Git `main` |
+| `0.2.x` | `0.2.0-rc.2`（推荐，安装方式见下）；回合级能力在 `0.2.0-rc.1` 下实测 | `npm:paseo-dsh-direct`，或 Git `main` |
 | `0.1.x` | `0.1.7-rc.2` | `npm:paseo-dsh-direct@dsh-0.1`，或 Git 分支 `release/0.1` |
 
-本机同时验证 Paseo `0.9.2`、Node.js `24.13.0`。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
+Paseo 验证基线为 `0.11.2`（插件安装、加载、provider 可用性与模型目录，Daemon 运行于 Node.js `22`）；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
-**0.2 线**：在 DSH `0.2.0-rc.1` 下，用插件真实的 provider 路径（`createDshProvider` + `launchDshBridge`，不经 Paseo Daemon）和真实模型验证了：自动创建 `paseo` profile、模型/preset/权限目录、含 bash 工具调用的真实回合、工具审批允许/拒绝、问答应答/拒绝、斜杠目录含 `/compact` 与 `/plan`、关闭后按持久化句柄恢复会话并继续对话；`npm run smoke:bridge -- --prompt` 通过，DSH 子进程不监听 TCP 端口、不开浏览器。图片与文件附件、MCP、中断、Paseo Daemon 内加载与重启恢复在 0.2 线尚未复测。
+**0.2 线**：在 DSH `0.2.0-rc.2` 下验证了桥接握手、模型/preset 目录与 `session.list`（`npm run smoke:bridge`），并在 Paseo `0.11.2` 的 Daemon 内验证了：本地目录安装并加载（插件名 `DeepSeek Harness`、图标被接受、插件日志无错误）、`dsh-pi` 列出且可用、模型目录加载；`PASEO_DSH_EXECUTABLE` 指向不存在的路径时，`paseo provider diagnostic dsh-pi` 报告不可用并给出 `Could not run "<path> --version"…` 的说明。rc.2 下的真实回合、工具调用、审批、问答、`/compact`、`/plan` 与会话恢复没有复测（缺少 API 密钥）。
 
-DSH `0.2.0-rc.1` 用 `npm install @deepseek-ai/dsh@0.2.0-rc.1` 即可正常安装。
+在 DSH `0.2.0-rc.1` 下，用插件真实的 provider 路径（`createDshProvider` + `launchDshBridge`，不经 Paseo Daemon）和真实模型验证了：自动创建 `paseo` profile、模型/preset/权限目录、含 bash 工具调用的真实回合、工具审批允许/拒绝、问答应答/拒绝、斜杠目录含 `/compact` 与 `/plan`、关闭后按持久化句柄恢复会话并继续对话；`npm run smoke:bridge -- --prompt` 通过，DSH 子进程不监听 TCP 端口、不开浏览器。图片与文件附件、MCP、中断、Paseo Daemon 内加载与重启恢复在 0.2 线尚未复测。
 
-mise 2026.9.8 的 npm 后端装 `@deepseek-ai/dsh@0.2.0-rc.1` 会报 peer 依赖解析不收敛（`aube install failed: ... peer-context fixed-point did not converge`）；改用 npm 装即可，全局 `npm install -g @deepseek-ai/dsh@0.2.0-rc.1`，或装到独立目录后用 `PASEO_DSH_EXECUTABLE` 指过去。
+推荐的 DSH `0.2.0-rc.2` 用 `npm install @deepseek-ai/dsh@0.2.0-rc.2` 即可正常安装；`0.2.0-rc.1` 同样可装。
+
+mise 2026.9.8 的 npm 后端装 `@deepseek-ai/dsh@0.2.0-rc.1` 会报 peer 依赖解析不收敛（`aube install failed: ... peer-context fixed-point did not converge`）；改用 npm 装即可，全局 `npm install -g @deepseek-ai/dsh@0.2.0-rc.2`，或装到独立目录后用 `PASEO_DSH_EXECUTABLE` 指过去。
 
 **0.1 线**：`v0.1.2` 在 DSH `0.1.7-rc.2` 下验证了自动创建 `paseo` profile、模型/preset/权限目录、真实模型与工具调用、思考输出、原生历史导入、停止后继续对话、Daemon 重启恢复及正常关闭；桥接层用真实模型还验证过 system prompt 追加、文件附件、stdio MCP 工具、斜杠命令与技能、`/compact`、`/plan`、权限切换。0.1 线从 `v0.1.3` 起修复了工具审批和问答请求被 web 模板的 `api-remotes` 行转给浏览器端、送不到 Paseo、回合一直等待的问题：`v0.1.1` 加载失败不可安装，`v0.1.2` 有这个问题，`v0.1.3` 在 DSH `0.1.7-rc.2` 下实测审批允许/拒绝、问答应答/拒答四项通过。权限预设为 `danger-full-access`（不发起审批）、模型也不调用提问工具时，旧版本不受这个问题影响。
 
-Paseo `0.9.2` 为当前验证基线：本机启动、插件加载、模型目录、真实文字对话与真实工具调用（工具卡完整收敛）均已验证。早期 `0.8.0` / `0.9.1` 组合的历史验证结论不因此失效。Paseo daemon 的 `PATH` 在启动时固定，升级 DSH 后须 `paseo daemon stop` 再 `paseo daemon start`；`paseo daemon restart` 不刷新环境。
+Paseo `0.11.2` 下已验证本机 Daemon 启动、插件安装与加载、清单名称与图标、provider 可用性（含不可用诊断）与模型目录；真实文字对话与真实工具调用（工具卡完整收敛）在 Paseo `0.9.2` 下验证，在 `0.11.2` 下没有复测。早期 `0.8.0` / `0.9.1` 组合的历史验证结论不因此失效。Paseo 0.11 的插件总开关 `pluginsEnabled` 默认为关闭，须在 `config.json` 顶层设为 `true` 后插件才会加载。Paseo daemon 的 `PATH` 在启动时固定，升级 DSH 后须 `paseo daemon stop` 再 `paseo daemon start`；`paseo daemon restart` 不刷新环境。
 
 DSH 保持用户原有安装，插件不自动升级或替换它。插件只需要 DSH 本身，默认 profile 由 DSH 官方 `web` 模板生成，不依赖第三方 DSH 扩展包。
 
