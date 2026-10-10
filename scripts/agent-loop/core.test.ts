@@ -442,13 +442,8 @@ describe('failure comment from the real #40 logs', () => {
     assert.ok(!text.includes('must lose'), text)
   })
 
-  it('falls back to the dsh stderr line from the .log when turn_end has no message', () => {
-    // The .log interleaves the service's own `[timestamp]` lines with dsh's stderr;
-    // in production stderr is captured separately, so keep only dsh's lines here.
-    const stderr = fixture(`${id}.log`)
-      .split('\n')
-      .filter((line) => line && !/^\[\d{4}-\d{2}-\d{2}T/.test(line))
-      .join('\n')
+  it('falls back to the dsh stderr sample when turn_end has no message', () => {
+    const stderr = fixture(`${id}.stderr`)
     assert.match(stderr, /^dsh: RATE_LIMIT: 429 /)
     const summary = parseDshEvents(fixture(`${id}.jsonl`))
     const text = `${failedReport(failed(decideOutcome({ exitCode: 1, newCommits: 0, turnEnd: 'error', stderrTail: stderr })), 0)}\n\ndsh 0.2.0-rc.1，会话 \`${summary.sessionId}\`。\n\n日志编号 \`${id}\`。`
