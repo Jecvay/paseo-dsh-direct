@@ -8,7 +8,7 @@
 | DeepSeek Harness | `0.2.0-rc.1` | Agent runtime, persistence, and interaction services |
 | Node.js | `24.13.0` | Plugin and DSH runtime |
 
-The repository manifest requires Paseo `>=0.8.0`; the table above is the tested alpha baseline. Other Paseo or DSH versions are not implied to be tested by that lower-bound declaration.
+The repository manifest requires Paseo `>=0.8.0`, and the development types are pinned to `@getpaseo/plugin@0.11.2` (the optional peers `@getpaseo/client` and `@getpaseo/protocol` are `0.11.2` as well);  the table above is the tested alpha baseline. Other Paseo or DSH versions are not implied to be tested by that lower-bound declaration.
 
 Plugin `0.2.x` targets DSH `0.2.*`. Under DSH `0.2.0-rc.1`, the real provider path (`createDshProvider` + `launchDshBridge`, outside the Paseo Daemon) was checked with a real model: automatic creation of the `paseo` profile, model/preset/permission discovery, a real turn with a bash tool call, tool approval allow and reject, question answer and rejection, a slash menu that includes `/compact` and `/plan`, and resuming a closed session from its persistence handle. `npm run smoke:bridge -- --prompt` passes, and the DSH child opens no TCP port and no browser. Image and file attachments, MCP, cancellation, and loading and restart inside the Paseo Daemon have not been rechecked on the `0.2` line. For DSH `0.1.*`, install tag `v0.1.3`. The `0.1` line has fixed the issue where tool approvals and questions never reached Paseo and the turn kept waiting: `v0.1.1` fails to load and must not be installed, `v0.1.2` has the issue, and `v0.1.3` has passed real-model testing of approval allow/reject and question answer/reject under DSH `0.1.7-rc.2`.
 
@@ -16,13 +16,15 @@ DSH `0.2.0-rc.1` installs cleanly with `npm install @deepseek-ai/dsh@0.2.0-rc.1`
 
 Paseo `0.9.2` has passed local Daemon startup, plugin loading, model discovery, a real text conversation, and a real tool call.
 
+The provider registers `status()`. On Paseo 0.11 and later, listing providers runs `--version` on `PASEO_DSH_EXECUTABLE` (or `dsh` from `PATH`), cached per executable path. A dsh that cannot run is reported unavailable with the reason; a dsh on another major.minor line stays available with the same line warning the session timeline shows. The plugin launches dsh itself, so it registers no `command`. Older Paseo versions ignore the field. `paseo-plugin.json` carries no `name` or `icon`: both fields need Paseo 0.11.0 or later (older daemons reject them at install time) and `icon` accepts only PNG.
+
 The Paseo daemon fixes its `PATH` at startup; after upgrading DSH, run `paseo daemon stop` then `paseo daemon start`, because `paseo daemon restart` keeps the old environment.
 
 ## npm releases and dist-tags
 
 The plugin publishes to npm as `paseo-dsh-direct` (unscoped). The current dsh line (`main`) publishes as `latest`; older lines (such as `release/0.1`) publish with `--tag dsh-<major.minor>` (for example `dsh-0.1`), installed as `npm:paseo-dsh-direct@dsh-<major.minor>`. See [AGENTS.md](../../AGENTS.md) for the release steps.
 
-Paseo's Install Plugin field has no Git ref input, so pasting a Git URL there always installs the `main` branch (the current dsh line); installing an older line's Git tag needs the CLI, `paseo plugin install <url> --ref <tag>`. The npm source has no such limit — a dist-tag is part of the `npm:<package>@<tag>` string itself, so it works from both the Settings field and the CLI.
+Paseo's Install Plugin field has no Git ref input, so pasting a Git URL there always installs the `main` branch (the current dsh line); installing an older line's Git tag needs the CLI, `paseo plugin install <url> --ref <tag>`. A Git source is written `github:owner/repository` or a full Git URL; since Paseo 0.11 a bare `owner/slug` names a plugin-registry entry and does not install this plugin. The npm source has no such limit — a dist-tag is part of the `npm:<package>@<tag>` string itself, so it works from both the Settings field and the CLI.
 
 ## Runtime boundaries
 

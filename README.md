@@ -57,7 +57,7 @@ paseo provider models dsh-pi
 The same local source can be installed directly with `paseo plugin install /absolute/path/to/paseo-dsh-direct` after building. The CLI also accepts a Git ref that the Settings UI cannot:
 
 ```bash
-paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin install github:Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
 
 ## Development

@@ -199,9 +199,14 @@ function runProfileInit(
   });
 }
 
+/** The `dsh` executable for a configured `PASEO_DSH_EXECUTABLE` value: the trimmed value, or `dsh` from `PATH` when it is blank or unset. */
+export function resolveDshExecutable(configured: string | undefined): string {
+  return configured?.trim() || "dsh";
+}
+
 export async function launchDshBridge(options: LaunchBridgeOptions): Promise<DshBridge> {
   const profile = options.profile?.trim() || DEFAULT_PROFILE;
-  const executable = options.executable?.trim() || "dsh";
+  const executable = resolveDshExecutable(options.executable);
   const env = { ...process.env, ...options.env };
   await ensureDshProfile({ executable, profile, env });
   const directory = await mkdtemp(path.join(tmpdir(), "paseo-dsh-direct-"));

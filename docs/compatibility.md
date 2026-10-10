@@ -38,7 +38,9 @@ DSH 保持用户原有安装，插件不自动升级或替换它。插件只需�
 
 ## 宿主契约
 
-[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.8.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.9.2`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。
+[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.8.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.11.2`，可选 peer 依赖 `@getpaseo/client`、`@getpaseo/protocol` 同为 `0.11.2`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。
+
+Provider 注册了 `status()`：Paseo 0.11 及以上列出 Provider 时，用 `PASEO_DSH_EXECUTABLE`（未设置则取 `PATH` 里的 `dsh`）运行 `--version`（结果按可执行路径缓存）。`dsh` 无法运行时报告不可用并给出原因；`major.minor` 线与插件不一致时仍报告可用，附带与会话时间线相同的版本线警告。插件自己启动 `dsh`，所以不注册 `command`。更早的 Paseo 忽略该字段。`paseo-plugin.json` 不带 `name`、`icon`：这两个字段要求 Paseo 0.11.0 及以上，更早的 Daemon 安装时会拒绝，而 `icon` 只接受 PNG。
 
 插件注册 `dsh-pi`，不会覆盖名为 `dsh` 的既有自定义 Provider。
 
@@ -66,10 +68,10 @@ Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt�
 
 manifest 的构建命令是 `npm install --include=dev`，不是 `npm ci`：npm 发布时无论 `files` 字段怎么写都会剔除 `package-lock.json`（这是 npm 打包的硬规则，`.npmignore` 负负得正的写法也绕不过去），npm 安装来源拿到的目录里没有锁文件，`npm ci` 会直接报错退出；Git 安装的 checkout 里锁文件还在，`npm install` 对它同样有效，所以两种来源共用同一条构建命令。
 
-本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 或 npm 安装可指定已存在的 tag、commit 或 dist-tag：
+本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 来源写 `github:owner/repository` 或完整 Git 地址；Paseo 0.11 起不带前缀的 `owner/slug` 指向插件注册表，不能用来装本插件。Git 或 npm 安装可指定已存在的 tag、commit 或 dist-tag：
 
 ```bash
-paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin install github:Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 paseo plugin install npm:paseo-dsh-direct@<version-or-tag>
 paseo plugin update paseo-dsh-direct
 ```

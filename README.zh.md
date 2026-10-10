@@ -57,7 +57,7 @@ paseo provider models dsh-pi
 构建后也可以直接安装本地源码：`paseo plugin install /absolute/path/to/paseo-dsh-direct`。命令行还能指定 Settings 界面给不了的 Git ref：
 
 ```bash
-paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+paseo plugin install github:Jecvay/paseo-dsh-direct --ref <tag-or-commit>
 ```
 
 ## 开发
