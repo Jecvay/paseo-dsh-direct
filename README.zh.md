@@ -36,7 +36,7 @@
 
 Provider 支持连续正文和思考输出、工具执行与审批、用户问答、模型和 preset 配置、中断及会话恢复。它用插件专用的 `paseo` profile 启动 DSH，不修改 Paseo 或 DSH 核心。
 
-插件使用名为 `paseo` 的 DSH profile。首次启动时，插件用 DSH 官方的 `web` 模板自动创建它（位置是 `~/.dsh/profiles/paseo`；设置了 `$DSH_HOME` 时在其下）。模型路由、默认模型和权限预设写在 `~/.dsh/profiles/paseo/cordis.patch.yml`。可通过 `PASEO_DSH_EXECUTABLE` 指定其他 `dsh` 可执行文件，通过 `PASEO_DSH_PROFILE` 改用另一个已存在的 profile；这样指定的 profile 不会被自动创建。如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
+插件使用名为 `paseo` 的 DSH profile。首次启动时，插件用 DSH 官方的 `web` 模板自动创建它（位置是 `~/.dsh/profiles/paseo`；设置了 `$DSH_HOME` 时在其下）。模型路由、默认模型和权限预设写在 `~/.dsh/profiles/paseo/cordis.patch.yml`。可在 Paseo 配置的 `agents.providers.dsh-pi.command` 或 `PASEO_DSH_EXECUTABLE`（后者优先）指定其他 `dsh` 可执行文件，通过 `PASEO_DSH_PROFILE` 改用另一个已存在的 profile；这样指定的 profile 不会被自动创建。如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
 
 如果原生会话仍被另一个 DSH 客户端（如终端界面）占用，请先在那里释放，再从 Paseo 导入或恢复。
 

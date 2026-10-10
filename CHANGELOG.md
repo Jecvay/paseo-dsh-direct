@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.3
+
+- The provider registers `command: ["dsh"]`, so the Paseo configuration `agents.providers.dsh-pi.command` and `env` choose the dsh executable. `PASEO_DSH_EXECUTABLE` still takes precedence when set; `status()` checks the same executable a session launches.
+- Connecting fails with a clear message when the dsh profile lacks a row the plugin disables, or when dsh lacks a service the bridge uses, instead of misbehaving later.
+- An approval and question end-to-end test against real dsh runs when `DEEPSEEK_API_KEY` is set.
+- `OVERVIEW.md` describes the plugin for the Paseo plugin registry, including the dsh subprocess and the environment variables it reads.
+- Pushing a `vX.Y.Z` tag publishes to npm from GitHub Actions through npm Trusted Publishing.
+- Tested with dsh `0.2.0-rc.2`: profile and handshake checks, catalogs and session list.
+
 ## 0.2.2
 
 - Requires Paseo `>=0.11.0`. Paseo 0.8 to 0.10 users install `npm:paseo-dsh-direct@0.2.1`.

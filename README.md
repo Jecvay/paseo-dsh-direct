@@ -36,7 +36,7 @@ Create a conversation with the **DeepSeek Harness** provider. Models and presets
 
 The provider supports streamed assistant and reasoning output, tool execution and approval, user questions, model/preset configuration, interruption, and session recovery. It starts DSH with its own `paseo` profile and does not modify Paseo or DSH core.
 
-The plugin uses the DSH profile `paseo`. On first start it creates that profile from DSH's official `web` template (`~/.dsh/profiles/paseo`, or under `$DSH_HOME` when set). Model routes, the default model, and permission presets go in `~/.dsh/profiles/paseo/cordis.patch.yml`. Set `PASEO_DSH_EXECUTABLE` to use a different `dsh` executable, or `PASEO_DSH_PROFILE` to use another existing profile; a profile named there is not created automatically. If the Paseo Daemon has plugin loading disabled, enable `pluginsEnabled` in its configuration before installing the plugin.
+The plugin uses the DSH profile `paseo`. On first start it creates that profile from DSH's official `web` template (`~/.dsh/profiles/paseo`, or under `$DSH_HOME` when set). Model routes, the default model, and permission presets go in `~/.dsh/profiles/paseo/cordis.patch.yml`. To use a different `dsh` executable, set `agents.providers.dsh-pi.command` in the Paseo configuration or `PASEO_DSH_EXECUTABLE` (which takes precedence); or `PASEO_DSH_PROFILE` to use another existing profile; a profile named there is not created automatically. If the Paseo Daemon has plugin loading disabled, enable `pluginsEnabled` in its configuration before installing the plugin.
 
 If a native session is still held by another DSH client (such as a terminal UI), release it there before importing or resuming it from Paseo.
 
