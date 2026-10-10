@@ -321,7 +321,7 @@ describe("dsh provider", () => {
 
   it("correlates the optimistic user message and terminalizes an instant turn once", async () => {
     const bridge = new FakeBridge();
-    const provider = createDshProvider({ executable: "dsh", createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
     const connection = await provider.connect({
       versions: [1],
       capabilities: ["prompt.message", "session.persistence"],
@@ -358,7 +358,7 @@ describe("dsh provider", () => {
 
   it("resumes persistence without overriding the historical model or preset", async () => {
     const bridge = new FakeBridge();
-    const provider = createDshProvider({ executable: "dsh", createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
     const connection = await provider.connect({
       versions: [1],
       capabilities: ["session.persistence", "session.configure"],
@@ -395,7 +395,6 @@ describe("dsh provider", () => {
     const runtime = new FakeBridge();
     const launches: Array<SessionLaunch | undefined> = [];
     const provider = createDshProvider({
-      executable: "dsh",
       createBridge: async (launch) => {
         launches.push(launch);
         return launch ? runtime : discovery;
@@ -465,7 +464,7 @@ describe("dsh provider", () => {
   it("reports a queued configure failure to Paseo", async () => {
     const discovery = new FakeBridge();
     const runtime = new FakeBridge(new Set(["session.configure"]));
-    const provider = createDshProvider({ executable: "dsh", createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
+    const provider = createDshProvider({ createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
     const connection = await provider.connect({ versions: [1], capabilities: ["session.configure"] });
     const events: ProviderEvent[] = [];
     connection.onEvent((event) => events.push(event));
@@ -486,7 +485,7 @@ describe("dsh provider", () => {
   it("rejects a DSH question and resolves its card exactly once", async () => {
     const discovery = new FakeBridge();
     const runtime = new FakeBridge(new Set(), true);
-    const provider = createDshProvider({ executable: "dsh", createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
+    const provider = createDshProvider({ createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
     const connection = await provider.connect({ versions: [1], capabilities: ["permission"] });
     const events: ProviderEvent[] = [];
     connection.onEvent((event) => events.push(event));
@@ -538,7 +537,7 @@ describe("dsh provider", () => {
   it("closes the Paseo session when the native close request fails", async () => {
     const discovery = new FakeBridge();
     const runtime = new FakeBridge(new Set(["session.close"]), false, false);
-    const provider = createDshProvider({ executable: "dsh", createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
+    const provider = createDshProvider({ createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
     const connection = await provider.connect({
       versions: [1],
       capabilities: ["prompt.message"],
@@ -581,7 +580,7 @@ describe("dsh provider", () => {
   it("closes a failed bridge immediately", async () => {
     const discovery = new FakeBridge();
     const runtime = new FakeBridge();
-    const provider = createDshProvider({ executable: "dsh", createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
+    const provider = createDshProvider({ createBridge: async (env) => env ? runtime : discovery, detectDshVersion: noVersionWarning });
     const connection = await provider.connect({ versions: [1], capabilities: [] });
     const events: ProviderEvent[] = [];
     connection.onEvent((event) => events.push(event));
@@ -597,7 +596,6 @@ describe("dsh provider", () => {
   it("warns in the timeline on a dsh version-line mismatch but keeps the session usable", async () => {
     const bridge = new FakeBridge();
     const provider = createDshProvider({
-      executable: "dsh",
       createBridge: async () => bridge,
       detectDshVersion: async () => "0.9.9-rc.1",
     });
@@ -630,7 +628,6 @@ describe("dsh provider", () => {
   it("warns instead of blocking when the dsh version cannot be confirmed", async () => {
     const bridge = new FakeBridge();
     const provider = createDshProvider({
-      executable: "dsh",
       createBridge: async () => bridge,
       detectDshVersion: async () => "",
     });
@@ -671,7 +668,7 @@ function tick(): Promise<void> {
 }
 
 async function openSession(bridge: FakeBridge) {
-  const provider = createDshProvider({ executable: "dsh", createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+  const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
   const connection = await provider.connect({
     versions: [1],
     capabilities: ["prompt.message", "prompt.command", "prompt.image", "session.persistence", "session.configure"],
@@ -690,18 +687,22 @@ async function openSession(bridge: FakeBridge) {
 }
 
 describe("dsh provider status", () => {
-  const probe = (version: string, seen: string[] = []) => async (executable: string): Promise<string> => {
-    seen.push(executable);
+  const probe = (version: string, seen: string[] = []) => async (executable: string, options?: { args?: readonly string[] }): Promise<string> => {
+    seen.push([executable, ...(options?.args ?? [])].join(" "));
     return version;
   };
-  const statusFor = (executable: string, detect: (executable: string) => Promise<string>) =>
-    createDshProvider({
-      executable,
-      createBridge: async () => {
-        throw new Error("status() must not launch a bridge");
-      },
-      detectDshVersion: detect,
-    }).status!({});
+  const noBridge = async (): Promise<DshBridge> => {
+    throw new Error("status() must not launch a bridge");
+  };
+  const statusFor = (
+    executable: string | undefined,
+    detect: Parameters<typeof createDshProvider>[0]["detectDshVersion"],
+    launch?: { command: string; args: string[]; env: Record<string, string> },
+  ) => createDshProvider({ executable, createBridge: noBridge, detectDshVersion: detect }).status!({ launch });
+
+  it("declares dsh as the default command", () => {
+    assert.deepEqual(createDshProvider({ createBridge: noBridge }).command, ["dsh"]);
+  });
 
   it("is available without a diagnostic when dsh is on the plugin's line", async () => {
     const seen: string[] = [];
@@ -709,23 +710,56 @@ describe("dsh provider status", () => {
     assert.deepEqual(seen, ["/opt/dsh"]);
   });
 
-  it("is unavailable with a diagnostic naming the executable when dsh does not answer --version", async () => {
+  it("probes the same executable connect would use: override, then launch, then dsh", async () => {
+    const launch = { command: "/paseo/dsh", args: ["--flag"], env: { A: "1" } };
+    const seen: string[] = [];
+    await statusFor("/env/dsh", probe(PLUGIN_VERSION, seen), launch);
+    await statusFor(undefined, probe(PLUGIN_VERSION, seen), launch);
+    await statusFor(undefined, probe(PLUGIN_VERSION, seen));
+    assert.deepEqual(seen, ["/env/dsh", "/paseo/dsh --flag", "dsh"]);
+  });
+
+  it("passes the daemon-owned launch environment to the probe", async () => {
+    let env: unknown;
+    await statusFor(undefined, async (_exe, options) => {
+      env = options?.env;
+      return PLUGIN_VERSION;
+    }, { command: "/p/dsh", args: [], env: { HOME: "/h" } });
+    assert.deepEqual(env, { HOME: "/h" });
+  });
+
+  it("is unavailable with a diagnostic naming the executable and both override paths", async () => {
     const status = await statusFor("/opt/missing-dsh", probe(""));
     assert.equal(status.available, false);
     assert.match(status.diagnostic ?? "", /\/opt\/missing-dsh --version/);
+    assert.match(status.diagnostic ?? "", /agents\.providers\.dsh-pi\.command/);
     assert.match(status.diagnostic ?? "", /PASEO_DSH_EXECUTABLE/);
   });
 
   it("is unavailable when the version probe rejects", async () => {
-    const status = await statusFor("dsh", async () => {
+    const status = await statusFor(undefined, async () => {
       throw new Error("spawn failed");
     });
     assert.equal(status.available, false);
   });
 
   it("stays available with the line-mismatch warning for another major.minor line", async () => {
-    const status = await statusFor("dsh", probe("9.9.0"));
+    const status = await statusFor(undefined, probe("9.9.0"));
     assert.equal(status.available, true);
     assert.match(status.diagnostic ?? "", /detected dsh 9\.9\.0/);
+  });
+
+  it("hands Paseo's launch to every bridge it creates", async () => {
+    const launches: unknown[] = [];
+    const provider = createDshProvider({
+      createBridge: async (launch) => {
+        launches.push(launch?.providerLaunch);
+        return new FakeBridge();
+      },
+      detectDshVersion: noVersionWarning,
+    });
+    const launch = { command: "/paseo/dsh", args: [], env: {} };
+    await provider.connect({ launch, versions: [1], capabilities: [] });
+    assert.deepEqual(launches, [launch]);
   });
 });

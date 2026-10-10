@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { BridgeService, savedModel, validateAnswers } from "./service.js";
+import { BridgeService, missingHostSurface, savedModel, validateAnswers } from "./service.js";
 import type {
   HostAgent,
   HostContext,
@@ -370,4 +370,21 @@ test("session options add an agent-scoped system prompt and preapprove named too
   assert.equal(await pending, "rejected");
   await f.bridge.handle("session.close", { sessionId });
   await f.bridge.shutdown();
+});
+
+test("the handshake lists host services and methods the DSH does not provide", async () => {
+  const f = fixture();
+  assert.equal((await f.bridge.handle("bridge.initialize")).missing, undefined);
+  const services: Record<string, unknown> = {
+    agents: { get() {}, create() {} },
+    sessionQuery: { listSessions() {}, readSession() {}, observeSession() {} },
+    agentPresets: { list() {}, resolve() {}, mount() {}, select() {} },
+  };
+  const ctx = { get: (name: string) => services[name], on: () => () => {}, effect: () => undefined };
+  const missing = missingHostSurface(ctx as unknown as HostContext);
+  assert.deepEqual(missing, ["agents.resume", "llm"]);
+  const bridge = new BridgeService(ctx as unknown as HostContext, () => undefined);
+  const result = await bridge.handle("bridge.initialize");
+  assert.deepEqual(result.missing, missing);
+  assert.deepEqual(result.catalog.models, []);
 });

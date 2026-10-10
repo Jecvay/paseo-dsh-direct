@@ -24,6 +24,7 @@ import type {
   HostContext,
   HostHandle,
   HostHelpers,
+  HostServices,
   ModelSelectionRef,
 } from "./host.js";
 
@@ -91,6 +92,38 @@ export function savedModel(
     }
   }
   return pending ?? used;
+}
+
+/** Host services and methods every bridge method relies on; `service` alone means the service itself. */
+const REQUIRED_HOST_SURFACE = {
+  agents: ["get", "create", "resume"],
+  sessionQuery: ["listSessions", "readSession", "observeSession"],
+  agentPresets: ["list", "resolve", "mount", "select"],
+  llm: ["listProviders", "listModels"],
+} as const;
+
+/** The required host services and methods this DSH does not provide. */
+export function missingHostSurface(ctx: HostContext): string[] {
+  const missing: string[] = [];
+  for (const [service, methods] of Object.entries(REQUIRED_HOST_SURFACE)) {
+    let provided: unknown;
+    try {
+      provided = ctx.get(service as keyof HostServices);
+    } catch {
+      // A service that is not registered may throw instead of returning undefined.
+      provided = undefined;
+    }
+    if (provided === null || typeof provided !== "object") {
+      missing.push(service);
+      continue;
+    }
+    for (const method of methods) {
+      if (typeof (provided as Record<string, unknown>)[method] !== "function") {
+        missing.push(`${service}.${method}`);
+      }
+    }
+  }
+  return missing;
 }
 
 export class BridgeService {
@@ -317,7 +350,14 @@ export class BridgeService {
     const params = record(input);
     let result: unknown;
     switch (method) {
-      case "bridge.initialize":
+      case "bridge.initialize": {
+        const missing = missingHostSurface(this.ctx);
+        if (missing.length > 0) {
+          result = { protocolVersion: 1, profile: this.profile, capabilities: {
+            stream: true, approvals: false, questions: false, history: true, cancel: true,
+          }, catalog: { models: [], presets: [] }, missing } satisfies BridgeInitializeResult;
+          break;
+        }
         result = {
           protocolVersion: 1,
           profile: this.profile,
@@ -331,6 +371,7 @@ export class BridgeService {
           catalog: await this.catalog(),
         } satisfies BridgeInitializeResult;
         break;
+      }
       case "session.list": {
         const query = this.ctx.get("sessionQuery");
         const records = await query.listSessions();
