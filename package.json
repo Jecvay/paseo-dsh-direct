@@ -25,6 +25,7 @@
     "paseo-plugin.json",
     "dsh.svg",
     "dsh.png",
+    "OVERVIEW.md",
     "!server/**/*.test.ts",
     "!server/generated-bridge.ts",
     "!server/generated-version.ts"
