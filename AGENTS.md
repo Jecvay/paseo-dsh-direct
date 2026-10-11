@@ -56,7 +56,9 @@ npm run verify:docs
 
 **发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本 = 改 `package.json` 版本号和 `CHANGELOG.md` → 打 tag `vX.Y.Z` 并推送 → 发 npm 包。已安装的用户从 Paseo 里更新插件。
 
-**分支策略**：`main` 跟随当前最新 dsh 线开发（现为 0.2 线）；旧线的修复在 `release/<major.minor>` 分支上发 patch tag（现有 `release/0.1`，已发 `v0.1.4`）。
+**分支策略**：`main` 跟随当前最新 dsh 线开发（现为 0.2 线）；旧线的修复在 `release/<major.minor>` 分支上发 patch tag（现有 `release/0.1`，已发 `v0.1.5`）。
+
+**最低版本**：Paseo（`paseo-plugin.json` 的 `requirements.paseo`，现为 `>=0.11.0`）与 dsh 的下限只在真不兼容时提高：插件离不开的能力旧版本没有，或核心展示（如名字与图标）在旧版本上装不上，并先拿出旧版本不可用的证据。新用到的 Paseo 或 dsh 能力在旧版本上要能降级，不为锦上添花提高下限（理由见 [决策记录](.agents/notes/implemented/process/2026-10-11-raise-version-floors-only-on-real-incompatibility.md)）。
 
 **发布到 npm**：推送 tag `vX.Y.Z` 触发 `.github/workflows/publish.yml`，经 npm Trusted Publishing（OIDC，无长期令牌）自动发布，带 provenance。工作流先跑构建、类型检查、测试与文档门禁，并核对 tag 与 `package.json` 版本一致；dist-tag 按 tag 提交所在分支决定：在 `origin/main` 上发 `latest`，在 `release/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
 
