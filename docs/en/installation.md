@@ -66,7 +66,7 @@ The provider registers `command: ["dsh"]`, so Paseo's own provider configuration
 { "agents": { "providers": { "dsh-pi": { "command": ["/opt/dsh/bin/dsh"], "env": { "DSH_HOME": "/srv/dsh" } } } } }
 ```
 
-The executable is chosen in this order: `PASEO_DSH_EXECUTABLE`, then `agents.providers.dsh-pi.command`, then `dsh` from `PATH`. Restart the Paseo Daemon after changing either. On Windows, when that resolves to npm's `dsh.cmd` / `dsh.ps1` wrapper, the plugin runs what the wrapper runs, `node <wrapper dir>\node_modules\@deepseek-ai\dsh\lib\bin.js`, using a `node.exe` beside the wrapper when there is one; a real `.exe` is started as is. With the official DSH Desktop installed, no separate dsh is needed: the `dsh` that Desktop's Manage dsh Command… registers works, and when `PATH` has no `dsh` the plugin uses the dsh bundled in Desktop's default install, `%LOCALAPPDATA%\Programs\DeepSeek Harness`. A `dsh` on `PATH` takes precedence over Desktop.
+The executable is chosen in this order: `PASEO_DSH_EXECUTABLE`, then `agents.providers.dsh-pi.command`, then `dsh` from `PATH`. Restart the Paseo Daemon after changing either. On Windows, npm's `dsh.cmd` / `dsh.ps1` and the `dsh` that DSH Desktop registers both work. With only DSH Desktop installed, no separate dsh is needed: when `PATH` has no `dsh`, the plugin uses the dsh bundled in Desktop's default install. A `dsh` on `PATH` takes precedence over Desktop.
 
 The provider exposes streamed assistant and reasoning output, tool execution and approval, user questions, configuration, interruption and persistent session recovery through Paseo's native UI.
 
