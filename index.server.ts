@@ -1,5 +1,6 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { launchDshBridge } from "./server/bridge-client.js";
+import { defaultDshCommand } from "./server/dsh-spawn.js";
 import { DSH_BRIDGE_SOURCE } from "./server/generated-bridge.js";
 import { createDshProvider } from "./server/provider.js";
 
@@ -8,6 +9,7 @@ export default function contribute(server: PluginServerContext) {
   server.registerProvider(
     createDshProvider({
       executable,
+      command: defaultDshCommand(process.env),
       createBridge: (launch) =>
         launchDshBridge({
           ...launch,
