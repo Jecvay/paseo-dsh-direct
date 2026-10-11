@@ -40,6 +40,13 @@ Paseo 在 `status` 与 `connect` 请求里带 `launch`（`command`、`args`、`e
 2. `launch.command`，`launch.args` 排在 dsh 自己的参数（`--profile` 等）之前。
 3. `PATH` 里的 `dsh`。
 
+选出的命令在 spawn 前经 `resolveDshSpawn`（`server/dsh-spawn.ts`）定出最终的 `command` / `args`，四处 spawn（建 profile、`--dump-config` 行检查、起桥、`--version` 探测）都走它。非 Windows 平台原样透传。Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本：Node 不经 shell 不按 PATHEXT 找 `.cmd`、也拒绝直接 spawn `.cmd`，`.ps1` 包装脚本在 stdin 为管道时等 EOF 才启动。命令解析到这类包装脚本（显式路径，或按大小写不敏感的 `PATH` 查找、同目录无 `dsh.exe`/`dsh.com`）时，按包装脚本所在布局改为执行它内部执行的命令：
+
+- npm：包装脚本目录下有 `node_modules/@deepseek-ai/dsh/lib/bin.js` 时执行 `node <bin.js> <args...>`，包装脚本旁有 `node.exe` 时用它。
+- DSH Desktop：包装脚本是 `<安装目录>\resources\runtime\cli\bin\dsh.cmd`（Desktop 菜单 Manage dsh Command… 注册进用户 `PATH` 的那个），或命令直接指向 `<安装目录>\DeepSeek Harness.exe` 时，以 `ELECTRON_RUN_AS_NODE=1` 执行 `DeepSeek Harness.exe --expose-internals <安装目录>\resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js <args...>`。这个 CLI 与 npm dsh 是同一实现（`runCli`），版本与 Desktop 相同，共用 DSH home。
+
+Paseo 在调用插件之前就按 `PATH` 解析注册的 `command`，找不到就报 `dsh not found on PATH`。所以 Windows 上 `PATH` 里没有 `dsh`、而 Desktop 装在默认位置 `%LOCALAPPDATA%\Programs\DeepSeek Harness` 时，插件加载时注册的 `command` 是 Desktop 的 `DeepSeek Harness.exe`（`defaultDshCommand`），否则是 `dsh`。不经 Paseo 解析的启动（没有 `launch`）同样在 `dsh` 找不到时回退到这个位置。`PATH` 上的 dsh 始终优先于 Desktop。其余情况（`.exe` 等真实可执行文件、识别不出的布局）原样透传。不用 `shell: true`：参数会失去转义，`kill()` 也只杀到 `cmd.exe`。
+
 桥接子进程的环境以 `launch.env` 为底（没有 `launch` 时用 `process.env`），再叠加会话环境变量。`status()` 对同一请求的 `launch` 套用同一顺序，对解析出的命令加参数运行 `--version`，结果按命令与参数缓存，探测使用 `launch.env`。无法运行时返回不可用，并提示安装 dsh、设置 `agents.providers.dsh-pi.command` 或 `PASEO_DSH_EXECUTABLE`，然后重启 Daemon；`major.minor` 线与插件不一致时返回可用并附与会话时间线相同的警告。
 
 ### 漂移防护

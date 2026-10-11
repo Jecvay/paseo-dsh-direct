@@ -63,6 +63,8 @@ interface DshProviderOptions {
   createBridge(launch?: SessionLaunch): Promise<DshBridge>;
   /** The `PASEO_DSH_EXECUTABLE` value; it outranks the `launch` Paseo resolves. `status()` and `createBridge` use the same precedence. */
   executable?: string;
+  /** The command registered with Paseo; defaults to `dsh` (see `defaultDshCommand`). */
+  command?: string;
   /** Detects the local dsh version for the startup compatibility check; defaults to spawning `<exe> --version`. */
   detectDshVersion?: DetectVersion;
 }
@@ -103,7 +105,7 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
     icon: "dsh.svg",
     getCatalogCacheKey: async (options) =>
       options.scope === "workspace" ? `dsh-pi:${options.cwd}` : "dsh-pi:global",
-    command: ["dsh"],
+    command: [options.command ?? "dsh"],
     async status(request) {
       return dshStatus(
         resolveDshLaunch(options.executable, request?.launch),
