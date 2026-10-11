@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+- Paseo shows token usage and context-window fill for dsh sessions: the bridge forwards dsh's `tokenUsage` and `contextPressure` projections as Paseo session usage (contributed by @TyposBro in #54).
+- The build works on Windows, where esbuild reports output paths with backslashes (contributed by @LionGG in #49).
+- Tested with dsh `0.2.0-rc.2`: profile and handshake checks, catalogs and session list. Usage forwarding is covered by unit tests; a real model turn was not run for this release.
+
 ## 0.2.3
 
 - The provider registers `command: ["dsh"]`, so the Paseo configuration `agents.providers.dsh-pi.command` and `env` choose the dsh executable. `PASEO_DSH_EXECUTABLE` still takes precedence when set; `status()` checks the same executable a session launches.

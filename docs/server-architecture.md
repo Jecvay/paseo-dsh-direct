@@ -78,7 +78,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 仅承载协议，诊断写
 | `interaction.respond` | 回复审批或用户问答 |
 | `bridge.shutdown` | 清理运行时并结束桥接 |
 
-持久事件、实时 assistant stream、agent 状态和交互请求使用不同通知。持久事件负责重放和最终事实；实时流负责逐步显示正文、思考和工具参数，不能以历史日志通知替代。
+持久事件、实时 assistant stream、agent 状态、用量和交互请求使用不同通知。持久事件负责重放和最终事实；实时流负责逐步显示正文、思考和工具参数，不能以历史日志通知替代。
 
 ## Paseo 呈现契约
 
@@ -91,6 +91,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 仅承载协议，诊断写
 - 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。
 - 同一条助手消息和思考使用稳定 item id，向 Paseo 发送累计快照，由宿主切出网络增量。
 - 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。
+- DSH 会话投影 `tokenUsage` 或 `contextPressure` 变化时，桥接发 `session.usage` 通知，插件转为 Paseo 的 usage 事件：未命中缓存的输入、缓存命中输入与输出 token 是会话累计值，另带上下文已用与上限 token。全零的初始值与未变的值不发送；DSH 不提供 `sessionProjections` 服务时不上报用量。
 - 只将真实用户来源的消息显示为用户气泡，运行时注入的上下文和技能目录不冒充用户输入。
 - 每个已开始的回合有且仅有一个完成、失败或取消终态。失败终态携带 DSH `turn/end` 记录的 LLM 失败信息（消息、错误码、HTTP 状态与 request id）。
 - 非 Paseo 发起的 DSH 回合（如 `/goal` 续跑、DSH 在同一运行期内连续消化的排队输入）以 `turn/start` 为起点上报为自主回合，由 `turn/end` 或 agent 转入空闲结束。
