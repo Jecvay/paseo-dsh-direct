@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+- dsh starts on Windows when it is installed through npm (`dsh.cmd` / `dsh.ps1`), with DSH Desktop's registered `dsh`, or with only DSH Desktop installed: the plugin runs the command the wrapper runs, without a shell. A `dsh` on `PATH` takes precedence over Desktop (#48).
+- Text files check out with LF on every platform (`.gitattributes`), so the docs and notes gates pass on Windows.
+- Tested on Windows 11 with dsh `0.2.0-rc.2` (npm `dsh.cmd`, DSH Desktop only, mise `dsh.exe`: bridge handshake, catalogs, session list, no leftover processes) and on Linux. No real model turn was run for this release.
+
 ## 0.2.4
 
 - Paseo shows token usage and context-window fill for dsh sessions: the bridge forwards dsh's `tokenUsage` and `contextPressure` projections as Paseo session usage (contributed by @TyposBro in #54).
