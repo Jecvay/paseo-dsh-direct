@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- Paseo shows token usage and context-window fill for dsh sessions: the bridge forwards dsh's `tokenUsage` and `contextPressure` projections as Paseo session usage (contributed by @TyposBro in #56).
+- The provider icon is a single-colour glyph that follows the theme colour; the gradient icon drew only its eye and smile.
+- Pushing a `vX.Y.Z` tag on this branch publishes to npm under the `dsh-0.1` dist-tag from GitHub Actions.
+
 ## 0.1.4
 
 - Published to npm as `paseo-dsh-direct` under the `dsh-0.1` dist-tag. In Paseo's **Settings → Plugins → Install Plugin**, paste `npm:paseo-dsh-direct@dsh-0.1`; from Git, use `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1`.
