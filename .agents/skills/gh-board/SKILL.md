@@ -1,6 +1,6 @@
 # gh-board 工单循环 — agent 操作规约
 
-本 skill 写给被本机轮询服务拉起的 dsh headless 会话。服务的机制见 [`docs/board.md`](../../../docs/board.md)；这里只讲你在一次任务里该怎么做、结果该怎么交。
+本 skill 写给被本机轮询服务拉起的 dsh headless 会话。服务的机制见 [决策记录](../../notes/implemented/process/2026-09-29-github-driven-agent-loop.md)；这里只讲你在一次任务里该怎么做、结果该怎么交。
 
 ## 你所处的环境（先读）
 
