@@ -1,0 +1,16 @@
+# Check out text files with LF on every platform: the verify scripts and
+# tests split on "\n", and the repository content is LF.
+*.md        text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.mjs       text eol=lf
+*.json      text eol=lf
+*.jsonl     text eol=lf
+*.yml       text eol=lf
+*.svg       text eol=lf
+*.stderr    text eol=lf
+*.service   text eol=lf
+.gitignore  text eol=lf
+.gitattributes text eol=lf
+LICENSE     text eol=lf
+*.png       binary
