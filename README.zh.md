@@ -25,6 +25,7 @@
 - 工具审批和 dsh 向你提的问题，显示成 Paseo 自带的审批卡片和问答卡片。
 - 已有的 dsh 会话可以导入 Paseo 接着用。
 - dsh 的斜杠命令（`/compact`、`/plan` 等）出现在 Paseo 的 `/` 菜单里。
+- Paseo 的用量表显示 dsh 的 token 用量和上下文占用。
 
 ## 版本号
 
