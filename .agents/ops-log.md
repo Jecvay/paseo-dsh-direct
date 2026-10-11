@@ -266,3 +266,9 @@
 ## 2026-10-11 — 停用 agent 轮询服务
 
 - 服务尚不成熟，owner 决定停用：本机 `systemctl --user disable --now paseo-dsh-direct-agent.service`。服务的 state、worktree 与 GitHub App 配置保留不动，恢复用 `enable --now`。同日从仓库删除 `docs/board.md` 及 AGENTS.md 中的相关约定，机制与理由仍在 `.agents/notes/implemented/process/2026-09-29-github-driven-agent-loop.md`。
+
+## 2026-10-12 — 发布 0.2.4（latest）和 0.1.5（dsh-0.1）
+
+- 本机两个手工 tag 推送：`v0.2.4` → `94edaa5`（`main` 线），`v0.1.5` → `f53288a`（`release/0.1` 线）。
+- 两个 tag 各触发一次 `publish.yml`（run 38158137728 / 38158146134），均成功：前者发为 `latest`，后者发为 `dsh-0.1`。
+- npm 现状：`paseo-dsh-direct@latest` = 0.2.4，`@dsh-0.1` = 0.1.5，均带 provenance。
