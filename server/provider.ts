@@ -221,6 +221,15 @@ function listenToSessionBridge(
         session.dispatch.deferred = terminal;
       }
     }),
+    session.bridge.on("session.usage", ({ sessionId, usage }) => {
+      if (!isCurrentSession(sessionId)) return;
+      emit({
+        type: "session.usage",
+        sessionId: session.paseoId,
+        ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
+        usage,
+      });
+    }),
     session.bridge.on("interaction.request", (interaction) => {
       if (!isCurrentSession(interaction.sessionId)) return;
       session.pendingInteractions.set(interaction.requestId, interaction);
