@@ -69,7 +69,7 @@ Provider 注册了 `command: ["dsh"]`，也可以在 Paseo 配置里覆盖，不
 { "agents": { "providers": { "dsh-pi": { "command": ["/opt/dsh/bin/dsh"], "env": { "DSH_HOME": "/srv/dsh" } } } } }
 ```
 
-`dsh` 的选择顺序：`PASEO_DSH_EXECUTABLE`，Paseo 解析出的 `command`，`PATH` 里的 `dsh`。改动后重启 Daemon。Windows 上选出的是 npm 生成的 `dsh.cmd` / `dsh.ps1` 包装脚本时，插件改为执行包装脚本自己执行的 `node <包装脚本目录>\node_modules\@deepseek-ai\dsh\lib\bin.js`，包装脚本旁有 `node.exe` 时用它；指向 `.exe` 等真实可执行文件时原样启动。装了官方 DSH Desktop 时不必另装 dsh：Desktop 菜单 Manage dsh Command… 注册的 `dsh` 能直接用；`PATH` 上没有 `dsh` 时，插件也会找默认安装位置 `%LOCALAPPDATA%\Programs\DeepSeek Harness`，用 Desktop 自带的 dsh。`PATH` 上的 dsh 优先于 Desktop。
+`dsh` 的选择顺序：`PASEO_DSH_EXECUTABLE`，Paseo 解析出的 `command`，`PATH` 里的 `dsh`。改动后重启 Daemon。Windows 上 npm 生成的 `dsh.cmd` / `dsh.ps1` 和 DSH Desktop 注册的 `dsh` 都能用；只装了 DSH Desktop 时不必另装 dsh，`PATH` 上没有 `dsh` 时插件用 Desktop 默认安装位置自带的 dsh。`PATH` 上的 dsh 优先于 Desktop。
 
 Paseo 提供的会话环境变量传入该会话的 DSH 子进程。已有历史恢复优先保留原生模型、preset、思考和权限配置；恢复后可通过 Paseo 的会话配置主动调整。
 

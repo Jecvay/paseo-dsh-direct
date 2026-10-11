@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { resolveDshSpawn } from "./dsh-spawn.js";
+import { spawnDsh } from "./dsh-spawn.js";
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 
@@ -42,12 +41,9 @@ function runVersionProbe(executable: string, options: DetectDshVersionOptions): 
 
     let child;
     try {
-      const env = options.env ?? process.env;
-      const target = resolveDshSpawn(executable, [...(options.args ?? []), "--version"], env);
-      child = spawn(target.command, target.args, {
-        env: target.env,
+      child = spawnDsh(executable, [...(options.args ?? []), "--version"], {
+        env: options.env ?? process.env,
         stdio: ["ignore", "pipe", "ignore"],
-        windowsHide: true,
       });
     } catch {
       // Synchronous spawn failure (e.g. the executable does not exist).

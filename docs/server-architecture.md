@@ -40,7 +40,7 @@ Paseo 在 `status` 与 `connect` 请求里带 `launch`（`command`、`args`、`e
 2. `launch.command`，`launch.args` 排在 dsh 自己的参数（`--profile` 等）之前。
 3. `PATH` 里的 `dsh`。
 
-选出的命令在 spawn 前经 `resolveDshSpawn`（`server/dsh-spawn.ts`）定出最终的 `command` / `args`，四处 spawn（建 profile、`--dump-config` 行检查、起桥、`--version` 探测）都走它。非 Windows 平台原样透传。Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本：Node 不经 shell 不按 PATHEXT 找 `.cmd`、也拒绝直接 spawn `.cmd`，`.ps1` 包装脚本在 stdin 为管道时等 EOF 才启动。命令解析到这类包装脚本（显式路径，或按大小写不敏感的 `PATH` 查找、同目录无 `dsh.exe`/`dsh.com`）时，按包装脚本所在布局改为执行它内部执行的命令：
+插件启动的每个 dsh 进程（建 profile、`--dump-config` 行检查、起桥、`--version` 探测）都经 `spawnDsh`（`server/dsh-spawn.ts`）启动，它用 `resolveDshSpawn` 定出最终的 `command` / `args` / `env`。非 Windows 平台原样透传。Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本：Node 不经 shell 不按 PATHEXT 找 `.cmd`、也拒绝直接 spawn `.cmd`，`.ps1` 包装脚本在 stdin 为管道时等 EOF 才启动。命令解析到这类包装脚本（显式路径，或按大小写不敏感的 `PATH` 查找、同目录无 `dsh.exe`/`dsh.com`）时，按包装脚本所在布局改为执行它内部执行的命令：
 
 - npm：包装脚本目录下有 `node_modules/@deepseek-ai/dsh/lib/bin.js` 时执行 `node <bin.js> <args...>`，包装脚本旁有 `node.exe` 时用它。
 - DSH Desktop：包装脚本是 `<安装目录>\resources\runtime\cli\bin\dsh.cmd`（Desktop 菜单 Manage dsh Command… 注册进用户 `PATH` 的那个），或命令直接指向 `<安装目录>\DeepSeek Harness.exe` 时，以 `ELECTRON_RUN_AS_NODE=1` 执行 `DeepSeek Harness.exe --expose-internals <安装目录>\resources\app.asar\dsh\node_modules\@deepseek-ai\dsh-desktop-host\lib\cli.js <args...>`。这个 CLI 与 npm dsh 是同一实现（`runCli`），版本与 Desktop 相同，共用 DSH home。
