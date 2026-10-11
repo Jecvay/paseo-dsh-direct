@@ -692,6 +692,7 @@ export class BridgeService {
         this.opening.delete(id);
         this.tracked.delete(id);
         this.preapproved.delete(id);
+        this.lastUsage.delete(id);
       },
     );
     return task;
@@ -840,6 +841,7 @@ export class BridgeService {
       this.owned.delete(id);
       this.tracked.delete(id);
       this.preapproved.delete(id);
+      this.lastUsage.delete(id);
     })();
     this.closing.set(id, task);
     void task.finally(() => this.closing.delete(id)).catch(() => undefined);
