@@ -7,7 +7,7 @@
  * push / PR / comments are done here from the service's own repo.
  *
  * All decisions live in ./core.ts; this file only does I/O.
- * Mechanism and operations: docs/board.md.
+ * Mechanism and rationale: .agents/notes/implemented/process/2026-09-29-github-driven-agent-loop.md.
  *
  * Environment overrides:
  *   PASEO_AGENT_CONFIG     machine-local config (default ~/.config/paseo-dsh-direct/agent.json)

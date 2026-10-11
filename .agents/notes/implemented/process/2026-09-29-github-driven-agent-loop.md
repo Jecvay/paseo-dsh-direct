@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决定
 
-hlab 上跑一个常驻的轮询服务（systemd user 单元 `paseo-dsh-direct-agent.service`，代码在 `scripts/agent-loop/`），每分钟向 GitHub 查一次有没有仓库 owner（Jecvay）发出的新指令。有就在一个一次性的 worktree 里起 dsh headless 干活，结果写回 issue 和 PR。机制与启停写在 [docs/board.md](../../../../docs/board.md)，headless 会话的规约写在 [gh-board skill](../../../skills/gh-board/SKILL.md)。
+hlab 上跑一个常驻的轮询服务（systemd user 单元 `paseo-dsh-direct-agent.service`，代码在 `scripts/agent-loop/`），每分钟向 GitHub 查一次有没有仓库 owner（Jecvay）发出的新指令。有就在一个一次性的 worktree 里起 dsh headless 干活，结果写回 issue 和 PR。机制与启停写在 `docs/board.md`（已从仓库删除，见 git 历史），headless 会话的规约写在 [gh-board skill](../../../skills/gh-board/SKILL.md)。
 
 ### 轮询，不用 self-hosted runner
 
