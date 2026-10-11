@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { detectDshVersion } from "./dsh-version.js";
+import { resolveDshSpawn } from "./dsh-spawn.js";
 import type { ProviderLaunch } from "@getpaseo/plugin/server/provider";
 import type {
   BridgeInitializeResult,
@@ -182,11 +183,12 @@ function runProfileInit(
   timeoutMs: number,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(
+    const target = resolveDshSpawn(
       executable,
       [...leadingArgs, "--profile", profile, "--from-default-profile", DEFAULT_PROFILE_TEMPLATE, "--dump-config"],
-      { env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
+      env,
     );
+    const child = spawn(target.command, target.args, { env: target.env, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     let stderr = "";
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
@@ -293,8 +295,9 @@ function dumpProfileConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(launch.command, [...launch.args, "--profile", profile, "--dump-config"], {
-      env,
+    const target = resolveDshSpawn(launch.command, [...launch.args, "--profile", profile, "--dump-config"], env);
+    const child = spawn(target.command, target.args, {
+      env: target.env,
       stdio: ["ignore", "pipe", "ignore"],
       windowsHide: true,
     });
@@ -360,8 +363,9 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
     { mode: 0o600 },
   );
 
-  const child = spawn(launch.command, [...launch.args, "--profile", profile, "--patch", patchPath], {
-    env,
+  const target = resolveDshSpawn(launch.command, [...launch.args, "--profile", profile, "--patch", patchPath], env);
+  const child = spawn(target.command, target.args, {
+    env: target.env,
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
