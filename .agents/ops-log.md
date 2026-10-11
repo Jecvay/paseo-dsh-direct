@@ -272,3 +272,8 @@
 - 本机两个手工 tag 推送：`v0.2.4` → `94edaa5`（`main` 线），`v0.1.5` → `f53288a`（`release/0.1` 线）。
 - 两个 tag 各触发一次 `publish.yml`（run 38158137728 / 38158146134），均成功：前者发为 `latest`，后者发为 `dsh-0.1`。
 - npm 现状：`paseo-dsh-direct@latest` = 0.2.4，`@dsh-0.1` = 0.1.5，均带 provenance。
+
+## 2026-10-12 — 发布 0.2.5（latest）
+
+- 手工推送 tag `v0.2.5` → `6e76d39`（`main` 线，0.2.5 的发布提交），触发 `publish.yml`（run 38163470530），成功发为 `latest`，带 provenance。
+- npm 现状：`paseo-dsh-direct@latest` = 0.2.5。
