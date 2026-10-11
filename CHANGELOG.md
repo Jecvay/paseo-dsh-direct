@@ -3,7 +3,7 @@
 ## 0.1.5
 
 - Paseo shows token usage and context-window fill for dsh sessions: the bridge forwards dsh's `tokenUsage` and `contextPressure` projections as Paseo session usage (contributed by @TyposBro in #56).
-- The provider icon is a single-colour glyph that follows the theme colour; the gradient icon drew only its eye and smile.
+- The provider icon is the DeepSeek whale from dsh's own web frontend (`@deepseek-ai/dsh-web-frontend`, MIT), drawn as a single-colour glyph that follows Paseo's theme colour; the previous gradient icon drew only its eye and smile.
 - Pushing a `vX.Y.Z` tag on this branch publishes to npm under the `dsh-0.1` dist-tag from GitHub Actions.
 
 ## 0.1.4
