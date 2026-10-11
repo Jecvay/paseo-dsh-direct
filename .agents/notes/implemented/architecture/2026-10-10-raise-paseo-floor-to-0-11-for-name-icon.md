@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-`paseo-plugin.json` 带 `name: "DeepSeek Harness"`（与 `server/provider.ts` 的 provider label 一致）和 `icon: "dsh.png"`，`requirements.paseo` 升到 `">=0.11.0"`。`dsh.png` 是由 `dsh.svg` 渲染的 256x256 透明底 PNG，放在仓库根与 SVG 并列，并列入 `package.json` 的 `files`。文档里的兼容下限同步为 0.11；Paseo 0.8 至 0.10 的用户安装 `npm:paseo-dsh-direct@0.2.1`。
+`paseo-plugin.json` 带 `name: "DeepSeek Harness"`（与 `server/provider.ts` 的 provider label 一致）和 `icon: "dsh.png"`，`requirements.paseo` 升到 `">=0.11.0"`。`dsh.png` 是由彩色标志 `dsh-logo.svg` 渲染的 256x256 透明底 PNG，放在仓库根与 SVG 并列，并列入 `package.json` 的 `files`。文档里的兼容下限同步为 0.11；Paseo 0.8 至 0.10 的用户安装 `npm:paseo-dsh-direct@0.2.1`。
 
 ## 考虑过的其他做法
 
@@ -19,7 +19,7 @@ Status: implemented
 ## 后果
 
 - Paseo 0.8 至 0.10 用户无法安装此后的版本，停在 `v0.2.1`（`npm:paseo-dsh-direct@0.2.1`）。
-- 仓库多一个二进制资源 `dsh.png`；改动 `dsh.svg` 时要重新渲染。
+- 仓库多一个二进制资源 `dsh.png`；改动 `dsh-logo.svg` 时要重新渲染。
 - npm 包的 `files` 多一项 `dsh.png`，`npm pack --dry-run` 可核对。
 
 ## 怎么验证的

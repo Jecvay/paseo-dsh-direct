@@ -3,6 +3,7 @@
 ## 0.2.4
 
 - Paseo shows token usage and context-window fill for dsh sessions: the bridge forwards dsh's `tokenUsage` and `contextPressure` projections as Paseo session usage (contributed by @TyposBro in #54).
+- The provider icon in Paseo's provider list is a single-colour glyph that follows the theme colour; the gradient icon drew only its eye and smile.
 - The build works on Windows, where esbuild reports output paths with backslashes (contributed by @LionGG in #49).
 - Tested with dsh `0.2.0-rc.2`: profile and handshake checks, catalogs and session list. Usage forwarding is covered by unit tests; a real model turn was not run for this release.
 
