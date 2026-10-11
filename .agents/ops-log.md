@@ -255,14 +255,10 @@
   - 服务日志和 `~/.local/state/paseo-dsh-direct/agent/` 里查不到 installation token 或 JWT。
 - 收尾：00:13 PR #43、#45 关闭不合并并删掉分支，issue #42、#44 关闭、看板卡归档，服务 clone 删掉 `refs/agent/issue-42`、`refs/agent/issue-44`，切回 `origin/main`（4ebdc36）重启。在这个 PR 合并前，线上服务仍认 `@agent`、用 Jecvay 身份；`agent.json` 里的 `app` 块旧代码不读，不影响运行。
 
-## 2026-10-10 — 发布 0.2.2（latest），Paseo 0.11.2 隔离实测
+## 2026-10-10 — 手动发布 0.2.2（latest）
 
-- 发布：tag `v0.2.2`（`9894df9`）由人在本机推送；`paseo-dsh-direct@0.2.2` 由人在一台 SSH 的 Linux 机器上从该提交发为 `latest`，`npm login --auth-type=web` 和发布都在本地浏览器里确认。打包 24 个文件，含 `dsh.png`，shasum `8c136615e779a9cdb659d1f946c0d936546f88a7`。
-- 发布受阻记录：云端 agent 容器推送 tag 被会话的 git 通道拒绝（只放行工作分支）；容器里两次 `npm login --auth-type=web` 的确认页都报 "Invalid or Expired Token"，未查明原因，没有在容器里留下 npm 凭据。
-- 发布前实测：在隔离 home 的 Paseo 0.11.2 daemon 里本地目录安装插件，状态 running，manifest 的 name 和 icon 被接受；`provider ls` 显示 `dsh-pi` available，`provider models` 列出 2 个模型；把 `PASEO_DSH_EXECUTABLE` 指向不存在的路径后，provider 为 unavailable，`provider diagnostic` 输出插件自己的诊断文案。dsh 用 npm 的 0.2.0-rc.2，没有 API key，未跑真实回合。全新 home 的 `pluginsEnabled` 默认关闭，需在 `config.json` 顶层设为 `true`。
+- tag `v0.2.2`（`9894df9`）由人在本机推送；`paseo-dsh-direct@0.2.2` 由人在一台 SSH 的 Linux 机器上手动发为 `latest`（`npm login --auth-type=web`），shasum `8c136615e779a9cdb659d1f946c0d936546f88a7`。
 
-## 2026-10-11 — 发布 0.2.3（latest），首次经 GitHub Actions Trusted Publishing；用户 Paseo 实测
+## 2026-10-11 — npm 配置 Trusted Publisher
 
-- npm 配置：用户在 npmjs.com 给 `paseo-dsh-direct` 添加 Trusted Publisher（GitHub Actions，`Jecvay/paseo-dsh-direct`，`publish.yml`，environment 留空），Allowed actions 勾选了 Allow npm publish 和 Allow npm dist-tag。配置在首次成功发布前显示 "Pending validation"，须在 2026-10-13 12:53 UTC 前发布一次。
-- 发布：tag `v0.2.3`（`9e6a6a9`）由人在本机推送，触发 Publish run 38140848380。第 1 次在配置添加前跑，`npm publish` 报 `E404`；第 2 次配置只有默认的 `npm stage publish`，报 `E403 OIDC permission denied for this action`；勾选 Allow npm publish 后第 3 次成功，`paseo-dsh-direct@0.2.3` 发为 `latest`，带 SLSA provenance，shasum `fc6f176c2d0d6c397be7593d83fb9b4ecbb3df66`，25 个文件（含 `OVERVIEW.md`）。
-- 用户 Paseo 实测（手机 App 截图）：旧 daemon 上从 Git 装的 0.2.1（`54beac7`）运行中；移除后在旧 daemon 安装 `npm:paseo-dsh-direct`（0.2.2）报 `unrecognized_keys: name, icon`（`plugin.source.install.request`，`handler_error`），manifest 的 `requirements.paseo` 没有机会生效；用户升级 Paseo 后安装 `npm:paseo-dsh-direct` 得到 0.2.2，状态运行中。App 的插件操作菜单只有 Logs / 重新加载 / 移除，没有更新入口（daemon 协议有 `plugin.source.update.preview/apply`）。
+- npmjs.com 上 `paseo-dsh-direct` 的 Trusted Publisher：GitHub Actions，`Jecvay/paseo-dsh-direct`，工作流 `publish.yml`，environment 留空；Allowed actions 勾选 Allow npm publish 和 Allow npm dist-tag。自 0.2.3 起由该工作流发布。
