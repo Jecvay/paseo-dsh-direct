@@ -13,7 +13,8 @@ const result = await build({
   write: false,
 })
 
-const bridge = result.outputFiles.find(file => file.path.endsWith('/dsh-bridge.mjs'))
+// esbuild reports output paths with the platform separator (backslashes on Windows).
+const bridge = result.outputFiles.find(file => file.path.replace(/\\/g, '/').endsWith('/dsh-bridge.mjs'))
 if (!bridge) throw new Error('esbuild did not produce dist/dsh-bridge.mjs')
 await mkdir('dist', { recursive: true })
 await writeFile('dist/dsh-bridge.mjs', bridge.contents)
