@@ -15,6 +15,13 @@ In Paseo, open **Settings → Plugins → Install Plugin** and paste either the 
 | `0.2.x` | `npm:paseo-dsh-direct` | `https://github.com/Jecvay/paseo-dsh-direct` |
 | `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | CLI only: `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1` |
 
+To update, run on the daemon machine (the app's plugin menu has no update entry):
+
+```bash
+paseo plugin update paseo-dsh-direct --check   # see if a new version exists
+paseo plugin update paseo-dsh-direct --yes     # update to the latest
+```
+
 More: [compatibility](docs/en/compatibility.md) · [CLI and local install, environment variables](docs/en/installation.md)
 
 ## Why "Direct"

@@ -15,6 +15,13 @@
 | `0.2.x` | `npm:paseo-dsh-direct` | `https://github.com/Jecvay/paseo-dsh-direct` |
 | `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | 只能用命令行：`paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1` |
 
+更新插件在 daemon 所在机器上运行（App 的插件菜单里没有更新入口）：
+
+```bash
+paseo plugin update paseo-dsh-direct --check   # 看有没有新版本
+paseo plugin update paseo-dsh-direct --yes     # 更新到最新
+```
+
 更多：[兼容性说明](docs/compatibility.md) · [命令行安装、本地目录安装、环境变量](docs/plugin-guide.md)
 
 ## 为什么叫 Direct
