@@ -435,5 +435,12 @@ test("token projections become session usage without repeating an unchanged fold
   assert.equal(usage().length, 2, "a changed fold is sent");
 
   await f.bridge.handle("session.close", { sessionId });
+  fire("tokenUsage");
+  assert.equal(usage().length, 2, "a closed session publishes nothing");
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId });
+  fire("tokenUsage");
+  assert.equal(usage().length, 3, "a reopened session starts from a fresh fold");
+
+  await f.bridge.handle("session.close", { sessionId });
   await f.bridge.shutdown();
 });
