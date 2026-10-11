@@ -265,4 +265,4 @@
 
 ## 2026-10-11 — 停用 agent 轮询服务
 
-- 仓库获得外部关注，服务尚不成熟，owner 决定停用：本机 `systemctl --user disable --now paseo-dsh-direct-agent.service`。服务的 state、worktree 与 GitHub App 配置保留不动，恢复用 `enable --now`。同日从仓库删除 `docs/board.md` 及 AGENTS.md 中的相关约定，机制与理由仍在 `.agents/notes/implemented/process/2026-09-29-github-driven-agent-loop.md`。
+- 服务尚不成熟，owner 决定停用：本机 `systemctl --user disable --now paseo-dsh-direct-agent.service`。服务的 state、worktree 与 GitHub App 配置保留不动，恢复用 `enable --now`。同日从仓库删除 `docs/board.md` 及 AGENTS.md 中的相关约定，机制与理由仍在 `.agents/notes/implemented/process/2026-09-29-github-driven-agent-loop.md`。
