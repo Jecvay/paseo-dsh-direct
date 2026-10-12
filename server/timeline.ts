@@ -263,11 +263,8 @@ export class TimelineProjector {
         projected.push(timeline(this.paseoSessionId, item, timestamp));
       }
     });
-    // No usage here. A per-message reading carries neither the context window
-    // nor the harness's folded cache totals, and Paseo replaces `lastUsage`
-    // whole. Emitting one would overwrite the complete reading the bridge
-    // publishes from dsh's token and context projections, so the bridge stays
-    // the only source of session usage.
+    // No session.usage here: Paseo replaces `lastUsage` whole, and a per-message
+    // reading would overwrite the bridge's complete one with fewer fields.
     return projected;
   }
 
