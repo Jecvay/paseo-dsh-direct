@@ -263,20 +263,11 @@ export class TimelineProjector {
         projected.push(timeline(this.paseoSessionId, item, timestamp));
       }
     });
-    const usage = objectValue(data.usage) ?? objectValue(message.usage);
-    if (usage) {
-      projected.push({
-        type: "session.usage",
-        sessionId: this.paseoSessionId,
-        usage: {
-          inputTokens: numberValue(usage.inputTokens) ?? numberValue(usage.input_tokens),
-          cachedInputTokens:
-            numberValue(usage.cachedInputTokens) ?? numberValue(usage.cached_input_tokens),
-          outputTokens: numberValue(usage.outputTokens) ?? numberValue(usage.output_tokens),
-          totalCostUsd: numberValue(usage.totalCostUsd) ?? numberValue(usage.total_cost_usd),
-        },
-      });
-    }
+    // No usage here. A per-message reading carries neither the context window
+    // nor the harness's folded cache totals, and Paseo replaces `lastUsage`
+    // whole. Emitting one would overwrite the complete reading the bridge
+    // publishes from dsh's token and context projections, so the bridge stays
+    // the only source of session usage.
     return projected;
   }
 
