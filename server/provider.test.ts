@@ -254,10 +254,7 @@ describe("dsh provider", () => {
   });
 
   it("does not report session usage from an assistant message", async () => {
-    // Paseo replaces lastUsage whole, and a per-message reading carries neither
-    // the context window nor the harness's folded cache totals. Reporting one
-    // here would overwrite the complete reading the bridge publishes from dsh's
-    // projections.
+    // Paseo replaces lastUsage whole; see TimelineProjector.projectAssistantMessage.
     const bridge = new FakeBridge();
     const { connection, events } = await openSession(bridge);
     bridge.notify("session.event", {
@@ -282,26 +279,19 @@ describe("dsh provider", () => {
   it("forwards the bridge's complete usage reading to Paseo unchanged", async () => {
     const bridge = new FakeBridge();
     const { connection, events } = await openSession(bridge);
-    bridge.notify("session.usage", {
-      sessionId: "native-new",
-      usage: {
-        inputTokens: 3091,
-        cachedInputTokens: 7808,
-        outputTokens: 61,
-        contextWindowUsedTokens: 10899,
-        contextWindowMaxTokens: 1000000,
-      },
-    });
-    await tick();
-    const usage = events.filter((event) => event.type === "session.usage");
-    assert.equal(usage.length, 1);
-    assert.deepEqual(usage[0]?.type === "session.usage" && usage[0].usage, {
+    const usage = {
       inputTokens: 3091,
       cachedInputTokens: 7808,
       outputTokens: 61,
       contextWindowUsedTokens: 10899,
       contextWindowMaxTokens: 1000000,
-    });
+    };
+    bridge.notify("session.usage", { sessionId: "native-new", usage });
+    await tick();
+    assert.deepEqual(
+      events.flatMap((event) => (event.type === "session.usage" ? [event.usage] : [])),
+      [usage],
+    );
     await connection.close();
   });
 
