@@ -277,3 +277,10 @@
 
 - 手工推送 tag `v0.2.5` → `6e76d39`（`main` 线，0.2.5 的发布提交），触发 `publish.yml`（run 38163470530），成功发为 `latest`，带 provenance。
 - npm 现状：`paseo-dsh-direct@latest` = 0.2.5。
+
+## 2026-10-12 — 发布 0.2.6（latest）与覆盖手工补丁
+
+- PR #72（`release/0.2.6`）合并后，`main` 上是 `53a1c0c`（release: 0.2.6）与 `98a3300`（收紧 usage 测试与注释，随 review 一起进）；tag `v0.2.6` 打在 `98a3300`，触发 `publish.yml` 成功。
+- npm 现状：`paseo-dsh-direct@latest` = 0.2.6（`@dsh-0.1` 仍为 0.1.5），带 provenance。
+- 上一节记的手工补丁已作废：本机重装插件后安装目录换为 `~/.paseo/plugins/paseo-dsh-direct/958fc41f-3fdb-42f4-bad2-f5833b8b26fa/node_modules/paseo-dsh-direct`，`currentRevision` = 0.2.6；旧目录 `c7eb510c-…` 不再被引用，备份 `/tmp/dsh-stats-probe/timeline.installed.bak` 可弃。
+- 用户确认：更新后上下文占用正常显示。
