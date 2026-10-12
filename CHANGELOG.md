@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+- Paseo's context-window ring fills and stays filled for dsh sessions. The plugin published a per-assistant-message usage reading beside the bridge's cumulative one; Paseo replaces `lastUsage` whole, and that reading carried neither the context window nor the folded cache totals, so it overwrote the complete reading. The bridge is now the only source of session usage.
+- A regression test asserts that an assistant message reports no session usage, and that the bridge's reading passes through with all five fields.
+- Verified against dsh `0.2.0-rc.2` and Paseo daemon 0.11.2: before the change a dsh agent's `lastUsage` held only `inputTokens` and `outputTokens`; after it, 91 consecutive readings of a real tool-using session each carried `cachedInputTokens`, `contextWindowMaxTokens` and `contextWindowUsedTokens`.
+
 ## 0.2.5
 
 - dsh starts on Windows when it is installed through npm (`dsh.cmd` / `dsh.ps1`), with DSH Desktop's registered `dsh`, or with only DSH Desktop installed: the plugin runs the command the wrapper runs, without a shell. A `dsh` on `PATH` takes precedence over Desktop (#48).

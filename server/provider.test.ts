@@ -253,6 +253,58 @@ describe("dsh provider", () => {
     await connection.close();
   });
 
+  it("does not report session usage from an assistant message", async () => {
+    // Paseo replaces lastUsage whole, and a per-message reading carries neither
+    // the context window nor the harness's folded cache totals. Reporting one
+    // here would overwrite the complete reading the bridge publishes from dsh's
+    // projections.
+    const bridge = new FakeBridge();
+    const { connection, events } = await openSession(bridge);
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: {
+        type: "assistant/message",
+        seq: 12,
+        time: 2,
+        data: {
+          turn: 1,
+          step: 1,
+          message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+          usage: { inputTokens: 3091, outputTokens: 61, cacheReadTokens: 7808 },
+        },
+      },
+    });
+    await tick();
+    assert.deepEqual(events.filter((event) => event.type === "session.usage"), []);
+    await connection.close();
+  });
+
+  it("forwards the bridge's complete usage reading to Paseo unchanged", async () => {
+    const bridge = new FakeBridge();
+    const { connection, events } = await openSession(bridge);
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: {
+        inputTokens: 3091,
+        cachedInputTokens: 7808,
+        outputTokens: 61,
+        contextWindowUsedTokens: 10899,
+        contextWindowMaxTokens: 1000000,
+      },
+    });
+    await tick();
+    const usage = events.filter((event) => event.type === "session.usage");
+    assert.equal(usage.length, 1);
+    assert.deepEqual(usage[0]?.type === "session.usage" && usage[0].usage, {
+      inputTokens: 3091,
+      cachedInputTokens: 7808,
+      outputTokens: 61,
+      contextWindowUsedTokens: 10899,
+      contextWindowMaxTokens: 1000000,
+    });
+    await connection.close();
+  });
+
   it("forwards images, uploaded files and context attachments to the bridge", async () => {
     const bridge = new FakeBridge();
     const { connection, events } = await openSession(bridge);
