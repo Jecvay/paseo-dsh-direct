@@ -55,6 +55,8 @@ export interface HostSkills {
 }
 interface Preset {
   id: string;
+  /** `system` when the deployment ships the preset, `user` when authored locally. */
+  trust?: "system" | "user";
   name?: string;
   description?: string;
   broken?: unknown;
