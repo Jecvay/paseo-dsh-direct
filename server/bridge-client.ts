@@ -379,6 +379,24 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
   }
 }
 
+/**
+ * Parse one stdout line from the bridge process. `undefined` means the line is
+ * not a protocol message: dsh also writes its own logs to stdout (for example
+ * the model-catalog line the deepseek-account provider emits), and such a line
+ * must not fail the bridge.
+ */
+export function parseBridgeLine(line: string): RpcResponse | RpcNotification | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as RpcResponse | RpcNotification)
+    : undefined;
+}
+
 class JsonlBridgeClient implements DshBridge {
   initialized!: BridgeInitializeResult;
   readonly executable: string;
@@ -517,11 +535,12 @@ class JsonlBridgeClient implements DshBridge {
 
   private acceptLine(line: string): void {
     if (!line.trim()) return;
-    let message: RpcResponse | RpcNotification;
-    try {
-      message = JSON.parse(line) as RpcResponse | RpcNotification;
-    } catch {
-      this.fail(new Error(`DSH bridge wrote invalid JSON: ${line.slice(0, 200)}`));
+    const message = parseBridgeLine(line);
+    if (message === undefined) {
+      // stdout carries the protocol, but dsh writes its own logs there too.
+      // Forward the line to stderr and keep the bridge alive instead of
+      // failing every provider snapshot on one log line.
+      process.stderr.write(`[paseo-dsh-direct] ignored dsh stdout: ${line.slice(0, 2000)}\n`);
       return;
     }
     if ("id" in message) {
