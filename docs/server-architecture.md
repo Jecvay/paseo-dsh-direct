@@ -66,7 +66,7 @@ DSH 内部契约随版本变化。桥接启动有两道检查，任一失败都�
 
 ## 协议
 
-stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 仅承载协议，诊断写入 stderr。握手检查插件自己的 `protocolVersion`；该版本与 DSH 包版本相互独立。
+stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入 stderr；dsh 自身也会往 stdout 写日志行（例如模型目录加载完成的提示），桥接把解析不出协议对象的行转到 stderr 后跳过，不算协议失败。握手检查插件自己的 `protocolVersion`；该版本与 DSH 包版本相互独立。
 
 | 请求 | 用途 |
 |---|---|
