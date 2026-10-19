@@ -54,13 +54,24 @@ npm run verify:notes
 npm run verify:docs
 ```
 
-**发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本 = 改 `package.json` 版本号和 `CHANGELOG.md` → 打 tag `vX.Y.Z` 并推送 → 发 npm 包。已安装的用户从 Paseo 里更新插件。
+**发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本：
+
+1. 在一个 PR 里改 `package.json` 的版本号，并在 `CHANGELOG.md` 顶部加这个版本的条目。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `release/<major.minor>`）。
+2. 把 PR 合进 `main`，旧线合进对应的 `release/<major.minor>`。
+3. 合并即发布：CI 发 npm 包并推送 tag `vX.Y.Z`，不需要人推 tag。在 Actions 的 Publish 运行里确认成功，再在 npm 上看到新版本。
+4. 已安装的用户从 Paseo 里更新插件。
 
 **分支策略**：`main` 跟随当前最新 dsh 线开发（现为 0.2 线）；旧线的修复在 `release/<major.minor>` 分支上发 patch tag（现有 `release/0.1`，已发 `v0.1.5`）。
 
 **最低版本**：Paseo（`paseo-plugin.json` 的 `requirements.paseo`，现为 `>=0.11.0`）与 dsh 的下限只在真不兼容时提高：插件离不开的能力旧版本没有，或核心展示（如名字与图标）在旧版本上装不上，并先拿出旧版本不可用的证据。新用到的 Paseo 或 dsh 能力在旧版本上要能降级，不为锦上添花提高下限（理由见 [决策记录](.agents/notes/implemented/process/2026-10-11-raise-version-floors-only-on-real-incompatibility.md)）。
 
-**发布到 npm**：推送 tag `vX.Y.Z` 触发 `.github/workflows/publish.yml`，经 npm Trusted Publishing（OIDC，无长期令牌）自动发布，带 provenance。工作流先跑构建、类型检查、测试与文档门禁，并核对 tag 与 `package.json` 版本一致；dist-tag 按 tag 提交所在分支决定：在 `origin/main` 上发 `latest`，在 `release/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
+**发布到 npm**：`.github/workflows/publish.yml` 经 npm Trusted Publishing（OIDC，无长期令牌）发布，带 provenance。它在三种情况下运行：
+
+- `main` 或 `release/*` 上改动了 `package.json`（或工作流本身）的推送，也就是版本号 PR 合并时；
+- 在 Actions 页面手动运行 Publish（Run workflow，选分支）；
+- 推送 tag `v*`，tag 必须与 `package.json` 版本一致。
+
+工作流先查 npm 上有没有这个版本、远端有没有 tag `v<版本号>`：都有就什么也不做，所以只改依赖不改版本号的提交不会发布。npm 上没有时，先跑构建、类型检查、测试与文档门禁，再发布；tag 没有时，发布成功后用 Actions 自带的令牌把 tag 打在这次提交上并推送（这个推送不会再触发工作流）。门禁失败则不发布也不打 tag：把修复合进同一分支，再在 Actions 页面对该分支手动运行 Publish；版本号在 npm 上被占用（例如手动发过）时只补 tag。dist-tag 按提交所在分支决定：在 `origin/main` 上发 `latest`，在 `release/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
 
 **手动发布（兜底）**：Actions 不可用时，从 tag 的干净 checkout 发布——`main` 线（当前最新 dsh 线）发布为 `latest`；旧线加 `--tag dsh-<major.minor>`（如 `--tag dsh-0.1`）。发布前用 `npm pack --dry-run` 核对文件列表。npm 账号开了 Security Key 两步验证，`npm publish` 只在真实终端里才会给出网页确认地址，否则直接报 `EOTP`；agent 在后台发布时用 `script` 包一层伪终端，从日志里取出 `https://www.npmjs.com/auth/cli/...` 地址交给人在浏览器确认：
 
