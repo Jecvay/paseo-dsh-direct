@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.7
+
+- The dsh provider works with dsh `0.2.1`. dsh writes some of its own logs to stdout, such as the model-catalog line from a DeepSeek account login, and the bridge used to fail on that line with "DSH bridge wrote invalid JSON". The bridge now forwards any stdout line that is not a JSON object to stderr and keeps reading (contributed by @rayzart in #74).
+- Tested by @rayzart with dsh `0.2.1-rc.2` on Paseo 0.11.4, signed in with a DeepSeek account and no API key: `paseo provider diagnostic dsh-pi` reports the provider available with its models, and a real turn completes. Unit tests cover protocol messages, log lines, truncated JSON and non-object JSON.
+
 ## 0.2.6
 
 - Paseo's context-window ring fills and stays filled for dsh sessions. The plugin published a per-assistant-message usage reading beside the bridge's cumulative one; Paseo replaces `lastUsage` whole, and that reading carried neither the context window nor the folded cache totals, so it overwrote the complete reading. The bridge is now the only source of session usage.
