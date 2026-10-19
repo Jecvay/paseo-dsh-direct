@@ -1,0 +1,35 @@
+name: Bug 报告 / Bug report
+description: 插件用不了或行为不对 / The plugin fails or misbehaves
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象 / What happened
+      description: 看到了什么，期望是什么。可以贴截图或报错原文。 / What you saw and what you expected. Screenshots or error text welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1.
+        2.
+  - type: textarea
+    id: versions
+    attributes:
+      label: 版本 / Versions
+      description: 插件、Paseo、dsh 的版本和操作系统。 / Plugin, Paseo and dsh versions, and your OS.
+      placeholder: |
+        paseo-dsh-direct:
+        Paseo:
+        dsh (`dsh --version`):
+        OS:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 可选。Paseo daemon 日志或 `paseo provider diagnostic dsh-pi` 的输出。 / Optional. Paseo daemon log or `paseo provider diagnostic dsh-pi` output.
+      render: text
