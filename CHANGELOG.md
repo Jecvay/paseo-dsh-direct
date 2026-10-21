@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.9
+
+- The plugin loads in Paseo again. 0.2.8 passed the icon name `terminal` for the settings screen, and Paseo only accepts Lucide export names such as `Settings`, so it showed the plugin as "Failed" with "Unknown Lucide icon: terminal". That dropped the whole client contribution: the settings screen and the timeline cards added in 0.2.8 were missing, and cards showed "Plugin timeline item unavailable.". The settings screen now uses the `Settings` icon, available in Paseo 0.11.0 and later, and a test pins client icons to names Paseo accepts.
+
 ## 0.2.8
 
 - Paseo has a settings screen for the plugin (Settings → DeepSeek Harness) where you set the dsh executable path and profile; it works in the mobile apps too. `PASEO_DSH_EXECUTABLE` and `PASEO_DSH_PROFILE` still take precedence, and changes apply to new sessions (#9).

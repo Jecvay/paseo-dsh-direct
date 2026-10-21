@@ -17,3 +17,9 @@ export const DSH_SETTINGS = defineSettings({
     profile: z.string().optional(),
   }),
 });
+
+/**
+ * Icon of the dsh settings screen. Paseo resolves plugin icons by the exact export name of
+ * `lucide-react-native` (PascalCase) and rejects the whole client contribution otherwise.
+ */
+export const SETTINGS_SCREEN_ICON = "Settings";
