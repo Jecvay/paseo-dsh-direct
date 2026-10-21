@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.10
+
+- The settings screen no longer shows "Save" twice. The row is now labelled "Apply settings" with the note "Changes apply to new sessions.", and its button says "Save". The per-field hints keep only the environment-variable override.
+- Goal cards no longer repeat what dsh's own `/goal` output already shows. A goal change made while a `/goal` command runs (create, edit, pause, resume, clear) gets no card, because dsh prints "Goal created", "Goal paused" and so on itself. Changes made by the model's goal tool or by dsh's goal driver still get cards for every operation (create, edit, pause, resume, complete, block, clear), and the "Goal continued" card for automatic rounds is unchanged. Old cards in replayed history still render.
+
 ## 0.2.9
 
 - The plugin loads in Paseo again. 0.2.8 passed the icon name `terminal` for the settings screen, and Paseo only accepts Lucide export names such as `Settings`, so it showed the plugin as "Failed" with "Unknown Lucide icon: terminal". That dropped the whole client contribution: the settings screen and the timeline cards added in 0.2.8 were missing, and cards showed "Plugin timeline item unavailable.". The settings screen now uses the `Settings` icon, available in Paseo 0.11.0 and later, and a test pins client icons to names Paseo accepts.

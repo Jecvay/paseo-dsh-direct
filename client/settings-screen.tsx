@@ -5,9 +5,9 @@ import { useRef } from "react";
 import { DSH_SETTINGS } from "../shared/settings.js";
 
 const EXECUTABLE_HINT =
-  "Path or command of dsh. PASEO_DSH_EXECUTABLE overrides this; leave it empty to use the Paseo provider command or dsh on PATH. Changes apply to new sessions.";
+  "Path or command of dsh. PASEO_DSH_EXECUTABLE overrides this; leave it empty to use the Paseo provider command or dsh on PATH.";
 const PROFILE_HINT =
-  'Name of the dsh profile to launch. PASEO_DSH_PROFILE overrides this; leave it empty to use the "paseo" profile. Changes apply to new sessions.';
+  'Name of the dsh profile to launch. PASEO_DSH_PROFILE overrides this; leave it empty to use the "paseo" profile.';
 
 /** Edits the dsh executable and profile that the server reads when it launches a bridge. */
 export default function DshSettingsScreen() {
@@ -88,8 +88,8 @@ export default function DshSettingsScreen() {
           disabled={settings.saving}
         />
         <SettingsAction
-          label="Save"
-          hint={settings.saveError ?? undefined}
+          label="Apply settings"
+          hint={settings.saveError ?? "Changes apply to new sessions."}
           error={settings.saveError}
           actionLabel={settings.saving ? "Saving" : "Save"}
           onPress={save}
