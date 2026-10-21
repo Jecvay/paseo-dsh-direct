@@ -109,6 +109,11 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - 非 Paseo 发起的 DSH 回合（如 `/goal` 续跑、DSH 在同一运行期内连续消化的排队输入）以 `turn/start` 为起点上报为自主回合，由 `turn/end` 或 agent 转入空闲结束。
 - DSH `permission/preset` 事件（`/permission` 或其他来源）同步更新 Paseo 的权限设置。
 - 斜杠目录通过 `session.commands` 提供，会话打开、回合结束和命令执行后刷新；同名时已注册命令优先于技能。已注册命令经 `session.command` 执行；命令返回时 agent 仍在运行（如 `/plan <消息>`），该命令即作为本次输入的回合上报，否则按不产生回合的命令完成。其 `command/run` 显示为用户输入，`command/done` 的结果文本显示为通知。技能调用作为以 `/<技能名>` 开头的普通用户消息发送，由 DSH 注入技能正文。
+- 协商出 `timeline.plugin` 时，`TimelineProjector` 把计划模式、权限预设和目标变化投影为 Paseo 插件时间线条目（`pluginId` 为 `paseo-dsh-direct`，即 `paseo-plugin.json` 的 id，不是 provider 标识 `dsh-pi`；版本 1；契约与 zod schema 在 `shared/timeline-cards.ts`，客户端渲染见 [客户端架构](client-architecture.md)）。未协商该能力时不发这些条目，也不退化成通知。直播与历史回放走同一个 `projectEvent`，条目 id 由事件 `seq` 派生（`plan-mode:<seq>`、`permission-preset:<seq>`、`goal:<seq>`、`goal-continue:<seq>`），重复回放不产生重复条目。
+  - `plan-mode` `{active}`：仅当值与投影器已知值不同时发出，初始已知值为关闭。
+  - `permission-preset` `{preset}`：投影器见到的第一条 `permission/preset`（会话初始化时必有）只作基线；之后仅在预设变化时发出。
+  - `goal` `{operation, objective?, round?, maxRounds?, reason?}`：每个 `goal/change` 操作（create、edit、pause、resume、complete、block、clear）发一条；`objective` 取目标本身，`clear` 取按目标 id 记住的目标，`block` 的 `reason` 取 `blockedReason.message`。来源为 `goal` 且 `round >= 1` 的 `user/message`（目标自动续跑）发 `operation: "continue"`，带记住的目标与上限；`round` 为 0 的初始目标消息不发条目。条目不改变该消息本身的显示与隐藏。
+  - 不回放历史就恢复会话时，`seed(events)` 用 `session.open.events` 无声地写入已知的计划模式、权限预设和目标，使第一条直播变化与正确的旧值比较。
 
 ## 历史与一致性
 

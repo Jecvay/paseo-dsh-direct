@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ProviderEvent } from "@getpaseo/plugin/server/provider";
+import {
+  CARD_KINDS,
+  CARD_VERSION,
+  PLUGIN_ID,
+  goalCardSchema,
+  permissionPresetCardSchema,
+  planModeCardSchema,
+} from "../shared/timeline-cards.js";
+import type { DshSessionEvent } from "../shared/bridge-protocol.js";
 import { TimelineProjector } from "./timeline.js";
 
 function timelineItem(event: ProviderEvent) {
@@ -346,5 +355,153 @@ describe("TimelineProjector", () => {
 
     assert.deepEqual(injected, []);
     assert.equal(timelineItem(actualUser[0]!).type, "user_message");
+  });
+});
+
+const schemas = {
+  [CARD_KINDS.planMode]: planModeCardSchema,
+  [CARD_KINDS.permissionPreset]: permissionPresetCardSchema,
+  [CARD_KINDS.goal]: goalCardSchema,
+} as const;
+
+function ev(seq: number, type: string, data: Record<string, unknown>): DshSessionEvent {
+  return { type, seq, time: seq, data: data as DshSessionEvent["data"] };
+}
+
+function goalEvent(seq: number, operation: string, extra: Record<string, unknown> = {}): DshSessionEvent {
+  const goal = { id: "g1", revision: 1, objective: "ship it", phase: "active", maxGoalRounds: 10 };
+  return ev(seq, "goal/change", { kind: "goal/change", version: 1, operation, goal, ...extra });
+}
+
+function goalUser(seq: number, round: number): DshSessionEvent {
+  return ev(seq, "user/message", {
+    id: `m${seq}`,
+    content: [{ type: "text", text: "continue" }],
+    source: { kind: "goal", goalId: "g1", revision: 1, round },
+  });
+}
+
+/** Projects events and returns plugin cards, validating each against its schema. */
+function cards(projector: TimelineProjector, events: DshSessionEvent[]) {
+  return events.flatMap((event) =>
+    projector.projectEvent(event).flatMap((projected) => {
+      const item = timelineItem(projected);
+      if (item.type !== "plugin") return [];
+      assert.equal(item.pluginId, PLUGIN_ID);
+      assert.equal(item.version, CARD_VERSION);
+      schemas[item.kind as keyof typeof schemas].parse(item.data);
+      return [item];
+    }),
+  );
+}
+
+describe("TimelineProjector plugin cards", () => {
+  it("emits plan-mode cards only when the value changes", () => {
+    const projector = new TimelineProjector("s", true);
+    const items = cards(projector, [
+      ev(1, "plan/mode", { active: false }),
+      ev(2, "plan/mode", { active: true }),
+      ev(3, "plan/mode", { active: true }),
+      ev(4, "plan/mode", { active: false }),
+    ]);
+    assert.deepEqual(items.map((item) => [item.id, item.kind, item.data]), [
+      ["plan-mode:2", "plan-mode", { active: true }],
+      ["plan-mode:4", "plan-mode", { active: false }],
+    ]);
+  });
+
+  it("uses the first permission preset only as the baseline", () => {
+    const projector = new TimelineProjector("s", true);
+    const items = cards(projector, [
+      ev(1, "permission/preset", { preset: "read-only" }),
+      ev(2, "permission/preset", { preset: "read-only" }),
+      ev(3, "permission/preset", { preset: "workspace-write" }),
+    ]);
+    assert.deepEqual(items.map((item) => [item.id, item.data]), [
+      ["permission-preset:3", { preset: "workspace-write" }],
+    ]);
+  });
+
+  it("emits a goal card per operation, with block reason and remembered objective on clear", () => {
+    const projector = new TimelineProjector("s", true);
+    const items = cards(projector, [
+      goalEvent(1, "create"),
+      goalEvent(2, "pause"),
+      goalEvent(3, "block", {
+        goal: { id: "g1", revision: 2, objective: "ship it", phase: "blocked", maxGoalRounds: 10, blockedReason: { code: "x", message: "needs input" } },
+      }),
+      goalEvent(4, "complete"),
+      ev(5, "goal/change", { operation: "clear", cleared: { id: "g1", revision: 2 }, clearedAt: 5 }),
+      ev(6, "goal/change", { operation: "clear", cleared: { id: "unknown" }, clearedAt: 6 }),
+    ]);
+    assert.deepEqual(items.map((item) => item.data), [
+      { operation: "create", objective: "ship it" },
+      { operation: "pause", objective: "ship it" },
+      { operation: "block", objective: "ship it", reason: "needs input" },
+      { operation: "complete", objective: "ship it" },
+      { operation: "clear", objective: "ship it" },
+      { operation: "clear" },
+    ]);
+    assert.deepEqual(items.map((item) => item.id), ["goal:1", "goal:2", "goal:3", "goal:4", "goal:5", "goal:6"]);
+  });
+
+  it("emits continue cards for goal rounds from 1 and none for round 0", () => {
+    const projector = new TimelineProjector("s", true);
+    const items = cards(projector, [goalEvent(1, "create"), goalUser(2, 0), goalUser(3, 3)]);
+    assert.deepEqual(items.map((item) => [item.id, item.data]), [
+      ["goal:1", { operation: "create", objective: "ship it" }],
+      ["goal-continue:3", { operation: "continue", round: 3, maxRounds: 10, objective: "ship it" }],
+    ]);
+  });
+
+  it("emits no cards without the timeline.plugin capability", () => {
+    const projector = new TimelineProjector("s", false);
+    const events = [
+      ev(1, "permission/preset", { preset: "a" }),
+      ev(2, "permission/preset", { preset: "b" }),
+      ev(3, "plan/mode", { active: true }),
+      goalEvent(4, "create"),
+      goalUser(5, 1),
+    ];
+    assert.deepEqual(events.flatMap((event) => projector.projectEvent(event)), []);
+  });
+
+  it("seeds state from unreplayed history without emitting", () => {
+    const history = [
+      ev(1, "permission/preset", { preset: "read-only" }),
+      ev(2, "plan/mode", { active: true }),
+      goalEvent(3, "create"),
+    ];
+    const projector = new TimelineProjector("s", true);
+    projector.seed(history);
+    const items = cards(projector, [
+      ev(4, "plan/mode", { active: true }),
+      ev(5, "permission/preset", { preset: "read-only" }),
+      ev(6, "permission/preset", { preset: "workspace-write" }),
+      ev(7, "plan/mode", { active: false }),
+      goalUser(8, 2),
+    ]);
+    assert.deepEqual(items.map((item) => [item.id, item.data]), [
+      ["permission-preset:6", { preset: "workspace-write" }],
+      ["plan-mode:7", { active: false }],
+      ["goal-continue:8", { operation: "continue", round: 2, maxRounds: 10, objective: "ship it" }],
+    ]);
+  });
+
+  it("produces the same cards on replay as live and does not hide goal user messages", () => {
+    const history = [
+      ev(1, "permission/preset", { preset: "read-only" }),
+      goalEvent(2, "create"),
+      goalUser(3, 1),
+      ev(4, "plan/mode", { active: true }),
+      ev(5, "permission/preset", { preset: "workspace-write" }),
+    ];
+    const live = new TimelineProjector("s", true);
+    const replay = new TimelineProjector("s", true);
+    const liveItems = history.flatMap((event) => live.projectEvent(event));
+    const replayItems = history.flatMap((event) => replay.projectEvent(event));
+    assert.deepEqual(replayItems, liveItems);
+    assert.equal(liveItems.length, 4);
+    assert.ok(liveItems.every((event) => timelineItem(event).type === "plugin"));
   });
 });
