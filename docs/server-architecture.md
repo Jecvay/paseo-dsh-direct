@@ -6,7 +6,7 @@
 
 运行链路为 Paseo Daemon → 插件服务端 → DSH 子进程 → `paseo` profile。插件不修改 Paseo 或 DSH 核心。
 
-`paseo` profile 由 DSH 官方 `web` 模板生成：bundle 为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`，后者自带 `standard`、`ptc`、`minimal`、`cordis` 四个 agent preset。启动前 `server/bridge-client.ts` 检查 `$DSH_HOME/profiles/<profile>`（`$DSH_HOME` 为空或未设置时是 `~/.dsh`，解析方式与 DSH 相同）。目录缺失且 profile 是默认的 `paseo` 时，执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它（60 秒超时，输出丢弃）；`PASEO_DSH_PROFILE` 指定的 profile 缺失时直接报错并给出创建命令。模型路由、默认模型和权限预设属于用户层 `cordis.patch.yml`，插件不写它。
+`paseo` profile 由 DSH 官方 `web` 模板生成：bundle 为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`，后者自带 `standard`、`ptc`、`minimal`、`cordis` 四个 agent preset。启动前 `server/bridge-client.ts` 检查 `$DSH_HOME/profiles/<profile>`（`$DSH_HOME` 为空或未设置时是 `~/.dsh`，解析方式与 DSH 相同）。目录缺失且 profile 是默认的 `paseo` 时，执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它（60 秒超时，输出丢弃）；`PASEO_DSH_PROFILE` 或设置页指定的 profile 缺失时直接报错并给出创建命令。模型路由、默认模型和权限预设属于用户层 `cordis.patch.yml`，插件不写它。
 
 DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里服务浏览器界面的五行，再加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。用户持久 profile 文件保持原样。
 
@@ -37,8 +37,13 @@ Paseo 在 `status` 与 `connect` 请求里带 `launch`（`command`、`args`、`e
 `resolveDshLaunch` 按以下顺序选可执行文件：
 
 1. 非空的 `PASEO_DSH_EXECUTABLE`：显式环境变量是最具体的信号，已有安装继续生效；此时 `launch.args` 属于被覆盖的命令，不使用。
-2. `launch.command`，`launch.args` 排在 dsh 自己的参数（`--profile` 等）之前。
-3. `PATH` 里的 `dsh`。
+2. 设置页（`shared/settings.ts` 的 `DSH_SETTINGS`）里非空的 `executable`，处理同上。
+3. `launch.command`，`launch.args` 排在 dsh 自己的参数（`--profile` 等）之前。
+4. `PATH` 里的 `dsh`。
+
+profile 的顺序是非空的 `PASEO_DSH_PROFILE`、设置页里非空的 `profile`、默认的 `paseo`。`server/dsh-config.ts` 的 `mergeDshConfigured` 把环境变量和设置页合并成一份 `DshConfigured`（空串与纯空白都算未设置）；`index.server.ts` 用 `server.registerSettings(DSH_SETTINGS)` 注册设置，并在每次起桥、`status()` 和计算目录缓存键时重新 `read()`，所以改动只作用于新会话与新的目录发现，已运行的桥不受影响。设置的状态为 `invalid` 或读取失败时按未设置处理，并向 stderr 写一行说明。
+
+`getCatalogCacheKey` 的键由范围（全局或工作区 `cwd`）、生效的启动命令加参数、生效的 profile 组成，因此改动 profile 或可执行文件后，新的目录发现不会复用旧结果。
 
 插件启动的每个 dsh 进程（建 profile、`--dump-config` 行检查、起桥、`--version` 探测）都经 `spawnDsh`（`server/dsh-spawn.ts`）启动，它用 `resolveDshSpawn` 定出最终的 `command` / `args` / `env`。非 Windows 平台原样透传。Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本：Node 不经 shell 不按 PATHEXT 找 `.cmd`、也拒绝直接 spawn `.cmd`，`.ps1` 包装脚本在 stdin 为管道时等 EOF 才启动。命令解析到这类包装脚本（显式路径，或按大小写不敏感的 `PATH` 查找、同目录无 `dsh.exe`/`dsh.com`）时，按包装脚本所在布局改为执行它内部执行的命令：
 
@@ -47,7 +52,7 @@ Paseo 在 `status` 与 `connect` 请求里带 `launch`（`command`、`args`、`e
 
 Paseo 在调用插件之前就按 `PATH` 解析注册的 `command`，找不到就报 `dsh not found on PATH`。所以 Windows 上 `PATH` 里没有 `dsh`、而 Desktop 装在默认位置 `%LOCALAPPDATA%\Programs\DeepSeek Harness` 时，插件加载时注册的 `command` 是 Desktop 的 `DeepSeek Harness.exe`（`defaultDshCommand`），否则是 `dsh`。不经 Paseo 解析的启动（没有 `launch`）同样在 `dsh` 找不到时回退到这个位置。`PATH` 上的 dsh 始终优先于 Desktop。其余情况（`.exe` 等真实可执行文件、识别不出的布局）原样透传。不用 `shell: true`：参数会失去转义，`kill()` 也只杀到 `cmd.exe`。
 
-桥接子进程的环境以 `launch.env` 为底（没有 `launch` 时用 `process.env`），再叠加会话环境变量。`status()` 对同一请求的 `launch` 套用同一顺序，对解析出的命令加参数运行 `--version`，结果按命令与参数缓存，探测使用 `launch.env`。无法运行时返回不可用，并提示安装 dsh、设置 `agents.providers.dsh-pi.command` 或 `PASEO_DSH_EXECUTABLE`，然后重启 Daemon；`major.minor` 线与插件不一致时返回可用并附与会话时间线相同的警告。
+桥接子进程的环境以 `launch.env` 为底（没有 `launch` 时用 `process.env`），再叠加会话环境变量。`status()` 对同一请求的 `launch` 套用同一顺序，对解析出的命令加参数运行 `--version`，结果按命令与参数缓存，探测使用 `launch.env`。无法运行时返回不可用，并提示安装 dsh、设置 `agents.providers.dsh-pi.command`、在插件设置页填写 `dsh executable` 或设置 `PASEO_DSH_EXECUTABLE`，然后重启 Daemon；`major.minor` 线与插件不一致时返回可用并附与会话时间线相同的警告。
 
 ### 漂移防护
 

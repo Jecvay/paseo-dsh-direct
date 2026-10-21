@@ -18,8 +18,9 @@ Runs DeepSeek Harness (`dsh`) as a native Paseo agent provider. Paseo clients (d
 ## Processes and environment
 
 - **Child process.** For each session the plugin starts the `dsh` executable as a child process and loads a small bridge plugin into it. The two communicate over the child's stdio.
-- **Executable lookup.** In order: the `PASEO_DSH_EXECUTABLE` environment variable, then the Paseo setting `agents.providers.dsh-pi.command`, then `dsh` on `PATH`.
-- **Profile.** The plugin launches `dsh --profile paseo`. If `<DSH_HOME>/profiles/paseo` does not exist, it is created once by running `dsh --profile paseo --from-default-profile web --dump-config`. `DSH_HOME` defaults to `~/.dsh`. Setting `PASEO_DSH_PROFILE` selects another existing profile instead; a missing one is reported as an error, not created.
+- **Executable lookup.** In order: the `PASEO_DSH_EXECUTABLE` environment variable, the executable field of the DeepSeek Harness settings screen, the Paseo setting `agents.providers.dsh-pi.command`, then `dsh` on `PATH`.
+- **Profile.** The plugin launches `dsh --profile paseo`. If `<DSH_HOME>/profiles/paseo` does not exist, it is created once by running `dsh --profile paseo --from-default-profile web --dump-config`. `DSH_HOME` defaults to `~/.dsh`. Setting `PASEO_DSH_PROFILE`, or the profile field of the DeepSeek Harness settings screen (the variable wins), selects another existing profile instead; a missing one is reported as an error, not created.
 - **Environment variables read by the plugin.** `PASEO_DSH_EXECUTABLE`, `PASEO_DSH_PROFILE`, and `DSH_HOME` (to locate the profile directory).
+- **Settings screen.** Executable and profile can also be set under Settings → DeepSeek Harness; changes apply to new sessions.
 - **Environment passed to `dsh`.** The child inherits the Paseo daemon's environment.
 - **Network.** The plugin makes no network requests itself. Model API calls are made by `dsh` according to its own configuration.

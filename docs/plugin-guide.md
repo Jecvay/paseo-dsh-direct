@@ -56,12 +56,12 @@ Git 安装通过 `paseo plugin update paseo-dsh-direct` 更新。安装固定版
 
 ## 运行配置
 
-默认启动 `dsh --profile paseo`（`dsh` 的选择见下），使用 Daemon 可见的 DSH home（`$DSH_HOME`，未设置时为 `~/.dsh`）与凭证。`paseo` profile 不存在时，插件先执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它。模型路由、默认模型和权限预设写在该 profile 的 `cordis.patch.yml`。可在启动 Daemon 的环境中设置：
+默认启动 `dsh --profile paseo`（`dsh` 的选择见下），使用 Daemon 可见的 DSH home（`$DSH_HOME`，未设置时为 `~/.dsh`）与凭证。`paseo` profile 不存在时，插件先执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它。模型路由、默认模型和权限预设写在该 profile 的 `cordis.patch.yml`。可在 Paseo 设置的 DeepSeek Harness 页（`dsh executable`、`dsh profile`，留空表示不设置）或启动 Daemon 的环境中设置；同名环境变量优先于设置页。设置页的改动对新会话生效，已运行的会话保留原来的 dsh。
 
 | 环境变量 | 用途 |
 |---|---|
-| `PASEO_DSH_EXECUTABLE` | DSH 可执行文件路径；设置后优先于下面的 Paseo 配置 |
-| `PASEO_DSH_PROFILE` | 改用另一个已存在的 profile，默认 `paseo`；这里指定的 profile 缺失时直接报错，不自动创建 |
+| `PASEO_DSH_EXECUTABLE` | DSH 可执行文件路径；设置后优先于设置页和下面的 Paseo 配置 |
+| `PASEO_DSH_PROFILE` | 改用另一个已存在的 profile，默认 `paseo`；优先于设置页；指定的 profile 缺失时直接报错，不自动创建 |
 
 Provider 注册了 `command: ["dsh"]`，也可以在 Paseo 配置里覆盖，不必设环境变量：
 
@@ -69,7 +69,7 @@ Provider 注册了 `command: ["dsh"]`，也可以在 Paseo 配置里覆盖，不
 { "agents": { "providers": { "dsh-pi": { "command": ["/opt/dsh/bin/dsh"], "env": { "DSH_HOME": "/srv/dsh" } } } } }
 ```
 
-`dsh` 的选择顺序：`PASEO_DSH_EXECUTABLE`，Paseo 解析出的 `command`，`PATH` 里的 `dsh`。改动后重启 Daemon。Windows 上 npm 生成的 `dsh.cmd` / `dsh.ps1` 和 DSH Desktop 注册的 `dsh` 都能用；只装了 DSH Desktop 时不必另装 dsh，`PATH` 上没有 `dsh` 时插件用 Desktop 默认安装位置自带的 dsh。`PATH` 上的 dsh 优先于 Desktop。
+`dsh` 的选择顺序：`PASEO_DSH_EXECUTABLE`，设置页的 `dsh executable`，Paseo 解析出的 `command`，`PATH` 里的 `dsh`。环境变量和 Paseo 配置的改动需重启 Daemon。Windows 上 npm 生成的 `dsh.cmd` / `dsh.ps1` 和 DSH Desktop 注册的 `dsh` 都能用；只装了 DSH Desktop 时不必另装 dsh，`PATH` 上没有 `dsh` 时插件用 Desktop 默认安装位置自带的 dsh。`PATH` 上的 dsh 优先于 Desktop。
 
 Paseo 提供的会话环境变量传入该会话的 DSH 子进程。已有历史恢复优先保留原生模型、preset、思考和权限配置；恢复后可通过 Paseo 的会话配置主动调整。
 

@@ -62,7 +62,7 @@ export interface SessionLaunch {
 }
 
 export interface LaunchBridgeOptions extends SessionLaunch {
-  /** The `PASEO_DSH_EXECUTABLE` value; it takes precedence over `providerLaunch.command`. */
+  /** The configured executable (`PASEO_DSH_EXECUTABLE`, else the plugin setting); it takes precedence over `providerLaunch.command`. */
   executable?: string;
   profile?: string;
   bridgeSource: string;
@@ -77,7 +77,7 @@ interface PendingRequest {
 
 const MAX_STDERR = 16_384;
 
-/** The profile the plugin launches unless `PASEO_DSH_PROFILE` names another one. */
+/** The profile the plugin launches unless `PASEO_DSH_PROFILE` or the plugin setting names another one. */
 export const DEFAULT_PROFILE = "paseo";
 /** The official DSH profile template the default profile is created from. */
 export const DEFAULT_PROFILE_TEMPLATE = "web";
@@ -142,7 +142,7 @@ export async function ensureDshProfile(options: {
     throw new Error(
       `DSH profile "${options.profile}" does not exist at ${directory}. ` +
         `Create it with \`dsh --profile ${options.profile} --from-default-profile ${DEFAULT_PROFILE_TEMPLATE} --dump-config\`, ` +
-        `or unset PASEO_DSH_PROFILE to use the "${DEFAULT_PROFILE}" profile.`,
+        `or clear the profile in the DeepSeek Harness plugin settings and unset PASEO_DSH_PROFILE to use the "${DEFAULT_PROFILE}" profile.`,
     );
   }
   // Concurrent first launches share one creation run.
@@ -222,8 +222,8 @@ export interface DshLaunch {
 }
 
 /**
- * The dsh launch, by precedence: a non-blank `PASEO_DSH_EXECUTABLE` (the most
- * specific signal, kept for existing installs), then the `launch` Paseo
+ * The dsh launch, by precedence: a non-blank configured executable (`PASEO_DSH_EXECUTABLE`,
+ * else the plugin setting; see `mergeDshConfigured`), then the `launch` Paseo
  * resolved from `command` / `agents.providers.dsh-pi.command`, then `dsh` from
  * `PATH`. `launch.args` belong to `launch.command`, so they are dropped when
  * the environment variable wins.
