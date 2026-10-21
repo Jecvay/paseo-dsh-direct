@@ -12,7 +12,10 @@ const PROFILE_HINT =
 /** Edits the dsh executable and profile that the server reads when it launches a bridge. */
 export default function DshSettingsScreen() {
   const settings = useSettings(DSH_SETTINGS);
-  const draft = useRef<{ executable?: string; profile?: string }>({});
+  const draftState = useRef<{ revision: string | undefined; edits: { executable?: string; profile?: string } }>({
+    revision: undefined,
+    edits: {},
+  });
 
   if (settings.status === "loading") {
     return (
@@ -45,6 +48,11 @@ export default function DshSettingsScreen() {
   }
 
   const { revision, values } = settings;
+  // Edits belong to the revision they were typed against; a new revision remounts the inputs, so drop them.
+  if (draftState.current.revision !== revision) {
+    draftState.current = { revision, edits: {} };
+  }
+  const draft = { current: draftState.current.edits };
   const save = () =>
     void settings.save(
       {

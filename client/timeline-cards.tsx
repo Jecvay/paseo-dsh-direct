@@ -9,8 +9,8 @@ interface CardProps<Data> {
   item: { data: Data };
 }
 
-/** Text of a goal card; exported for reuse by the row component. */
-export function goalCardText(data: GoalCard): string {
+/** Text of a goal card. */
+function goalCardText(data: GoalCard): string {
   const objective = data.objective ? `: ${data.objective}` : "";
   switch (data.operation) {
     case "create":
