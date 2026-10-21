@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.8
+
+- Paseo has a settings screen for the plugin (Settings → DeepSeek Harness) where you set the dsh executable path and profile; it works in the mobile apps too. `PASEO_DSH_EXECUTABLE` and `PASEO_DSH_PROFILE` still take precedence, and changes apply to new sessions (#9).
+- Goal changes (set, edit, pause, resume, complete, block, clear and auto-continue rounds), plan mode switches and permission preset changes appear as compact cards in the Paseo timeline, including in replayed history (#8).
+- The plugin is built against the Paseo plugin SDK 0.12.0 and still supports Paseo 0.11 and later.
+
 ## 0.2.7
 
 - The dsh provider works with dsh `0.2.1`. dsh writes some of its own logs to stdout, such as the model-catalog line from a DeepSeek account login, and the bridge used to fail on that line with "DSH bridge wrote invalid JSON". The bridge now forwards any stdout line that is not a JSON object to stderr and keeps reading (contributed by @rayzart in #74).
