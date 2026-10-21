@@ -52,6 +52,7 @@ const CAPABILITIES = [
   "session.persistence",
   "permission",
   "permission.tool_policy",
+  "timeline.plugin",
 ] as const;
 const PERMISSION_PRESET_SETTING = "permissionPreset";
 const PLAN_MODE_SETTING = "planMode";
@@ -468,7 +469,7 @@ async function openSession(
       open: opened,
       bridge,
       releaseBridgeListeners: [],
-      projector: new TimelineProjector(input.sessionId),
+      projector: new TimelineProjector(input.sessionId, state.capabilities.includes("timeline.plugin")),
       activeTurnId: null,
       cancelRequested: false,
       dispatch: null,
@@ -504,6 +505,8 @@ async function openSession(
     for (const event of session.open.events) {
       for (const projected of session.projector.projectEvent(event)) state.emit(projected);
     }
+  } else {
+    session.projector.seed(session.open.events);
   }
   await warnOnDshVersionMismatch(session, state);
   state.emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });

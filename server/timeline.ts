@@ -4,6 +4,12 @@ import type {
   ProviderToolCallDetail,
 } from "@getpaseo/plugin/server/provider";
 import type { DshSessionEvent, DshStreamFrame, JsonObject } from "../shared/bridge-protocol.js";
+import {
+  CARD_KINDS,
+  CARD_VERSION,
+  PLUGIN_ID,
+  type GoalCard,
+} from "../shared/timeline-cards.js";
 import { attachmentLabel } from "./prompt-content.js";
 import { classifyTurnEnd } from "./turn-end.js";
 import { arrayValue, numberValue, objectValue, stringValue } from "./values.js";
@@ -26,7 +32,27 @@ export class TimelineProjector {
     { attemptId: string; ordinal: number }
   >();
 
-  constructor(private readonly paseoSessionId: string) {}
+  private planActive = false;
+  private lastPreset: string | undefined;
+  private readonly goals = new Map<string, { objective?: string; maxRounds?: number }>();
+
+  /**
+   * @param paseoSessionId Paseo session id stamped on every projected event.
+   * @param pluginCards Whether the host negotiated `timeline.plugin`; when false no cards are emitted.
+   */
+  constructor(
+    private readonly paseoSessionId: string,
+    private readonly pluginCards = false,
+  ) {}
+
+  /**
+   * Records plan mode, permission preset and goal objectives from history that is
+   * not replayed, so the first live change is compared against the right value.
+   * @param events DSH durable events of the resumed session, oldest first.
+   */
+  seed(events: readonly DshSessionEvent[]): void {
+    for (const event of events) this.projectCards(event);
+  }
 
   projectEvent(
     event: DshSessionEvent,
@@ -35,7 +61,14 @@ export class TimelineProjector {
     const timestamp = toTimestamp(event.time);
     switch (event.type) {
       case "user/message":
-        return this.projectUserMessage(event, timestamp);
+        return [
+          ...this.projectCards(event, timestamp),
+          ...this.projectUserMessage(event, timestamp),
+        ];
+      case "plan/mode":
+      case "permission/preset":
+      case "goal/change":
+        return this.projectCards(event, timestamp);
       case "command/run":
         return this.projectCommandRun(event, options.clientMessageId, timestamp);
       case "command/done":
@@ -206,6 +239,75 @@ export class TimelineProjector {
     const error = stringValue(event.data.error);
     if (error) projected.push(this.notice(`${id}:error`, "error", `Compaction failed: ${error}`, timestamp));
     return projected;
+  }
+
+  /** Updates card state for `event` and returns the plugin cards it produces (none when cards are off). */
+  private projectCards(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
+    const cards: Array<{ id: string; kind: string; data: Record<string, string | number | boolean> }> = [];
+    const data = event.data;
+    if (event.type === "plan/mode" && typeof data.active === "boolean") {
+      if (data.active !== this.planActive) {
+        this.planActive = data.active;
+        cards.push({ id: `plan-mode:${event.seq}`, kind: CARD_KINDS.planMode, data: { active: data.active } });
+      }
+    } else if (event.type === "permission/preset" && typeof data.preset === "string") {
+      const previous = this.lastPreset;
+      this.lastPreset = data.preset;
+      if (previous !== undefined && previous !== data.preset) {
+        cards.push({ id: `permission-preset:${event.seq}`, kind: CARD_KINDS.permissionPreset, data: { preset: data.preset } });
+      }
+    } else if (event.type === "goal/change") {
+      const card = this.goalChangeCard(data);
+      if (card) cards.push({ id: `goal:${event.seq}`, kind: CARD_KINDS.goal, data: { ...card } });
+    } else if (event.type === "user/message") {
+      const source = objectValue(data.source);
+      const round = numberValue(source?.round);
+      const goalId = stringValue(source?.goalId);
+      if (source?.kind === "goal" && round !== undefined && round >= 1) {
+        const known = goalId ? this.goals.get(goalId) : undefined;
+        const card: GoalCard = {
+          operation: "continue",
+          round,
+          ...(known?.maxRounds !== undefined ? { maxRounds: known.maxRounds } : {}),
+          ...(known?.objective !== undefined ? { objective: known.objective } : {}),
+        };
+        cards.push({ id: `goal-continue:${event.seq}`, kind: CARD_KINDS.goal, data: { ...card } });
+      }
+    }
+    if (!this.pluginCards) return [];
+    return cards.map((card) =>
+      timeline(
+        this.paseoSessionId,
+        { type: "plugin", id: card.id, pluginId: PLUGIN_ID, kind: card.kind, version: CARD_VERSION, data: card.data },
+        timestamp,
+      ),
+    );
+  }
+
+  private goalChangeCard(data: JsonObject): GoalCard | undefined {
+    const operation = stringValue(data.operation);
+    if (
+      operation !== "create" && operation !== "edit" && operation !== "pause" &&
+      operation !== "resume" && operation !== "complete" && operation !== "block" &&
+      operation !== "clear"
+    ) {
+      return undefined;
+    }
+    const goal = objectValue(operation === "clear" ? data.cleared : data.goal);
+    const goalId = stringValue(goal?.id);
+    if (operation !== "clear" && goalId) {
+      this.goals.set(goalId, {
+        objective: stringValue(goal?.objective),
+        maxRounds: numberValue(goal?.maxGoalRounds),
+      });
+    }
+    const objective = stringValue(goal?.objective) ?? (goalId ? this.goals.get(goalId)?.objective : undefined);
+    const reason = operation === "block" ? stringValue(objectValue(goal?.blockedReason)?.message) : undefined;
+    return {
+      operation,
+      ...(objective !== undefined ? { objective } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    };
   }
 
   private projectUserMessage(event: DshSessionEvent, timestamp?: string): SessionEvent[] {

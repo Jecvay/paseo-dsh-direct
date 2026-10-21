@@ -12,6 +12,10 @@ Provider 在 Paseo 中显示为 `DeepSeek Harness`，标识为 `dsh-pi`。手机
 
 插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `terminal`），用 SDK 的 `useSettings(DSH_SETTINGS)` 读写两项文本设置：`dsh executable` 与 `dsh profile`，留空表示不设置。每项下方提示对应环境变量优先于它，改动对新会话生效。设置定义在 `shared/settings.ts`，服务端与客户端共用同一份；表单行、输入框和保存按钮来自 `@getpaseo/plugin/client/ui`。设置的取值如何参与选择见 [服务端架构](server-architecture.md)。
 
+## 时间线卡片
+
+插件用 `addTimelineRenderer` 注册三种单行卡片（`client/timeline-cards.tsx`，版本 1，schema 来自 `shared/timeline-cards.ts`，与服务端共用）：`plan-mode`（"Plan mode on/off"）、`permission-preset`（"Permission preset: <名称>"）和 `goal`（"Goal set/edited/paused/resumed/completed/blocked/cleared"，自动续跑显示为 "Goal continued (round N/M)"，设置、编辑和阻塞带目标或原因）。卡片用 `@getpaseo/plugin/client/ui` 的行组件，跟随宿主主题。与设置页的清理函数合并返回。服务端何时发出这些条目见 [服务端架构](server-architecture.md)。
+
 ## 跨端边界
 
 客户端入口不启动进程、不访问文件系统、不依赖 `window`、`document` 或 HTML 标签。运行时和凭证留在 Daemon 主机。
