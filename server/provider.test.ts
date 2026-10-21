@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { ProviderEvent } from "@getpaseo/plugin/server/provider";
 import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications } from "../shared/bridge-protocol.js";
 import type { DshBridge, SessionLaunch } from "./bridge-client.js";
+import { DEFAULT_PROFILE } from "./bridge-client.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
 import { createDshProvider } from "./provider.js";
 import { versionLine } from "./version-line.js";
@@ -728,6 +729,37 @@ async function openSession(bridge: FakeBridge) {
   return { connection, events };
 }
 
+describe("dsh catalog cache key", () => {
+  const keyFor = (configured: { executable?: string; profile?: string }, request: Parameters<NonNullable<ReturnType<typeof createDshProvider>["getCatalogCacheKey"]>>[0] = { scope: "global" }) =>
+    createDshProvider({
+      configured: () => configured,
+      createBridge: async () => {
+        throw new Error("the cache key must not launch a bridge");
+      },
+    }).getCatalogCacheKey!(request);
+
+  it("changes with the effective profile", async () => {
+    assert.notEqual(await keyFor({ profile: "a" }), await keyFor({ profile: "b" }));
+    assert.equal(await keyFor({}), await keyFor({ profile: DEFAULT_PROFILE }));
+  });
+
+  it("changes with the effective executable, including Paseo's launch when none is configured", async () => {
+    assert.notEqual(await keyFor({ executable: "/a/dsh" }), await keyFor({ executable: "/b/dsh" }));
+    const launch = (command: string) => ({ scope: "global" as const, launch: { command, args: [], env: {} } });
+    assert.notEqual(await keyFor({}, launch("/p/dsh")), await keyFor({}, launch("/q/dsh")));
+    assert.equal(await keyFor({ executable: "/a/dsh" }, launch("/p/dsh")), await keyFor({ executable: "/a/dsh" }, launch("/q/dsh")));
+  });
+
+  it("keeps global and per-workspace discovery apart", async () => {
+    const keys = new Set([
+      await keyFor({}),
+      await keyFor({}, { scope: "workspace", cwd: "/w1" }),
+      await keyFor({}, { scope: "workspace", cwd: "/w2" }),
+    ]);
+    assert.equal(keys.size, 3);
+  });
+});
+
 describe("dsh provider status", () => {
   const probe = (version: string, seen: string[] = []) => async (executable: string, options?: { args?: readonly string[] }): Promise<string> => {
     seen.push([executable, ...(options?.args ?? [])].join(" "));
@@ -740,7 +772,7 @@ describe("dsh provider status", () => {
     executable: string | undefined,
     detect: Parameters<typeof createDshProvider>[0]["detectDshVersion"],
     launch?: { command: string; args: string[]; env: Record<string, string> },
-  ) => createDshProvider({ executable, createBridge: noBridge, detectDshVersion: detect }).status!({ launch });
+  ) => createDshProvider({ configured: () => ({ executable }), createBridge: noBridge, detectDshVersion: detect }).status!({ launch });
 
   it("declares dsh as the default command", () => {
     assert.deepEqual(createDshProvider({ createBridge: noBridge }).command, ["dsh"]);
@@ -776,6 +808,7 @@ describe("dsh provider status", () => {
     assert.match(status.diagnostic ?? "", /\/opt\/missing-dsh --version/);
     assert.match(status.diagnostic ?? "", /agents\.providers\.dsh-pi\.command/);
     assert.match(status.diagnostic ?? "", /PASEO_DSH_EXECUTABLE/);
+    assert.match(status.diagnostic ?? "", /plugin settings/);
   });
 
   it("is unavailable when the version probe rejects", async () => {

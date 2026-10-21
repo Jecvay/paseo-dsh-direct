@@ -25,6 +25,7 @@ import type {
 } from "../shared/bridge-protocol.js";
 import { slashLine } from "../shared/bridge-protocol.js";
 import {
+  DEFAULT_PROFILE,
   describeDshLaunch,
   resolveDshLaunch,
   type BridgeMcpServer,
@@ -32,6 +33,7 @@ import {
   type DshLaunch,
   type SessionLaunch,
 } from "./bridge-client.js";
+import type { DshConfigured } from "./dsh-config.js";
 import { detectDshVersion } from "./dsh-version.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
 import { displayText, toPromptParts } from "./prompt-content.js";
@@ -61,8 +63,12 @@ type DetectVersion = (
 
 interface DshProviderOptions {
   createBridge(launch?: SessionLaunch): Promise<DshBridge>;
-  /** The `PASEO_DSH_EXECUTABLE` value; it outranks the `launch` Paseo resolves. `status()` and `createBridge` use the same precedence. */
-  executable?: string;
+  /**
+   * The environment and settings-screen choices, read on every call so a changed
+   * setting applies to new sessions. The executable outranks the `launch` Paseo
+   * resolves; `status()`, the catalog cache key and `createBridge` use the same values.
+   */
+  configured?: () => Promise<DshConfigured> | DshConfigured;
   /** The command registered with Paseo; defaults to `dsh` (see `defaultDshCommand`). */
   command?: string;
   /** Detects the local dsh version for the startup compatibility check; defaults to spawning `<exe> --version`. */
@@ -103,12 +109,16 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
     label: "DeepSeek Harness",
     description: "Direct connection to the local DeepSeek Harness (dsh)",
     icon: "dsh.svg",
-    getCatalogCacheKey: async (options) =>
-      options.scope === "workspace" ? `dsh-pi:${options.cwd}` : "dsh-pi:global",
+    getCatalogCacheKey: async (request) => {
+      const configured = (await options.configured?.()) ?? {};
+      const launch = describeDshLaunch(resolveDshLaunch(configured.executable, request.launch));
+      const scope = request.scope === "workspace" ? request.cwd : "global";
+      return JSON.stringify(["dsh-pi", scope, launch, configured.profile ?? DEFAULT_PROFILE]);
+    },
     command: [options.command ?? "dsh"],
     async status(request) {
       return dshStatus(
-        resolveDshLaunch(options.executable, request?.launch),
+        resolveDshLaunch((await options.configured?.())?.executable, request?.launch),
         request?.launch?.env,
         options.detectDshVersion ?? detectDshVersion,
       );
@@ -153,7 +163,7 @@ async function dshStatus(
       available: false,
       diagnostic:
         `Could not run "${describeDshLaunch(launch)} --version". Install dsh, ` +
-        `set agents.providers.dsh-pi.command in Paseo config, or set PASEO_DSH_EXECUTABLE, ` +
+        `set agents.providers.dsh-pi.command in Paseo config, set the executable in the DeepSeek Harness plugin settings, or set PASEO_DSH_EXECUTABLE, ` +
         `then restart the Paseo daemon.`,
     };
   }
