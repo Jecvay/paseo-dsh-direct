@@ -465,6 +465,17 @@ describe("TimelineProjector plugin cards", () => {
     ]);
   });
 
+  it("stops suppressing goal cards after a /goal command that never reported done", () => {
+    const projector = new TimelineProjector("s", true);
+    const items = cards(projector, [
+      ev(1, "command/run", { commandId: "c1", name: "goal", source: { kind: "user" } }),
+      goalEvent(2, "create"),
+      ev(3, "turn/start", {}),
+      goalEvent(4, "pause"),
+    ]);
+    assert.deepEqual(items.map((item) => item.id), ["goal:4"]);
+  });
+
   it("remembers the objective of a goal created by a /goal command", () => {
     const projector = new TimelineProjector("s", true);
     const items = cards(projector, [

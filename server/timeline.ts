@@ -61,6 +61,8 @@ export class TimelineProjector {
     options: { clientMessageId?: string } = {},
   ): SessionEvent[] {
     const timestamp = toTimestamp(event.time);
+    // A `/goal` command whose `command/done` never arrived is over once any of these later events appears.
+    if (["command/run", "user/message", "turn/start", "turn/end"].includes(event.type)) this.goalCommands.clear();
     switch (event.type) {
       case "user/message":
         return [
