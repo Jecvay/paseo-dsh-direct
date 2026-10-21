@@ -31,8 +31,8 @@
     "!server/generated-version.ts"
   ],
   "peerDependencies": {
-    "@getpaseo/client": "0.11.2",
-    "@getpaseo/protocol": "0.11.2",
+    "@getpaseo/client": "0.12.0",
+    "@getpaseo/protocol": "0.12.0",
     "react": "~19.1.0",
     "react-native": ">=0.81.5"
   },
@@ -51,7 +51,7 @@
     }
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.11.2",
+    "@getpaseo/plugin": "0.12.0",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.0",
