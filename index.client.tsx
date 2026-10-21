@@ -1,4 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { SETTINGS_SCREEN_ICON } from "./shared/settings.js";
 import DshSettingsScreen from "./client/settings-screen.js";
 import {
   GoalCardView,
@@ -19,7 +20,7 @@ export default function contribute(client: PluginClientContext) {
     client.addSettingsScreen({
       id: "dsh",
       title: "DeepSeek Harness",
-      icon: "terminal",
+      icon: SETTINGS_SCREEN_ICON,
       Component: DshSettingsScreen,
     }),
     client.addTimelineRenderer({
