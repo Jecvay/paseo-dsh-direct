@@ -33,7 +33,7 @@ paseo plugin update paseo-dsh-direct --yes     # 更新到最新
 - 已有的 dsh 会话可以导入 Paseo 接着用。
 - dsh 的斜杠命令（`/compact`、`/plan` 等）出现在 Paseo 的 `/` 菜单里。
 - Paseo 的用量表显示 dsh 的 token 用量和上下文占用。
-- 目标变化、计划模式切换和权限预设变化会在对话里显示为小的时间线卡片。
+- 目标变化（dsh 自己在 `/goal` 命令输出里已报告的除外）、计划模式切换和权限预设变化会在对话里显示为小的时间线卡片。
 
 ## 版本号
 

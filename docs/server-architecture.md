@@ -112,7 +112,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - 协商出 `timeline.plugin` 时，`TimelineProjector` 把计划模式、权限预设和目标变化投影为 Paseo 插件时间线条目（`pluginId` 为 `paseo-dsh-direct`，即 `paseo-plugin.json` 的 id，不是 provider 标识 `dsh-pi`；版本 1；契约与 zod schema 在 `shared/timeline-cards.ts`，客户端渲染见 [客户端架构](client-architecture.md)）。未协商该能力时不发这些条目，也不退化成通知。直播与历史回放走同一个 `projectEvent`，条目 id 由事件 `seq` 派生（`plan-mode:<seq>`、`permission-preset:<seq>`、`goal:<seq>`、`goal-continue:<seq>`），重复回放不产生重复条目。
   - `plan-mode` `{active}`：仅当值与投影器已知值不同时发出，初始已知值为关闭。
   - `permission-preset` `{preset}`：投影器见到的第一条 `permission/preset`（会话初始化时必有）只作基线；之后仅在预设变化时发出。
-  - `goal` `{operation, objective?, round?, maxRounds?, reason?}`：每个 `goal/change` 操作（create、edit、pause、resume、complete、block、clear）发一条；`objective` 取目标本身，`clear` 取按目标 id 记住的目标，`block` 的 `reason` 取 `blockedReason.message`。来源为 `goal` 且 `round >= 1` 的 `user/message`（目标自动续跑）发 `operation: "continue"`，带记住的目标与上限；`round` 为 0 的初始目标消息不发条目。条目不改变该消息本身的显示与隐藏。
+  - `goal` `{operation, objective?, round?, maxRounds?, reason?}`：每个 `goal/change` 操作（create、edit、pause、resume、complete、block、clear）发一条，但 `/goal` 命令执行期间（`command/run` 名为 `goal` 到对应 `command/done` 之间）产生的变更不发：DSH 已在该命令自己的输出里报告了结果（Goal created/updated/paused/resumed/cleared）。模型的 goal 工具和回合驱动器（含 complete、block、自动暂停）产生的变更不在命令执行期间，照常发条目；`objective` 取目标本身，`clear` 取按目标 id 记住的目标，`block` 的 `reason` 取 `blockedReason.message`。来源为 `goal` 且 `round >= 1` 的 `user/message`（目标自动续跑）发 `operation: "continue"`，带记住的目标与上限；`round` 为 0 的初始目标消息不发条目。条目不改变该消息本身的显示与隐藏。
   - 不回放历史就恢复会话时，`seed(events)` 用 `session.open.events` 无声地写入已知的计划模式、权限预设和目标，使第一条直播变化与正确的旧值比较。
 
 ## 历史与一致性

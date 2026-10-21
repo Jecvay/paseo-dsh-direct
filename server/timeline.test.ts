@@ -445,6 +445,39 @@ describe("TimelineProjector plugin cards", () => {
     assert.deepEqual(items.map((item) => item.id), ["goal:1", "goal:2", "goal:3", "goal:4", "goal:5", "goal:6"]);
   });
 
+  it("emits no goal card for changes made while a /goal command runs", () => {
+    const projector = new TimelineProjector("s", true);
+    const items = cards(projector, [
+      ev(1, "command/run", { commandId: "c1", name: "goal", args: " ship it", source: { kind: "user" } }),
+      goalEvent(2, "create"),
+      ev(3, "command/done", { commandId: "c1", kind: "success", text: "Goal created" }),
+      ev(4, "command/run", { commandId: "c2", name: "goal", args: " clear", source: { kind: "user" } }),
+      ev(5, "goal/change", { operation: "clear", cleared: { id: "g1", revision: 1 }, clearedAt: 5 }),
+      ev(6, "command/done", { commandId: "c2", kind: "success", text: "Goal cleared." }),
+      goalEvent(7, "pause"),
+      ev(8, "command/run", { commandId: "c3", name: "plan", source: { kind: "user" } }),
+      goalEvent(9, "block"),
+      ev(10, "command/done", { commandId: "c3", kind: "success" }),
+    ]);
+    assert.deepEqual(items.map((item) => [item.id, (item.data as { operation: string }).operation]), [
+      ["goal:7", "pause"],
+      ["goal:9", "block"],
+    ]);
+  });
+
+  it("remembers the objective of a goal created by a /goal command", () => {
+    const projector = new TimelineProjector("s", true);
+    const items = cards(projector, [
+      ev(1, "command/run", { commandId: "c1", name: "goal", source: { kind: "user" } }),
+      goalEvent(2, "create"),
+      ev(3, "command/done", { commandId: "c1", kind: "success", text: "Goal created" }),
+      goalUser(4, 1),
+    ]);
+    assert.deepEqual(items.map((item) => item.data), [
+      { operation: "continue", round: 1, maxRounds: 10, objective: "ship it" },
+    ]);
+  });
+
   it("emits continue cards for goal rounds from 1 and none for round 0", () => {
     const projector = new TimelineProjector("s", true);
     const items = cards(projector, [goalEvent(1, "create"), goalUser(2, 0), goalUser(3, 3)]);

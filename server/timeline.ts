@@ -35,6 +35,8 @@ export class TimelineProjector {
   private planActive = false;
   private lastPreset: string | undefined;
   private readonly goals = new Map<string, { objective?: string; maxRounds?: number }>();
+  /** Ids of `/goal` commands between their `command/run` and `command/done`; dsh prints their result itself. */
+  private readonly goalCommands = new Set<string>();
 
   /**
    * @param paseoSessionId Paseo session id stamped on every projected event.
@@ -149,6 +151,7 @@ export class TimelineProjector {
     const commandId = stringValue(data.commandId);
     const name = stringValue(data.name);
     if (!commandId || !name) return [];
+    if (name === "goal") this.goalCommands.add(commandId);
     const id = `command:${commandId}`;
     // `args` keeps DSH's raw separator whitespace after the command name.
     const text = `/${name}${stringValue(data.args) ?? ""}`;
@@ -165,6 +168,7 @@ export class TimelineProjector {
     const data = event.data;
     const commandId = stringValue(data.commandId);
     const message = stringValue(data.text);
+    if (commandId) this.goalCommands.delete(commandId);
     if (!commandId || !message) return [];
     return [
       this.notice(`command-done:${commandId}`, data.kind === "error" ? "error" : "info", message, timestamp),
@@ -258,7 +262,8 @@ export class TimelineProjector {
       }
     } else if (event.type === "goal/change") {
       const card = this.goalChangeCard(data);
-      if (card) cards.push({ id: `goal:${event.seq}`, kind: CARD_KINDS.goal, data: { ...card } });
+      // A change made while a `/goal` command runs is already reported by that command's own output.
+      if (card && this.goalCommands.size === 0) cards.push({ id: `goal:${event.seq}`, kind: CARD_KINDS.goal, data: { ...card } });
     } else if (event.type === "user/message") {
       const source = objectValue(data.source);
       const round = numberValue(source?.round);
