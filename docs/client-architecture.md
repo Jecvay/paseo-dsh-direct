@@ -4,7 +4,7 @@ Provider 在 Paseo 中显示为 `DeepSeek Harness`，标识为 `dsh-pi`。手机
 
 ## 原生界面
 
-模型、preset 和权限预设来自 DSH profile 的官方目录，Provider 通过 `catalog` 和 `session.config` 提供选择与当前值。正文、思考、工具执行、审批和用户问答映射为 Paseo 原生事件，无需在前端解析 DSH 日志。
+模型、preset 和权限预设来自 DSH profile 的官方目录，Provider 通过 `catalog` 和 `session.config` 提供选择与当前值。正文、思考、工具执行、审批和用户问答映射为 Paseo 原生事件，无需在前端解析 DSH 日志。时间线呈现密度由 Paseo 的外观设置（工具调用显示：摘要/完整详情）控制；插件不注册时间线变换（transformer），自己呈现的只有下文的插件时间线卡片。
 
 会话历史从 Paseo 的 Import session 入口导入；已有会话继续使用原生 DSH 标识。手机端使用同一个 Daemon 安装的插件，不需要另外安装 DSH 或 npm 包。
 
