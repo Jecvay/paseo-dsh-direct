@@ -284,3 +284,12 @@
 - npm 现状：`paseo-dsh-direct@latest` = 0.2.6（`@dsh-0.1` 仍为 0.1.5），带 provenance。
 - 上一节记的手工补丁已作废：本机重装插件后安装目录换为 `~/.paseo/plugins/paseo-dsh-direct/958fc41f-3fdb-42f4-bad2-f5833b8b26fa/node_modules/paseo-dsh-direct`，`currentRevision` = 0.2.6；旧目录 `c7eb510c-…` 不再被引用，备份 `/tmp/dsh-stats-probe/timeline.installed.bak` 可弃。
 - 用户确认：更新后上下文占用正常显示。
+
+## 2026-10-22 — dsh 0.2.1-rc.2 与 Paseo 0.12.0 的本机手工验证（0.2.11 依据）
+
+- 本机版本：dsh `0.2.1-rc.2`（npm 全局），Paseo CLI/Daemon `0.12.0`（daemon 已运行，插件 `paseo-dsh-direct` 0.2.10 以 npm 来源安装且状态 running）。
+- `npm run smoke:bridge`：在 350+ 会话（`~/.dsh/sessions` 约 79 MB）真实历史上，`session.list` 曾稳定 30 秒超时；标题折叠定位后（`readTitleSnapshots` 全量解日志折标题约 30 秒），加 cwd/query/limit 下推、返回行内折叠、标题缓存与 120 秒请求期限，复跑通过：`{"profile":"paseo","modelCount":7,"preset":"standard","historyCount":352}`。
+- `paseo provider models dsh-pi`：经 0.12.0 Daemon 列出 7 个模型（CPA 路由的 GLM/MiMo/DeepSeek 目录）；`paseo provider diagnostic dsh-pi` 报 `Provider is available / Models: 7 / Status: Ready`。
+- 隔离验证：临时 `DSH_HOME` 干净库上 `session.list` 秒回，排除 0.2.1 行为回归；`session.open`/`session.close`/`bridge.shutdown` 用手工 JSON-RPC 走真实桥接各跑通一次。
+- dsh 0.2.1 影子价格核对：解包 `@deepseek-ai/dsh-compaction-basic@0.2.1-rc.2`（`commitCompactionBody` 写 `shadowedRange`/`shadowedTokenCount`）与 `@deepseek-ai/dsh-token-meter@0.2.1-rc.2`（`pressureSchema` 带可选 `projectedTokens`）。
+- 真实压缩会话与真实回合未复测（本仓无 `DEEPSEEK_API_KEY`）；真实回合的 0.2.1-rc.2 证据来自贡献者 @rayzart（CHANGELOG 0.2.7）。

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.11
+
+- The context-window meter now drops as soon as a compaction finishes on dsh 0.2.1 or later, instead of waiting for the next request. The bridge reads the `projectedTokens` projection, which folds the compaction's shadow price into the last request's prompt size, and falls back to the raw prompt size on older dsh. Compaction cards also gain the real token count on dsh 0.2.1+, because they read the same shadow price.
+- The import session list no longer times out on large histories. Title folding decodes each session's log, which cost about 30 seconds on a 350-session history and overran the bridge's 30-second request deadline, so `session.list` failed and the picker came up empty. The bridge now filters by cwd, matches the query and applies the limit before folding titles, folds only the rows it returns, caches folded titles for the bridge's lifetime, and gives the request a 120-second deadline.
+- Verified against dsh `0.2.1-rc.2` (bridge handshake, catalogs and `session.list` over a real 350-session history) and Paseo `0.12.0` (provider availability, diagnostics and model catalog through the daemon).
+
 ## 0.2.10
 
 - The settings screen no longer shows "Save" twice. The row is now labelled "Apply settings" with the note "Changes apply to new sessions.", and its button says "Save". The per-field hints keep only the environment-variable override.

@@ -76,7 +76,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 | 请求 | 用途 |
 |---|---|
 | `bridge.initialize` | 确认桥接版本与能力，读取模型和 preset 目录 |
-| `session.list` | 查询原生持久会话摘要 |
+| `session.list` | 查询原生持久会话摘要，支持 `cwd` 过滤、`query` 标题/ID 匹配与 `limit` 截断；标题折叠只作用于返回的行并按桥接进程缓存 |
 | `session.read` | 只读读取原生历史 |
 | `session.open` | 创建会话或通过 DSH 官方恢复接口接管会话 |
 | `session.prompt` | 将用户输入（文字、图片、文件）交给对应 agent |
@@ -103,7 +103,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。
 - 同一条助手消息和思考使用稳定 item id，向 Paseo 发送累计快照，由宿主切出网络增量。
 - 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。
-- DSH 会话投影 `tokenUsage` 或 `contextPressure` 变化时，桥接发 `session.usage` 通知，插件转为 Paseo 的 usage 事件：未命中缓存的输入、缓存命中输入与输出 token 是会话累计值，另带上下文已用与上限 token。全零的初始值与未变的值不发送；DSH 不提供 `sessionProjections` 服务时不上报用量。
+- DSH 会话投影 `tokenUsage` 或 `contextPressure` 变化时，桥接发 `session.usage` 通知，插件转为 Paseo 的 usage 事件：未命中缓存的输入、缓存命中输入与输出 token 是会话累计值，另带上下文已用与上限 token。上下文已用优先取 `contextPressure` 的 `projectedTokens`（dsh 0.2.1 起随压缩的影子价格下调，压缩结束即更新），字段不存在时回退到最近一次请求的 `pressureTokens`。全零的初始值与未变的值不发送；DSH 不提供 `sessionProjections` 服务时不上报用量。
 - 只将真实用户来源的消息显示为用户气泡，运行时注入的上下文和技能目录不冒充用户输入。
 - 每个已开始的回合有且仅有一个完成、失败或取消终态。失败终态携带 DSH `turn/end` 记录的 LLM 失败信息（消息、错误码、HTTP 状态与 request id）。
 - 非 Paseo 发起的 DSH 回合（如 `/goal` 续跑、DSH 在同一运行期内连续消化的排队输入）以 `turn/start` 为起点上报为自主回合，由 `turn/end` 或 agent 转入空闲结束。
