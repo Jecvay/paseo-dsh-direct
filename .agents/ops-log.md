@@ -293,3 +293,16 @@
 - 隔离验证：临时 `DSH_HOME` 干净库上 `session.list` 秒回，排除 0.2.1 行为回归；`session.open`/`session.close`/`bridge.shutdown` 用手工 JSON-RPC 走真实桥接各跑通一次。
 - dsh 0.2.1 影子价格核对：解包 `@deepseek-ai/dsh-compaction-basic@0.2.1-rc.2`（`commitCompactionBody` 写 `shadowedRange`/`shadowedTokenCount`）与 `@deepseek-ai/dsh-token-meter@0.2.1-rc.2`（`pressureSchema` 带可选 `projectedTokens`）。
 - 真实压缩会话与真实回合未复测（本仓无 `DEEPSEEK_API_KEY`）；真实回合的 0.2.1-rc.2 证据来自贡献者 @rayzart（CHANGELOG 0.2.7）。
+
+## 2026-10-22 — 发布 0.2.11（latest）与发布事故修复
+
+- 发布内容：`session.list` 大历史超时修复 + dsh 0.2.1 `projectedTokens` 上下文投影（PR #81，rebase 合并，`main` = fc62b03）。CI 门禁通过后合并即发布。
+- 事故：发布分支取名 `release/0.2.11`，命中 `publish.yml` 的 `release/*` push 触发器（分支上的 package.json 变更也会触发），在合并前就把 0.2.11 发到了 npm，dist-tag 按分支名推成 `dsh-0.2.11`，tag `v0.2.11` 也打在分支头（7ad4c7a，不在 main 上）；合并 main 的那次 Publish 随即 E409（"previously staged version"）。
+- 修复（`.github/workflows/publish.yml`，main = 1c2cd49）：
+  - Plan 对形如 `release/*` 但不是 `release/<major.minor>` 的分支直接跳过（发布等合并进 main）；
+  - Choose dist-tag 的行分支匹配从 case glob 收紧为正则 `^origin/release/[0-9]+\.[0-9]+$`；
+  - 版本已发布时新增 Reconcile 步骤：先 `npm install -g npm@latest`（dist-tag 走 OIDC 需要 npm 11.21+），再把期望 dist-tag（main 上是 `latest`）指向该版本——实测该步骤成功把 `latest` 从 0.2.10 修到 0.2.11；
+  - 新增 `workflow_dispatch` 输入 `remove_dist_tag` 用于删除误发的 dist-tag。
+- 遗留：`npm dist-tag rm` 在 OIDC 下稳定 E401（"OIDC publish authorize: Invalid token"，add 可用、rm 两次重试均失败），`dsh-0.2.11` 这个多余 dist-tag 需要在 npmjs.com 的包设置里手工删除（本机 npm 未登录，无法代删）；不影响安装——`npm:paseo-dsh-direct` 解析 `latest` = 0.2.11。
+- tag 修复：删除误打的 `v0.2.11`（7ad4c7a），重打到 main 的 fc62b03；tag 触发的 Publish run 按预期空跑成功。
+- 本机安装验证：`paseo plugin update paseo-dsh-direct --yes` 更新到 0.2.11（第一次调用 CLI 等 300 秒超时、但 daemon 侧仍在构建，重试即成功，新安装目录 7eec263a-…），插件状态 running；`paseo provider diagnostic dsh-pi` 报可用。
