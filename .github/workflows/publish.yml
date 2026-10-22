@@ -7,6 +7,11 @@ name: Publish
 # workflow runs.
 on:
   workflow_dispatch:
+    inputs:
+      remove_dist_tag:
+        description: "Remove this dist-tag from the package (repairs a stray tag), then run the normal plan"
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -39,10 +44,21 @@ jobs:
           cache: npm
       - name: Plan
         id: plan
+        env:
+          REMOVE_DIST_TAG: ${{ inputs.remove_dist_tag }}
         run: |
           name="$(node -p "require('./package.json').name")"
           version="$(node -p "require('./package.json').version")"
           tag="v${version}"
+          # A release/* branch publishes only when it is a line branch
+          # (release/0.1, release/0.2): a version-bump PR branch such as
+          # release/0.2.11 must wait for its merge into main, or its push
+          # would publish the version under a line dist-tag derived from
+          # the branch name.
+          if [ "${GITHUB_REF_TYPE}" = branch ] && [[ "${GITHUB_REF_NAME}" =~ ^release/ ]] && ! [[ "${GITHUB_REF_NAME}" =~ ^release/[0-9]+\.[0-9]+$ ]]; then
+            echo "${GITHUB_REF_NAME} is a release PR branch, not a release/<major.minor> line; publish happens when it merges into main" >&2
+            exit 0
+          fi
           if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "${tag}" ]; then
             echo "tag ${GITHUB_REF_NAME} does not match package.json version ${tag}" >&2
             exit 1
@@ -54,9 +70,15 @@ jobs:
           if [ "$published" = true ] && [ "$tagged" = true ]; then
             echo "${tag} is already published and tagged; nothing to do"
           fi
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "published=${published}" >> "$GITHUB_OUTPUT"
           echo "tagged=${tagged}" >> "$GITHUB_OUTPUT"
+      - name: Remove a stray dist-tag
+        if: inputs.remove_dist_tag != ''
+        run: |
+          npm install -g npm@latest
+          npm dist-tag rm "${{ steps.plan.outputs.name }}" "${{ inputs.remove_dist_tag }}"
       - if: steps.plan.outputs.published == 'false'
         run: npm install -g npm@latest
       - if: steps.plan.outputs.published == 'false'
@@ -81,9 +103,7 @@ jobs:
           else
             tag=""
             for ref in $(git branch -r --contains "$GITHUB_SHA" --format='%(refname:short)'); do
-              case "$ref" in
-                origin/release/[0-9]*.[0-9]*) tag="dsh-${ref#origin/release/}"; break ;;
-              esac
+              if [[ "$ref" =~ ^origin/release/[0-9]+\.[0-9]+$ ]]; then tag="dsh-${ref#origin/release/}"; break; fi
             done
           fi
           if [ -z "$tag" ]; then
@@ -93,6 +113,28 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - if: steps.plan.outputs.published == 'false'
         run: npm publish --provenance --access public --tag "${{ steps.dist.outputs.tag }}"
+      - name: Reconcile the dist-tag of an already published version
+        # A publish that succeeded under the wrong dist-tag (or was staged
+        # while a second run failed with E409) cannot be republished; point
+        # the expected dist-tag at the version instead. Dist-tag operations
+        # over OIDC need a recent npm (11.21+), so upgrade first.
+        if: steps.plan.outputs.published == 'true' && github.ref_type == 'branch'
+        run: |
+          npm install -g npm@latest
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            tag=latest
+          else
+            tag=""
+            for ref in $(git branch -r --contains "$GITHUB_SHA" --format='%(refname:short)'); do
+              if [[ "$ref" =~ ^origin/release/[0-9]+\.[0-9]+$ ]]; then tag="dsh-${ref#origin/release/}"; break; fi
+            done
+          fi
+          if [ -z "$tag" ]; then
+            echo "commit is on neither origin/main nor a release/<major.minor> branch; no dist-tag to reconcile" >&2
+            exit 0
+          fi
+          npm dist-tag add "${{ steps.plan.outputs.name }}@$(node -p "require('./package.json').version")" "$tag"
       - name: Push the version tag
         if: steps.plan.outputs.tagged == 'false'
         run: |
