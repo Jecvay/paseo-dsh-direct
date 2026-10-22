@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ProviderEvent } from "@getpaseo/plugin/server/provider";
+import type { ProviderEvent, ProviderInput } from "@getpaseo/plugin/server/provider";
 import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications, QuestionAnswer, QuestionItem } from "../shared/bridge-protocol.js";
 import type { DshBridge, SessionLaunch } from "./bridge-client.js";
 import { DEFAULT_PROFILE } from "./bridge-client.js";
@@ -745,6 +745,16 @@ function tick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 async function openSession(bridge: FakeBridge) {
   const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
   const connection = await provider.connect({
@@ -763,6 +773,103 @@ async function openSession(bridge: FakeBridge) {
   await tick();
   return { connection, events };
 }
+
+describe("dsh provider shutdown during startup", () => {
+  const input: Extract<ProviderInput, { type: "session.open" }> = {
+    type: "session.open", requestId: "open-1", sessionId: "paseo-1", history: "skip",
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+  };
+
+  it("does not start a queued open after the connection closes", async () => {
+    const discovery = new FakeBridge();
+    let launches = 0;
+    const provider = createDshProvider({ createBridge: async () => { launches += 1; return discovery; }, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    const sending = connection.send(input);
+    await connection.close();
+    await sending;
+    await tick();
+    assert.equal(launches, 1);
+    assert.equal(discovery.closeCount, 1);
+    assert.equal(discovery.calls.length, 0);
+  });
+
+  it("waits for an in-flight launch and closes it without opening a session", async () => {
+    const discovery = new FakeBridge();
+    const runtime = new FakeBridge();
+    const launch = deferred<DshBridge>();
+    let launches = 0;
+    const provider = createDshProvider({
+      createBridge: () => ++launches === 1 ? Promise.resolve(discovery) : launch.promise,
+      detectDshVersion: noVersionWarning,
+    });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    await connection.send(input);
+    await tick();
+    let firstClosed = false;
+    let secondClosed = false;
+    const first = connection.close().then(() => { firstClosed = true; });
+    const second = connection.close().then(() => { secondClosed = true; });
+    await tick();
+    const closedBeforeLaunch = firstClosed || secondClosed;
+    launch.resolve(runtime);
+    await Promise.all([first, second]);
+    await tick();
+    assert.equal(closedBeforeLaunch, false);
+    assert.equal(runtime.closeCount, 1);
+    assert.deepEqual(runtime.calls, []);
+  });
+
+  for (const blockedMethod of ["session.open", "session.commands"] as const) {
+    it(`closes an acquired bridge while ${blockedMethod} is pending`, async () => {
+      const entered = deferred<void>();
+      const resume = deferred<void>();
+      class StartingBridge extends FakeBridge {
+        override async request<Name extends keyof BridgeMethods>(method: Name, params: BridgeMethods[Name]["params"]): Promise<BridgeMethods[Name]["result"]> {
+          if (method === blockedMethod) { entered.resolve(); await resume.promise; }
+          return super.request(method, params);
+        }
+      }
+      const discovery = new FakeBridge();
+      const runtime = new StartingBridge();
+      const provider = createDshProvider({ createBridge: async (launch) => launch ? runtime : discovery, detectDshVersion: noVersionWarning });
+      const connection = await provider.connect({ versions: [1], capabilities: [] });
+      const events: ProviderEvent[] = [];
+      connection.onEvent(event => events.push(event));
+      await connection.send(input);
+      await entered.promise;
+      let closed = false;
+      const closing = connection.close().then(() => { closed = true; });
+      await tick();
+      const closedBeforeResponse = closed;
+      const cleanupStarted = runtime.closeCount;
+      resume.resolve();
+      await closing;
+      await tick();
+      assert.equal(closedBeforeResponse, false);
+      assert.equal(cleanupStarted, 1);
+      assert.equal(runtime.closeCount, 1);
+      assert.equal(events.some(event => event.type === "session.ready"), false);
+      if (blockedMethod === "session.open") {
+        assert.equal(runtime.calls.some(call => call.method === "session.commands"), false);
+      }
+    });
+  }
+
+  it("finishes closing when an in-flight launch rejects", async () => {
+    const discovery = new FakeBridge();
+    const launch = deferred<DshBridge>();
+    let launches = 0;
+    const provider = createDshProvider({ createBridge: () => ++launches === 1 ? Promise.resolve(discovery) : launch.promise, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    await connection.send(input);
+    await tick();
+    const closing = connection.close();
+    launch.reject(new Error("startup failed"));
+    await closing;
+    assert.equal(discovery.closeCount, 1);
+  });
+});
 
 describe("dsh provider question answers", () => {
   const cases: Array<{ name: string; question: QuestionItem; answer: string; expected: QuestionAnswer }> = [
