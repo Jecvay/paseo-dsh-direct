@@ -160,7 +160,10 @@ export interface CommandResult {
 }
 export interface BridgeMethods {
   "bridge.initialize": { params: {}; result: BridgeInitializeResult };
-  "session.list": { params: {}; result: { sessions: SessionSummary[] } };
+  "session.list": {
+    params: { cwd?: string; query?: string; limit?: number };
+    result: { sessions: SessionSummary[] };
+  };
   "session.read": { params: { sessionId: string }; result: SessionSnapshot };
   "session.open": { params: SessionOpenParams; result: SessionOpenResult };
   "session.prompt": {

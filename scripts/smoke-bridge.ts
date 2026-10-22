@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { launchDshBridge } from '../server/bridge-client.js'
+import { launchDshBridge, LIST_SESSIONS_TIMEOUT_MS } from '../server/bridge-client.js'
 import { DSH_BRIDGE_SOURCE } from '../server/generated-bridge.js'
 import type { DshSessionEvent, DshStreamFrame } from '../shared/bridge-protocol.js'
 
@@ -23,7 +23,7 @@ async function run(withPrompt: boolean): Promise<void> {
   })
   try {
     const initialized = bridge.initialized
-    const sessions = await bridge.request('session.list', {})
+    const sessions = await bridge.request('session.list', {}, LIST_SESSIONS_TIMEOUT_MS)
     console.log(JSON.stringify({
       profile: initialized.profile,
       modelCount: initialized.catalog.models.length,

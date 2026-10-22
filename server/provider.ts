@@ -27,6 +27,7 @@ import { slashLine } from "../shared/bridge-protocol.js";
 import {
   DEFAULT_PROFILE,
   describeDshLaunch,
+  LIST_SESSIONS_TIMEOUT_MS,
   resolveDshLaunch,
   type BridgeMcpServer,
   type DshBridge,
@@ -404,8 +405,18 @@ async function listSessions(
   input: Extract<ProviderInput, { type: "sessions" }>,
   state: DispatchState,
 ): Promise<void> {
-  const result = await state.discoveryBridge.request("session.list", {});
   const query = input.query?.trim().toLowerCase();
+  // Filtering and truncation run in the bridge so title folds only cover the
+  // rows Paseo will actually show; the local filters stay as a second net.
+  const result = await state.discoveryBridge.request(
+    "session.list",
+    {
+      ...(input.cwd ? { cwd: input.cwd } : {}),
+      ...(query ? { query } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    },
+    LIST_SESSIONS_TIMEOUT_MS,
+  );
   const rows = result.sessions
     .filter((session): session is typeof session & { cwd: string } => Boolean(session.cwd))
     .filter((session) => !input.cwd || session.cwd === input.cwd)

@@ -17,6 +17,8 @@ const noVersionWarning = async (): Promise<string> => PLUGIN_VERSION;
 
 class FakeBridge implements DshBridge {
   readonly executable = "dsh";
+  /** Rows the next `session.list` returns (see the import list tests). */
+  listedSessions: BridgeMethods["session.list"]["result"]["sessions"] = [];
   readonly initialized: BridgeInitializeResult = {
     protocolVersion: 1,
     profile: "paseo",
@@ -72,7 +74,7 @@ class FakeBridge implements DshBridge {
       }
       return { messageId: "user-1" } as BridgeMethods[Name]["result"];
     }
-    if (method === "session.list") return { sessions: [] } as BridgeMethods[Name]["result"];
+    if (method === "session.list") return { sessions: this.listedSessions } as BridgeMethods[Name]["result"];
     if (method === "session.commands") {
       return {
         commands: [
@@ -168,6 +170,39 @@ describe("dsh provider", () => {
       bridge.calls.filter((call) => call.method === "session.prompt").map((call) => call.params),
       [{ sessionId: "native-new", content: [{ type: "text", text: "/review src/a.ts" }] }],
     );
+    await connection.close();
+  });
+
+  it("forwards the import list window to the bridge and maps the rows", async () => {
+    const bridge = new FakeBridge();
+    bridge.listedSessions = [
+      { id: "n-1", createdAt: 5, cwd: "/repo", title: "Fix the bug", agentPreset: "standard" },
+      { id: "n-2", createdAt: 4, cwd: "/repo" },
+    ];
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({
+      versions: [1],
+      capabilities: ["session.list", "session.persistence"],
+    });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({ type: "sessions", requestId: "list-1", cwd: "/repo", query: " bug ", limit: 1 });
+    await tick();
+    assert.deepEqual(bridge.calls.find((call) => call.method === "session.list")?.params, {
+      cwd: "/repo",
+      query: "bug",
+      limit: 1,
+    });
+    const listed = events.find((event) => event.type === "sessions");
+    assert.deepEqual(listed?.type === "sessions" ? listed.sessions : undefined, [
+      {
+        persistence: { version: 1, data: { dshSessionId: "n-1" } },
+        cwd: "/repo",
+        title: "Fix the bug",
+        description: "preset: standard",
+        updatedAt: new Date(5_000).toISOString(),
+      },
+    ]);
     await connection.close();
   });
 
