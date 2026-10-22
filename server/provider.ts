@@ -1080,12 +1080,28 @@ function questionAnswers(
   return questions.map((question) => {
     const key = question.header ?? question.id;
     const raw = answers?.[key];
-    const selected = typeof raw === "string" ? raw.split(",").map((value) => value.trim()).filter(Boolean) : [];
-    const known = new Set((question.options ?? []).map((option) => option.label));
-    const custom = selected.find((value) => !known.has(value));
+    if (typeof raw !== "string" || raw.length === 0) return { id: question.id, selected: [] };
+    const labels = (question.options ?? []).map((option) => option.label);
+    if (!question.multiSelect) {
+      return labels.includes(raw)
+        ? { id: question.id, selected: [raw] }
+        : { id: question.id, selected: [], custom: raw };
+    }
+    // Paseo joins checked labels and the optional typed answer with ", ".
+    // Match complete labels (longest first), keeping the remaining text intact.
+    const candidates = labels.filter(Boolean).sort((left, right) => right.length - left.length);
+    const selected: string[] = [];
+    let custom = raw;
+    while (custom.length > 0) {
+      const label = candidates.find((value) =>
+        !selected.includes(value) && (custom === value || custom.startsWith(`${value}, `)));
+      if (label === undefined) break;
+      selected.push(label);
+      custom = custom === label ? "" : custom.slice(label.length + 2);
+    }
     return {
       id: question.id,
-      selected: selected.filter((value) => known.has(value)),
+      selected,
       ...(custom ? { custom } : {}),
     };
   });

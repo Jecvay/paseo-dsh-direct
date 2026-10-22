@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ProviderEvent } from "@getpaseo/plugin/server/provider";
-import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications } from "../shared/bridge-protocol.js";
+import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications, QuestionAnswer, QuestionItem } from "../shared/bridge-protocol.js";
 import type { DshBridge, SessionLaunch } from "./bridge-client.js";
 import { DEFAULT_PROFILE } from "./bridge-client.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
@@ -763,6 +763,83 @@ async function openSession(bridge: FakeBridge) {
   await tick();
   return { connection, events };
 }
+
+describe("dsh provider question answers", () => {
+  const cases: Array<{ name: string; question: QuestionItem; answer: string; expected: QuestionAnswer }> = [
+    {
+      name: "keeps a single selected label containing a comma",
+      question: { id: "q1", header: "Choice", question: "Continue?", options: [{ label: "Yes, use HTTPS" }, { label: "No" }] },
+      answer: "Yes, use HTTPS",
+      expected: { id: "q1", selected: ["Yes, use HTTPS"] },
+    },
+    {
+      name: "keeps an entire free-text answer containing commas",
+      question: { id: "q1", question: "Which settings?" },
+      answer: "Use 8080, keep TLS",
+      expected: { id: "q1", selected: [], custom: "Use 8080, keep TLS" },
+    },
+    {
+      name: "keeps an entire Other answer for a single-choice question",
+      question: { id: "q1", question: "Which settings?", options: [{ label: "Default" }] },
+      answer: "Use 8080, keep TLS",
+      expected: { id: "q1", selected: [], custom: "Use 8080, keep TLS" },
+    },
+    {
+      name: "decodes multiple selected labels in click order",
+      question: { id: "q1", question: "Which colors?", multiSelect: true, options: [{ label: "Red" }, { label: "Blue" }] },
+      answer: "Blue, Red",
+      expected: { id: "q1", selected: ["Blue", "Red"] },
+    },
+    {
+      name: "keeps a comma inside a multi-select label",
+      question: { id: "q1", question: "Which settings?", multiSelect: true, options: [{ label: "Yes, use HTTPS" }, { label: "Keep 8080" }] },
+      answer: "Yes, use HTTPS, Keep 8080",
+      expected: { id: "q1", selected: ["Yes, use HTTPS", "Keep 8080"] },
+    },
+    {
+      name: "preserves all custom text after selected labels",
+      question: { id: "q1", question: "Which settings?", multiSelect: true, options: [{ label: "HTTPS" }] },
+      answer: "HTTPS, Use 8080, keep TLS",
+      expected: { id: "q1", selected: ["HTTPS"], custom: "Use 8080, keep TLS" },
+    },
+    {
+      name: "matches the longest complete label before its prefix",
+      question: { id: "q1", question: "Which settings?", multiSelect: true, options: [{ label: "Yes" }, { label: "Yes, use HTTPS" }] },
+      answer: "Yes, use HTTPS",
+      expected: { id: "q1", selected: ["Yes, use HTTPS"] },
+    },
+    {
+      name: "keeps a multi-select Other answer without selected labels",
+      question: { id: "q1", question: "Which settings?", multiSelect: true, options: [{ label: "HTTPS" }] },
+      answer: "Use 8080, keep TLS",
+      expected: { id: "q1", selected: [], custom: "Use 8080, keep TLS" },
+    },
+  ];
+  for (const { name, question, answer, expected } of cases) {
+    it(name, async () => {
+      const discovery = new FakeBridge();
+      const runtime = new FakeBridge();
+      const provider = createDshProvider({ createBridge: async (launch) => launch ? runtime : discovery, detectDshVersion: noVersionWarning });
+      const connection = await provider.connect({ versions: [1], capabilities: ["permission"] });
+      try {
+        await openTestSession(connection);
+        runtime.notify("interaction.request", {
+          sessionId: "native-new", requestId: "question-1", kind: "questions", questions: [question],
+        });
+        await connection.send({
+          type: "session.permission", sessionId: "paseo-1", permissionId: "question-1",
+          response: { behavior: "allow", updatedInput: { answers: { [question.header ?? question.id]: answer } } },
+        });
+        await tick();
+        assert.deepEqual(runtime.calls.find((call) => call.method === "interaction.respond")?.params, {
+          requestId: "question-1", answers: [expected],
+        });
+      } finally {
+        await connection.close();
+      }
+    });
+  }
+});
 
 describe("dsh catalog cache key", () => {
   const keyFor = (configured: { executable?: string; profile?: string }, request: Parameters<NonNullable<ReturnType<typeof createDshProvider>["getCatalogCacheKey"]>>[0] = { scope: "global" }) =>
