@@ -140,6 +140,8 @@ export class BridgeService {
   private readonly subscriptions: Array<() => void> = [];
   /** Last usage payload sent per session, so an unchanged fold is not re-sent. */
   private readonly lastUsage = new Map<string, string>();
+  /** Folded titles per session id, so repeated import listings stay cheap. */
+  private readonly titles = new Map<string, string>();
   private stopping = false;
   private stopTask?: Promise<{}>;
 
@@ -262,7 +264,11 @@ export class BridgeService {
         }
       | undefined;
     const pressure = values.contextPressure as
-      | { contextWindow?: number; pressureTokens?: number }
+      | {
+          contextWindow?: number;
+          pressureTokens?: number;
+          projectedTokens?: number;
+        }
       | undefined;
     const usage: BridgeUsage = {};
     if (typeof tokens?.uncachedInputTokens === "number")
@@ -271,8 +277,16 @@ export class BridgeService {
       usage.cachedInputTokens = tokens.cacheReadTokens;
     if (typeof tokens?.outputTokens === "number")
       usage.outputTokens = tokens.outputTokens;
-    if (typeof pressure?.pressureTokens === "number")
-      usage.contextWindowUsedTokens = pressure.pressureTokens;
+    // `projectedTokens` folds the shadow price of an adjacent compaction into
+    // the last request's prompt size, so the meter drops as soon as a
+    // compaction lands instead of waiting for the next request. dsh before
+    // 0.2.1 writes no shadow price and the field is absent: fall back to the
+    // raw prompt size.
+    const used =
+      typeof pressure?.projectedTokens === "number"
+        ? pressure.projectedTokens
+        : pressure?.pressureTokens;
+    if (typeof used === "number") usage.contextWindowUsedTokens = used;
     if (typeof pressure?.contextWindow === "number")
       usage.contextWindowMaxTokens = pressure.contextWindow;
     // The units materialize at zero before any provider usage lands, so a
@@ -453,29 +467,9 @@ export class BridgeService {
         } satisfies BridgeInitializeResult;
         break;
       }
-      case "session.list": {
-        const query = this.ctx.get("sessionQuery");
-        const records = await query.listSessions();
-        const sessions: SessionSummary[] = records.map((record) => ({
-          ...record.header,
-        }));
-        // The official bulk title read owns live/cold source and validation.
-        if (typeof query.readTitleSnapshots === "function") {
-          const titles = await query.readTitleSnapshots(
-            sessions.map((session) => session.id),
-          );
-          for (let i = 0; i < sessions.length; i++) {
-            const result = titles[i];
-            const title =
-              result?.status === "fulfilled"
-                ? result.value.title?.title
-                : undefined;
-            if (typeof title === "string") sessions[i]!.title = title;
-          }
-        }
-        result = { sessions };
+      case "session.list":
+        result = { sessions: await this.listSessions(listParams(params)) };
         break;
-      }
       case "session.read":
         result = await this.ctx
           .get("sessionQuery")
@@ -620,6 +614,72 @@ export class BridgeService {
         return Object.freeze({ type: "file", attachment });
       }),
     );
+  }
+
+  /**
+   * List native sessions for Paseo's import picker.
+   *
+   * `readTitleSnapshots` decodes each requested session's log to fold its
+   * title, which costs seconds per hundred sessions on a large history, so
+   * titles are folded only for the rows this call returns: cwd and query
+   * filter first, then newest first, then the limit. Folded titles are cached
+   * for this bridge's lifetime; a title renamed outside Paseo keeps its cached
+   * value until the bridge is replaced, while live sessions carry their header
+   * title regardless.
+   */
+  private async listSessions(
+    params: { cwd?: string; query?: string; limit?: number },
+  ): Promise<SessionSummary[]> {
+    const query = this.ctx.get("sessionQuery");
+    const records = await query.listSessions();
+    let sessions = records
+      .map((record) => ({ ...record.header }))
+      .filter((session) => !params.cwd || session.cwd === params.cwd);
+    if (params.query) {
+      // A title query needs every title, so this path folds the whole history.
+      await this.foldTitles(query, sessions);
+      const needle = params.query.toLowerCase();
+      sessions = sessions.filter(
+        (session) =>
+          session.title?.toLowerCase().includes(needle) ||
+          session.id.toLowerCase().includes(needle),
+      );
+    }
+    sessions.sort((left, right) => right.createdAt - left.createdAt);
+    if (params.limit !== undefined && sessions.length > params.limit)
+      sessions = sessions.slice(0, params.limit);
+    await this.foldTitles(query, sessions);
+    return sessions;
+  }
+
+  /** Fill in cached titles, reading only the sessions this bridge has not folded yet. */
+  private async foldTitles(
+    query: HostServices["sessionQuery"],
+    sessions: SessionSummary[],
+  ): Promise<void> {
+    if (typeof query.readTitleSnapshots !== "function") return;
+    // The official bulk title read owns live/cold source and validation. A
+    // header that already carries a title is live and needs no fold at all.
+    const missing = sessions.filter(
+      (session) => !session.title && !this.titles.has(session.id),
+    );
+    if (missing.length > 0) {
+      const titles = await query.readTitleSnapshots(
+        missing.map((session) => session.id),
+      );
+      for (let i = 0; i < missing.length; i++) {
+        const result = titles[i];
+        const title =
+          result?.status === "fulfilled"
+            ? result.value.title?.title
+            : undefined;
+        if (typeof title === "string") this.titles.set(missing[i]!.id, title);
+      }
+    }
+    for (const session of sessions) {
+      const title = this.titles.get(session.id);
+      if (title !== undefined) session.title = title;
+    }
   }
 
   /** Registered commands first; a skill never shadows a command of the same name. */
@@ -969,6 +1029,31 @@ function validateContent(value: unknown): PromptPart[] {
   if (!parts.some((part) => part.type !== "text" || part.text.trim()))
     throw new Error("Prompt content is empty");
   return parts;
+}
+
+function listParams(params: Record<string, unknown>): {
+  cwd?: string;
+  query?: string;
+  limit?: number;
+} {
+  const result: { cwd?: string; query?: string; limit?: number } = {};
+  if (params.cwd !== undefined) result.cwd = nonempty(params.cwd, "cwd");
+  if (params.query !== undefined) {
+    if (typeof params.query !== "string")
+      throw new Error("query must be a string");
+    const query = params.query.trim();
+    if (query) result.query = query;
+  }
+  if (params.limit !== undefined) {
+    if (
+      typeof params.limit !== "number" ||
+      !Number.isSafeInteger(params.limit) ||
+      params.limit < 1
+    )
+      throw new Error("limit must be a positive integer");
+    result.limit = params.limit;
+  }
+  return result;
 }
 
 function validateOpen(params: Record<string, unknown>): SessionOpenParams {

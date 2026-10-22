@@ -17,6 +17,15 @@ import type {
 type Method = keyof BridgeMethods;
 type Notification = keyof BridgeNotifications;
 
+/**
+ * Default deadline for one bridge request. `session.list` title folds decode a
+ * whole session log per row, so callers list large histories with a wider
+ * deadline instead of raising this for every method.
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** Deadline for listing sessions: a cold title fold costs seconds per hundred sessions. */
+export const LIST_SESSIONS_TIMEOUT_MS = 120_000;
+
 export interface DshBridge {
   readonly initialized: BridgeInitializeResult;
   /** The resolved `dsh` executable this bridge was launched with (see `resolveDshLaunch`). */
@@ -26,6 +35,7 @@ export interface DshBridge {
   request<Name extends Method>(
     method: Name,
     params: BridgeMethods[Name]["params"],
+    timeoutMs?: number,
   ): Promise<BridgeMethods[Name]["result"]>;
   on<Name extends Notification>(
     method: Name,
@@ -471,6 +481,7 @@ class JsonlBridgeClient implements DshBridge {
   request<Name extends Method>(
     method: Name,
     params: BridgeMethods[Name]["params"],
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<BridgeMethods[Name]["result"]> {
     if (this.terminalError) return Promise.reject(this.terminalError);
     if (this.closing && method !== "bridge.shutdown") {
@@ -481,7 +492,7 @@ class JsonlBridgeClient implements DshBridge {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`DSH bridge request timed out: ${method}`));
-      }, 30_000);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timeout });
       const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
       this.child.stdin.write(payload, (error) => {
