@@ -304,5 +304,6 @@
   - 版本已发布时新增 Reconcile 步骤：先 `npm install -g npm@latest`（dist-tag 走 OIDC 需要 npm 11.21+），再把期望 dist-tag（main 上是 `latest`）指向该版本——实测该步骤成功把 `latest` 从 0.2.10 修到 0.2.11；
   - 新增 `workflow_dispatch` 输入 `remove_dist_tag` 用于删除误发的 dist-tag。
 - 遗留：`npm dist-tag rm` 在 OIDC 下稳定 E401（"OIDC publish authorize: Invalid token"，add 可用、rm 两次重试均失败），`dsh-0.2.11` 这个多余 dist-tag 需要在 npmjs.com 的包设置里手工删除（本机 npm 未登录，无法代删）；不影响安装——`npm:paseo-dsh-direct` 解析 `latest` = 0.2.11。
+- 已解决（同日 18:36）：人在本机 `npm login --auth-type=web` 重新登录（旧 classic token 已失效），`npm dist-tag rm` 走网页 OTP 授权后删掉 `dsh-0.2.11`；dist-tag 现为 `latest` = 0.2.11、`dsh-0.1` = 0.1.5。
 - tag 修复：删除误打的 `v0.2.11`（7ad4c7a），重打到 main 的 fc62b03；tag 触发的 Publish run 按预期空跑成功。
 - 本机安装验证：`paseo plugin update paseo-dsh-direct --yes` 更新到 0.2.11（第一次调用 CLI 等 300 秒超时、但 daemon 侧仍在构建，重试即成功，新安装目录 7eec263a-…），插件状态 running；`paseo provider diagnostic dsh-pi` 报可用。
