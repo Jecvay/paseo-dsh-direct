@@ -307,3 +307,11 @@
 - 已解决（同日 18:36）：人在本机 `npm login --auth-type=web` 重新登录（旧 classic token 已失效），`npm dist-tag rm` 走网页 OTP 授权后删掉 `dsh-0.2.11`；dist-tag 现为 `latest` = 0.2.11、`dsh-0.1` = 0.1.5。
 - tag 修复：删除误打的 `v0.2.11`（7ad4c7a），重打到 main 的 fc62b03；tag 触发的 Publish run 按预期空跑成功。
 - 本机安装验证：`paseo plugin update paseo-dsh-direct --yes` 更新到 0.2.11（第一次调用 CLI 等 300 秒超时、但 daemon 侧仍在构建，重试即成功，新安装目录 7eec263a-…），插件状态 running；`paseo provider diagnostic dsh-pi` 报可用。
+
+## 2026-10-23 — Windows contributor validation with Paseo 0.13 beta
+
+- A contributor installed the local checkout containing the question-answer and startup-shutdown fixes in Paseo `0.13.0-beta.1` on Windows, using the official DSH Desktop runtime `0.2.1-rc.2`. The plugin reports `running`, and `dsh-pi` reports available.
+- An isolated daemon and DSH home passed nine SDK scenarios against a loopback scripted model: catalog, incremental text, comma-containing choice and free-text replies, read-only write approval allow and deny, cancellation followed by another turn, provider-runtime reload preserving the native session, and terminal model errors. The allowed write created the expected file; the denied write did not.
+- Additional daemon checks exercised a real stdio MCP echo service with exact preapproval and no permission prompt, native PowerShell background work with `job_output`, and a native child sending its result to its parent. The child's message is durable in the parent's native v4 log, and the parent emits a response confirming receipt. Paseo deliberately omits internal agent-message entries from its projected timeline; this does not verify separate child-chat UI.
+- Daily-daemon validation used existing local credentials: a real model called `read` and returned a file marker; a DeepSeek Account model called native `web_search` successfully. A custom proxy model's search failed with the expected missing official search credential, so chat-proxy authentication must not be described as search authentication.
+- The scripted checks do not measure remote-model quality. Physical mobile UI, attachments, real compaction, and whole-daemon restart recovery were not exercised in this validation.
