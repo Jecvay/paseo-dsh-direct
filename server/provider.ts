@@ -15,6 +15,7 @@ import {
 } from "@getpaseo/plugin/server/provider";
 import type {
   BridgeCatalog,
+  DshSessionEvent,
   InteractionRequest,
   ModelSelection,
   QuestionAnswer,
@@ -22,7 +23,9 @@ import type {
   SessionOpenResult,
   PromptPart,
   SlashCommand,
+  ToolImageOutcome,
 } from "../shared/bridge-protocol.js";
+import { sep } from "node:path";
 import { slashLine } from "../shared/bridge-protocol.js";
 import {
   DEFAULT_PROFILE,
@@ -229,7 +232,7 @@ function listenToSessionBridge(
     !session.closed && nativeId === session.nativeId;
 
   return [
-    session.bridge.on("session.event", ({ sessionId, event }) => {
+    session.bridge.on("session.event", ({ sessionId, event, images }) => {
       if (!isCurrentSession(sessionId)) return;
       // The prompt path emits its own bubble with the clientMessageId.
       if (event.type === "user/message" && session.dispatch?.kind === "prompt") return;
@@ -272,6 +275,7 @@ function listenToSessionBridge(
       for (const projected of session.projector.projectEvent(event, { clientMessageId })) {
         emit(projected);
       }
+      for (const image of toolImageMessages(session, event, images ?? [])) emit(image);
     }),
     session.bridge.on("session.stream", ({ sessionId, frame }) => {
       if (!isCurrentSession(sessionId)) return;
@@ -825,6 +829,63 @@ function validateSessionConfig(config: ProviderSessionConfig): void {
   if (unsupported.length > 0) {
     throw new Error(`DSH does not support session config: ${unsupported.join(", ")}`);
   }
+}
+
+/**
+ * Tool-result images become ordinary assistant messages carrying markdown, which
+ * is how Paseo renders an image with its preview and open-in-tab affordance. The
+ * item id is derived from the event seq and the block index so the same event
+ * replayed twice maps onto the same row.
+ */
+function toolImageMessages(
+  session: OwnedSession,
+  event: DshSessionEvent,
+  images: readonly ToolImageOutcome[],
+): ProviderEvent[] {
+  // The bridge may hand this a promise while it materializes an event's images;
+  // anything else is not iterable.
+  if (!Array.isArray(images) || images.length === 0) return [];
+  const events: ProviderEvent[] = [];
+  for (const image of images) {
+    if (image.status === "unavailable") continue;
+    const id = `tool-image:${event.seq}:${image.index}`;
+    if (image.status === "failed") {
+      events.push({
+        type: "timeline.item",
+        sessionId: session.paseoId,
+        item: {
+          type: "notification",
+          id,
+          level: "warning",
+          message: `Could not load the image from this tool result (${image.code}).`,
+        },
+      });
+      continue;
+    }
+    const label = image.name ?? "Image";
+    const alt = label.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+    const href = toFileUrl(image.path).replace(/\\/g, "\\\\").replace(/\)/g, "\\)");
+    events.push({
+      type: "timeline.item",
+      sessionId: session.paseoId,
+      item: {
+        type: "assistant_message",
+        id,
+        messageId: id,
+        // Surrounding newlines keep the image a standalone paragraph when Paseo
+        // merges adjacent assistant text.
+        text: `\n\n![${alt}](${href})\n\n`,
+      },
+    });
+  }
+  return events;
+}
+
+/** `file://` URL for an absolute path, with segments encoded. */
+function toFileUrl(path: string): string {
+  const normalized = path.split(sep).map((segment) => encodeURIComponent(segment)).join("/");
+  const prefix = normalized.startsWith("/") ? "file://" : "file:///";
+  return `${prefix}${normalized}`;
 }
 
 function emitConfig(session: SessionState, emit: (event: ProviderEvent) => void): void {

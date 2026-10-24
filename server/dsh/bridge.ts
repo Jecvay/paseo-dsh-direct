@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline";
 import { createRequire } from "node:module";
 import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   BridgeMethods,
@@ -79,7 +81,7 @@ export function parseRequest(line: string): RpcRequest {
 
 export async function apply(
   ctx: HostContext,
-  config: { profile?: string } = {},
+  config: { profile?: string; imagesDir?: string } = {},
 ): Promise<void> {
   // Resolve only inside the DSH child, against its own installed closure.
   // Paseo never imports or bundles a second copy of these runtime services.
@@ -98,12 +100,47 @@ export async function apply(
     )
       helpers = module as HostHelpers;
   }
+  // One ordered output for every message the bridge emits. A notification that
+  // has to materialize images first resolves on this chain, so a later RPC
+  // response cannot overtake the event it belongs to. The chain never rejects:
+  // a failed notification is reported on stderr and the queue keeps going.
+  let outputChain: Promise<void> = Promise.resolve();
+  const write = (value: unknown, flushed?: () => void): Promise<void> =>
+    new Promise((resolve) => {
+      process.stdout.write(`${JSON.stringify(value)}\n`, () => {
+        flushed?.();
+        resolve();
+      });
+    });
+  const enqueue = (value: unknown | Promise<unknown>, flushed?: () => void): Promise<void> => {
+    const settled = Promise.resolve(value).catch((error: unknown) => {
+      process.stderr.write(`paseo-dsh-bridge: ${safeError(error)}\n`);
+      return undefined;
+    });
+    const next = outputChain.then(async () => {
+      const payload = await settled;
+      if (payload !== undefined) await write(payload, flushed);
+    });
+    outputChain = next;
+    return next;
+  };
   const send = (value: unknown, flushed?: () => void) => {
-    process.stdout.write(`${JSON.stringify(value)}\n`, flushed);
+    void enqueue(value, flushed);
   };
   const service = new BridgeService(
     ctx,
-    (method, params) => send({ jsonrpc: "2.0", method, params }),
+    // Fields the service marks as promises are awaited here, on the same ordered
+    // chain as the write. Serializing a promise directly would put `{}` on the
+    // wire, which the provider cannot read as a list.
+    (method, params) =>
+      enqueue(
+        (async () => ({
+          jsonrpc: "2.0",
+          method,
+          params: await resolveParams(params as Record<string, unknown>),
+        }))(),
+      ),
+    config.imagesDir ?? defaultImagesDir(),
     config.profile,
     helpers,
   );
@@ -173,4 +210,26 @@ export async function apply(
     },
     "paseo-dsh-bridge",
   );
+}
+
+/**
+ * Directory where tool-result images are written for Paseo to read. A stable
+ * per-user path, not a temporary directory: Paseo keeps the image URL in its
+ * timeline, and a path under `tmp` can be cleared while the session is still
+ * on screen. Re-materializing the same image reuses the content-addressed file.
+ */
+function defaultImagesDir(): string {
+  const base = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
+  return join(base, "paseo-dsh-direct", "images");
+}
+
+/** Await every promise-valued field so the payload is plain JSON. */
+async function resolveParams(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const entries = await Promise.all(
+    Object.entries(params).map(async ([key, value]) => {
+      const resolved = await Promise.resolve(value).catch(() => undefined);
+      return [key, resolved] as const;
+    }),
+  );
+  return Object.fromEntries(entries.filter(([, value]) => value !== undefined));
 }

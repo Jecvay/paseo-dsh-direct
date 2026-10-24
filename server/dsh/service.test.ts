@@ -115,8 +115,10 @@ function fixture(
     },
     effect: () => undefined,
   };
-  const bridge = new BridgeService(ctx, (method, params) =>
-    notifications.push({ method, params }),
+  const bridge = new BridgeService(
+    ctx,
+    (method, params) => notifications.push({ method, params }),
+    "/tmp/paseo-dsh-test-images",
   );
   return {
     bridge,
@@ -387,7 +389,11 @@ test("the handshake lists host services and methods the DSH does not provide", a
   const ctx = { get: (name: string) => services[name], on: () => () => {}, effect: () => undefined };
   const missing = missingHostSurface(ctx as unknown as HostContext);
   assert.deepEqual(missing, ["agents.resume", "llm"]);
-  const bridge = new BridgeService(ctx as unknown as HostContext, () => undefined);
+  const bridge = new BridgeService(
+    ctx as unknown as HostContext,
+    () => undefined,
+    "/tmp/paseo-dsh-test-images",
+  );
   const result = await bridge.handle("bridge.initialize");
   assert.deepEqual(result.missing, missing);
   assert.deepEqual(result.catalog.models, []);
@@ -604,4 +610,63 @@ test("session.list rejects a malformed window", async () => {
     f.bridge.handle("session.list", { query: 42 }),
     /query must be a string/,
   );
+});
+
+test("a tool result's images reach the plugin as a list, not a promise", async () => {
+  // The bridge writes JSON to the plugin, and Paseo reads `images` as a list.
+  // A promise left in the payload serializes to `{}`, so the pictures vanish
+  // with no error anywhere. This drives the real notification path and then
+  // serializes what it produced, which is exactly what the bridge writes.
+  const f = fixture({
+    attachments: {
+      saveImage: async () => ({}),
+      saveFile: async () => ({}),
+      readImage: async () => ({ ref: {}, data: new Uint8Array([1]) }),
+    },
+  });
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "images" });
+
+  const listener = f.listener("session/event");
+  listener(f.agent.session, {
+    type: "tool/result",
+    seq: 9,
+    time: 1_000,
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "tool",
+        toolCallId: "call-1",
+        source: { kind: "tool", callId: "call-1" },
+        content: [
+          { type: "text", text: "<type>image</type>" },
+          {
+            type: "image",
+            attachment: {
+              attachmentId: `sha256:${"a".repeat(64)}`,
+              mediaType: "image/png",
+              bytes: 1,
+              width: 1,
+              height: 1,
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  const notification = f.notifications.find(
+    (entry) =>
+      entry.method === "session.event" &&
+      (entry.params as { event?: { seq?: number } }).event?.seq === 9,
+  );
+  assert.ok(notification, "the event must reach the bridge");
+  const images = (notification.params as { images?: unknown }).images;
+  // The service hands over a promise; await it here the way the bridge does,
+  // then check the value survives JSON.
+  const resolved = await Promise.resolve(images);
+  assert.ok(Array.isArray(resolved));
+  assert.equal((resolved as unknown[]).length, 1);
+  assert.ok(Array.isArray(JSON.parse(JSON.stringify(resolved))));
+  await f.bridge.shutdown();
 });
