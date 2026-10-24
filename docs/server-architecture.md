@@ -101,7 +101,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - `compaction/start` 与 `compaction/end` 显示为同一张压缩卡片（进行中 → 完成），`compaction/summary` 提供被压缩的 token 数；由命令发起的压缩标记为手动，失败另显示错误通知。
 - Paseo 的 system prompt 在 agent `setup` 中以 agent 作用域的 `systemPrompt.section`（order 10100）追加；tool policy 预先批准的 `mcp__<server>__<tool>` 在桥接的审批钩子中直接允许，其他工具照常询问。
 - 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。
-- 同一条助手消息和思考使用稳定 item id，向 Paseo 发送累计快照，由宿主切出网络增量。
+- 流式增量逐片发送，每片带自己的 item id，由宿主的相邻合并拼接成同一条消息。这样发送量与原文长度相等；同一 id 重发累计快照会让宿主切出差额，遇到重复缩进或以上一片开头的分片时会丢字符。定稿消息只补发流式没有覆盖到的尾部。
 - 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。
 - DSH 会话投影 `tokenUsage` 或 `contextPressure` 变化时，桥接发 `session.usage` 通知，插件转为 Paseo 的 usage 事件：未命中缓存的输入、缓存命中输入与输出 token 是会话累计值，另带上下文已用与上限 token。上下文已用优先取 `contextPressure` 的 `projectedTokens`（dsh 0.2.1 起随压缩的影子价格下调，压缩结束即更新），字段不存在时回退到最近一次请求的 `pressureTokens`。全零的初始值与未变的值不发送；DSH 不提供 `sessionProjections` 服务时不上报用量。
 - 只将真实用户来源的消息显示为用户气泡，运行时注入的上下文和技能目录不冒充用户输入。

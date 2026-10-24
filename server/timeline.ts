@@ -16,9 +16,8 @@ import { arrayValue, numberValue, objectValue, stringValue } from "./values.js";
 
 export type SessionEvent = Extract<ProviderEvent, { sessionId: string }>;
 
-/** Converts DSH durable events and transient stream frames into Paseo cumulative snapshots. */
+/** Converts DSH durable events and transient stream frames into Paseo timeline items. */
 export class TimelineProjector {
-  private readonly text = new Map<string, string>();
   private readonly compactions = new Map<string, { trigger: "auto" | "manual"; preTokens?: number }>();
   private readonly tools = new Map<string, Extract<ProviderTimelineItem, { type: "tool_call" }>>();
   private readonly settledAttempts = new Map<string, number>();
@@ -31,6 +30,14 @@ export class TimelineProjector {
     string,
     { attemptId: string; ordinal: number }
   >();
+  /**
+   * Text already delivered through `projectStream`, grouped by attempt so an
+   * attempt that never settles drops exactly its own entries. Within an attempt
+   * the key is the block id: a durable message repeats what was streamed, and
+   * only the tail the stream did not reach may be sent, or Paseo concatenates
+   * both copies.
+   */
+  private readonly streamedText = new Map<string, Map<string, string>>();
 
   private planActive = false;
   private lastPreset: string | undefined;
@@ -103,6 +110,13 @@ export class TimelineProjector {
       this.liveAttemptByStep.set(key, { attemptId: frame.attemptId, ordinal });
       return [];
     }
+    if (frame.type === "end") {
+      // DSH sends `end` after the settled event for every attempt, including an
+      // abandoned one, so this is the single point that releases the attempt's
+      // streamed text when the settled event never consumed it.
+      this.streamedText.delete(frame.attemptId);
+      return [];
+    }
     if (frame.type !== "chunk") return [];
     const chunk = frame.chunk;
     const kind = stringValue(chunk.type);
@@ -110,12 +124,27 @@ export class TimelineProjector {
     if (kind === "text-delta" || kind === "reasoning-delta") {
       const type = kind === "text-delta" ? "assistant_message" : "reasoning";
       const attempt = this.liveAttempts.get(frame.attemptId);
-      const id = attempt
+      const blockId = attempt
         ? assistantItemId(type, attempt.turn, attempt.step, attempt.ordinal, index)
         : transientItemId(type, frame.attemptId, index);
-      const cumulative = (this.text.get(id) ?? "") + (stringValue(chunk.text) ?? "");
-      this.text.set(id, cumulative);
-      return [timeline(this.paseoSessionId, { type, id, text: cumulative }, toTimestamp(frame.time))];
+      const delta = stringValue(chunk.text) ?? "";
+      if (delta.length === 0) return [];
+      const attemptText = this.streamedText.get(frame.attemptId) ?? new Map<string, string>();
+      attemptText.set(blockId, (attemptText.get(blockId) ?? "") + delta);
+      this.streamedText.set(frame.attemptId, attemptText);
+      // Paseo treats same-id assistant text as a cumulative snapshot and keeps
+      // only the difference, which drops repeated indentation and the head of a
+      // delta that starts with the previous one. Each delta therefore gets its
+      // own id, and a shared `messageId` keeps them in one message: Paseo only
+      // merges adjacent items whose messageId matches, defaulting it to the item
+      // id when absent.
+      return [
+        timeline(
+          this.paseoSessionId,
+          { type, id: `${blockId}#${frame.revision}:${frame.index}`, messageId: blockId, text: delta },
+          toTimestamp(frame.time),
+        ),
+      ];
     }
     if (kind === "tool-call-delta") {
       const callId = stringValue(chunk.id) ?? `tool:${frame.attemptId}:${index}`;
@@ -333,7 +362,8 @@ export class TimelineProjector {
     const messageId = stringValue(message.id) ?? `event:${event.seq}`;
     const turn = numberValue(data.turn) ?? 0;
     const step = numberValue(data.step) ?? 0;
-    const ordinal = this.settlementOrdinal(event.seq, turn, step);
+    const settlement = this.settlementOrdinal(event.seq, turn, step);
+    const ordinal = settlement.ordinal;
     const content = arrayValue(message.content);
     const projected: SessionEvent[] = [];
     content.forEach((raw, index) => {
@@ -344,13 +374,16 @@ export class TimelineProjector {
         const itemType = type === "text" ? "assistant_message" : "reasoning";
         const id = assistantItemId(itemType, turn, step, ordinal, index);
         const text = stringValue(block.text) ?? "";
-        this.text.set(id, text);
+        const rest = this.remainingText(settlement.attemptId, id, text);
+        if (rest.length === 0) return;
         projected.push(
           timeline(
             this.paseoSessionId,
             itemType === "assistant_message"
-              ? { type: itemType, id, messageId, text }
-              : { type: itemType, id, text },
+              ? // The tail must carry the same messageId as the streamed deltas
+                // of this block, or Paseo keeps it as a separate message.
+                { type: itemType, id, messageId: id, text: rest }
+              : { type: itemType, id, text: rest },
             timestamp,
           ),
         );
@@ -377,9 +410,30 @@ export class TimelineProjector {
     return projected;
   }
 
-  private settlementOrdinal(seq: number, turn: number, step: number): number {
+  /**
+   * Content of a settled block that the stream has not delivered yet. The stream
+   * and the durable record describe the same text, so the settled message only
+   * contributes the tail the stream did not reach.
+   */
+  private remainingText(attemptId: string | undefined, id: string, settled: string): string {
+    if (attemptId === undefined) return settled;
+    const attemptText = this.streamedText.get(attemptId);
+    if (attemptText === undefined) return settled;
+    const streamed = attemptText.get(id);
+    if (streamed === undefined) return settled;
+    attemptText.delete(id);
+    if (attemptText.size === 0) this.streamedText.delete(attemptId);
+    return settled.startsWith(streamed) ? settled.slice(streamed.length) : settled;
+  }
+
+  /** Ordinal for a settled message plus the live attempt that produced it. */
+  private settlementOrdinal(
+    seq: number,
+    turn: number,
+    step: number,
+  ): { ordinal: number; attemptId?: string } {
     const known = this.settlementOrdinals.get(seq);
-    if (known !== undefined) return known;
+    if (known !== undefined) return { ordinal: known };
 
     const key = stepKey(turn, step);
     const live = this.liveAttemptByStep.get(key);
@@ -390,7 +444,7 @@ export class TimelineProjector {
       this.liveAttemptByStep.delete(key);
       this.liveAttempts.delete(live.attemptId);
     }
-    return ordinal;
+    return live ? { ordinal, attemptId: live.attemptId } : { ordinal };
   }
 
   private projectToolCall(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
