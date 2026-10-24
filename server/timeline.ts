@@ -480,32 +480,55 @@ function timeline(
 
 function toolDetail(name: string, args: JsonObject): ProviderToolCallDetail {
   const normalized = name.toLowerCase();
-  if (/shell|bash|exec|command/u.test(normalized)) {
+
+  // DSH's built-in tools are matched by exact name. Substring patterns get the
+  // common ones wrong (`todo_write` is not a file write, `read_image` is not a
+  // text read), and they would also claim unrelated MCP tools.
+  if (normalized === "bash" || normalized === "pwsh") {
+    // An empty command during streaming keeps the card from showing the raw
+    // half-parsed JSON; the final frame fills it in.
     return {
       type: "shell",
-      command: stringValue(args.command) ?? stringValue(args.cmd) ?? stringifyValue(args),
-      cwd: stringValue(args.cwd),
+      command: stringValue(args.command) ?? "",
+      cwd: stringValue(args.workdir),
     };
   }
-  const filePath = stringValue(args.filePath) ?? stringValue(args.path) ?? "";
-  if (/read/u.test(normalized)) {
-    return { type: "read", filePath, offset: numberValue(args.offset), limit: numberValue(args.limit) };
+  if (normalized === "read" || normalized === "read_image") {
+    return {
+      type: "read",
+      filePath: stringValue(args.file_path) ?? "",
+      offset: numberValue(args.offset),
+      limit: numberValue(args.limit),
+    };
   }
-  if (/edit|patch/u.test(normalized)) {
+  if (normalized === "write") {
+    return {
+      type: "write",
+      filePath: stringValue(args.file_path) ?? "",
+      content: stringValue(args.content),
+    };
+  }
+  if (normalized === "edit") {
     return {
       type: "edit",
-      filePath,
-      oldString: stringValue(args.oldString) ?? stringValue(args.old_string),
-      newString: stringValue(args.newString) ?? stringValue(args.new_string),
-      unifiedDiff: stringValue(args.patch) ?? stringValue(args.diff),
+      filePath: stringValue(args.file_path) ?? "",
+      oldString: stringValue(args.old_string),
+      newString: stringValue(args.new_string),
     };
   }
-  if (/write/u.test(normalized)) {
-    return { type: "write", filePath, content: stringValue(args.content) };
+  if (normalized === "grep") {
+    return { type: "search", query: stringValue(args.pattern) ?? "", toolName: "grep" };
   }
-  if (/search|grep|glob/u.test(normalized)) {
-    return { type: "search", query: stringValue(args.query) ?? stringValue(args.pattern) ?? "" };
+  if (normalized === "glob") {
+    return { type: "search", query: stringValue(args.pattern) ?? "", toolName: "glob" };
   }
+  if (normalized === "web_fetch") {
+    return { type: "fetch", url: stringValue(args.url) ?? "" };
+  }
+
+  // Everything else, including MCP tools, keeps a generic detail carrying the
+  // raw arguments. Guessing a card type from the name would render MCP tools as
+  // file operations.
   return { type: "unknown", input: { raw: stringifyValue(args) }, output: {} };
 }
 
