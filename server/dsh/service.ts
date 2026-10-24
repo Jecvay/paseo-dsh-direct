@@ -9,6 +9,7 @@ import type {
   BridgeUsage,
   DshSessionEvent,
   InteractionRequest,
+  JsonObject,
   ModelSelection,
   QuestionAnswer,
   QuestionItem,
@@ -21,6 +22,8 @@ import type {
 import { SubagentSettings } from "./subagent-settings.js";
 import { canStopSessionRuntime, SubagentRunTracker } from "./runtime-safety.js";
 import { slashLine } from "../../shared/bridge-protocol.js";
+import type { ToolImageOutcome } from "../../shared/bridge-protocol.js";
+import { materializeToolImages } from "./tool-images.js";
 import type {
   ApprovalOutcome,
   HostAgent,
@@ -32,9 +35,18 @@ import type {
   ModelSelectionRef,
 } from "./host.js";
 
+/**
+ * Fields may be promises: the bridge resolves them on its ordered output before
+ * writing, which lets an event wait for image materialization without letting a
+ * later RPC response overtake it.
+ */
 type Notify = <K extends keyof BridgeNotifications>(
   method: K,
-  params: BridgeNotifications[K],
+  params: {
+    [F in keyof BridgeNotifications[K]]:
+      | BridgeNotifications[K][F]
+      | Promise<BridgeNotifications[K][F]>;
+  },
 ) => void;
 interface PendingInteraction {
   request: InteractionRequest;
@@ -153,6 +165,7 @@ export class BridgeService {
   constructor(
     private readonly ctx: HostContext,
     private readonly notify: Notify,
+    private readonly imagesDir: string,
     private readonly profile = "paseo",
     private readonly helpers?: HostHelpers,
   ) {
@@ -169,8 +182,26 @@ export class BridgeService {
     );
     this.subscriptions.push(
       ctx.on("session/event", (session, event) => {
-        if (this.tracked.has(String(session.id)))
-          notify("session.event", { sessionId: String(session.id), event });
+        if (!this.tracked.has(String(session.id))) return;
+        const sessionId = String(session.id);
+        // Tool results may carry images. Materializing them needs async work, so
+        // the notification is queued rather than sent inline: `notify` returns a
+        // promise on the bridge's single ordered output, which keeps a later RPC
+        // response from overtaking this event.
+        if (event.type !== "tool/result") {
+          notify("session.event", { sessionId, event, images: [] });
+          return;
+        }
+        const message = imageMessageOf(event);
+        if (message === undefined) {
+          notify("session.event", { sessionId, event, images: [] });
+          return;
+        }
+        notify("session.event", {
+          sessionId,
+          event,
+          images: this.materializeImages(message),
+        });
       }),
     );
     this.subscriptions.push(
@@ -505,11 +536,16 @@ export class BridgeService {
       case "session.list":
         result = { sessions: await this.listSessions(listParams(params)) };
         break;
-      case "session.read":
-        result = await this.ctx
+      case "session.read": {
+        const snapshot = await this.ctx
           .get("sessionQuery")
           .readSession(nonempty(params.sessionId, "sessionId"));
+        result = {
+          ...snapshot,
+          events: await this.withEventImages(snapshot.events),
+        };
         break;
+      }
       case "session.open":
         result = await this.open(validateOpen(params));
         break;
@@ -617,6 +653,32 @@ export class BridgeService {
         throw new Error(`Unsupported bridge method: ${String(method)}`);
     }
     return result as BridgeMethods[K]["result"];
+  }
+
+  /**
+   * Images for one tool result. A failure here must not cost the tool card or the
+   * rest of the turn, so every outcome is reported per block and the promise
+   * never rejects.
+   */
+  private materializeImages(message: JsonObject): Promise<ToolImageOutcome[]> {
+    return materializeToolImages(this.ctx, this.imagesDir, message).catch(
+      (): ToolImageOutcome[] => [],
+    );
+  }
+
+  /** Attach materialized tool-result image outcomes to historical events for replay. */
+  private async withEventImages(
+    events: readonly DshSessionEvent[],
+  ): Promise<DshSessionEvent[]> {
+    return Promise.all(
+      events.map(async (event) => {
+        if (event.type !== "tool/result") return event;
+        const message = imageMessageOf(event);
+        if (message === undefined) return event;
+        const images = await this.materializeImages(message);
+        return images.length > 0 ? { ...event, images } : event;
+      }),
+    );
   }
 
   /** Store images and files as durable DSH attachments, in prompt order. */
@@ -916,7 +978,7 @@ export class BridgeService {
         permissionPreset: this.ctx
           .get("permissionPresets")
           ?.current(handle.agent.session),
-        events: handle.agent.session.snapshotEvents(),
+        events: await this.withEventImages(handle.agent.session.snapshotEvents()),
       };
     } catch (error) {
       await handle.dispose();
@@ -1060,6 +1122,20 @@ export function validateAnswers(
 }
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/**
+ * The tool message of a `tool/result` event, when it carries content blocks.
+ * Returns undefined for the legacy layout, where the payload is spread over
+ * `data` instead of nested under `message`.
+ */
+function imageMessageOf(event: DshSessionEvent): JsonObject | undefined {
+  const data = event.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
+  const message = (data as Record<string, unknown>).message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return undefined;
+  const content = (message as Record<string, unknown>).content;
+  return Array.isArray(content) ? (message as JsonObject) : undefined;
+}
 
 function validateContent(value: unknown): PromptPart[] {
   if (!Array.isArray(value) || value.length === 0)
