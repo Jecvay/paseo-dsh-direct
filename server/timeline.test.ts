@@ -73,7 +73,7 @@ describe("TimelineProjector", () => {
     );
   });
 
-  it("uses one cumulative item id from transient chunks through the durable message", () => {
+  it("uses one shared messageId across transient delta ids through the durable message", () => {
     const projector = new TimelineProjector("paseo-session");
     projector.projectStream({ type: "start", attemptId: "attempt-1", revision: 0, turn: 2, step: 3 });
     const first = projector.projectStream({
@@ -103,21 +103,23 @@ describe("TimelineProjector", () => {
       },
     });
 
+    // Each delta has its own id; Paseo joins them by adjacency, not by id.
     assert.deepEqual(
-      [first[0], second[0], durable[0]].map((event) => timelineItem(event!).id),
+      [first[0], second[0]].map((event) => timelineItem(event!).id),
       [
-        "assistant_message:turn:2:step:3:attempt:0:0",
-        "assistant_message:turn:2:step:3:attempt:0:0",
-        "assistant_message:turn:2:step:3:attempt:0:0",
+        "assistant_message:turn:2:step:3:attempt:0:0#0:10",
+        "assistant_message:turn:2:step:3:attempt:0:0#0:11",
       ],
     );
     assert.deepEqual(
-      [first[0], second[0], durable[0]].map((event) => {
+      [first[0], second[0]].map((event) => {
         const item = timelineItem(event!);
         return item.type === "assistant_message" ? item.text : "";
       }),
-      ["Hel", "Hello", "Hello"],
+      ["Hel", "lo"],
     );
+    // The settled message repeats what the stream already delivered, so it adds nothing.
+    assert.deepEqual(durable, []);
   });
 
   it("keeps retries at the same turn and step in separate timeline items", () => {
@@ -165,12 +167,13 @@ describe("TimelineProjector", () => {
       },
     });
 
-    assert.equal(timelineItem(failed[0]!).id, "assistant_message:turn:2:step:3:attempt:0:0");
-    assert.equal(timelineItem(retried[0]!).id, "assistant_message:turn:2:step:3:attempt:1:0");
-    assert.equal(timelineItem(durable[0]!).id, "assistant_message:turn:2:step:3:attempt:1:0");
+    assert.equal(timelineItem(failed[0]!).id, "assistant_message:turn:2:step:3:attempt:0:0#2:0");
+    assert.equal(timelineItem(retried[0]!).id, "assistant_message:turn:2:step:3:attempt:1:0#5:0");
     const retriedItem = timelineItem(retried[0]!);
     assert.equal(retriedItem.type, "assistant_message");
     assert.equal(retriedItem.text, "Complete");
+    // The retry streamed the whole message, so the settled copy is redundant.
+    assert.deepEqual(durable, []);
   });
 
   it("reconstructs the same retry item id when replaying durable history", () => {
@@ -209,13 +212,24 @@ describe("TimelineProjector", () => {
     replay.projectEvent(failedAttempt);
     const replayed = replay.projectEvent(finalMessage);
 
+    // The live projector streamed the text, so its settled copy adds nothing.
+    assert.deepEqual(durable, []);
+    // A fresh projector has no stream state, so replaying history yields the full text
+    // under the same item id.
+    // The streamed delta has its own id; the replayed durable item keeps the
+    // block id because it is a complete message.
     assert.deepEqual(
-      [streamed[0], durable[0], replayed[0]].map((event) => timelineItem(event!).id),
+      [streamed[0], replayed[0]].map((event) => timelineItem(event!).id),
       [
-        "assistant_message:turn:2:step:3:attempt:1:0",
-        "assistant_message:turn:2:step:3:attempt:1:0",
+        "assistant_message:turn:2:step:3:attempt:1:0#5:0",
         "assistant_message:turn:2:step:3:attempt:1:0",
       ],
+    );
+    assert.equal(
+      timelineItem(replayed[0]!).type === "assistant_message"
+        ? (timelineItem(replayed[0]!) as { text: string }).text
+        : "",
+      "Hello",
     );
   });
 
@@ -616,5 +630,410 @@ describe("tool detail arguments", () => {
     const fetched = call("web_fetch", { url: "https://example.com" });
     assert.equal(fetched.type, "fetch");
     assert.equal(fetched.url, "https://example.com");
+  });
+});
+
+describe("TimelineProjector stream payloads", () => {
+  const chunk = (attemptId: string, index: number, text: string) => ({
+    type: "chunk" as const,
+    attemptId,
+    revision: 0,
+    index,
+    time: 1_000 + index,
+    chunk: { type: "text-delta", index: 0, text },
+  });
+
+  const streamedText = (event: ProviderEvent | undefined) => {
+    assert.ok(event);
+    const item = timelineItem(event);
+    assert.equal(item.type, "assistant_message");
+    return item.type === "assistant_message" ? item.text : "";
+  };
+
+  /**
+   * Mirrors Paseo's `mapTimelineItem` (`plugin-provider.ts`) and adjacent chunk
+   * merging (`mergeAssistantChunks` / `mergeReasoningChunks` in
+   * `timeline-projection.ts`) for a single turn.
+   */
+  const projectThroughPaseo = (events: readonly ProviderEvent[]) => {
+    const snapshots = new Map<string, { type: string; text: string }>();
+    const mapped: Array<
+      | { type: "assistant_message"; text: string; messageId: string }
+      | { type: "reasoning"; text: string }
+    > = [];
+
+    for (const event of events) {
+      const item = timelineItem(event);
+      if (item.type !== "assistant_message" && item.type !== "reasoning") continue;
+      const previous = snapshots.get(item.id);
+      snapshots.set(item.id, { type: item.type, text: item.text });
+      const previousText = previous?.type === item.type ? previous.text : "";
+      const suffix = item.text.startsWith(previousText)
+        ? item.text.slice(previousText.length)
+        : item.text;
+      if (suffix.length === 0) continue;
+      if (item.type === "assistant_message") {
+        mapped.push({ type: "assistant_message", text: suffix, messageId: item.messageId ?? item.id });
+      } else {
+        mapped.push({ type: "reasoning", text: suffix });
+      }
+    }
+
+    const merged: typeof mapped = [];
+    for (const entry of mapped) {
+      const previous = merged.at(-1);
+      if (
+        previous?.type === "assistant_message" &&
+        entry.type === "assistant_message" &&
+        previous.messageId === entry.messageId
+      ) {
+        merged[merged.length - 1] = {
+          type: "assistant_message",
+          text: `${previous.text}${entry.text}`,
+          messageId: previous.messageId,
+        };
+        continue;
+      }
+      if (previous?.type === "reasoning" && entry.type === "reasoning") {
+        merged[merged.length - 1] = {
+          type: "reasoning",
+          text: `${previous.text}${entry.text}`,
+        };
+        continue;
+      }
+      merged.push(entry);
+    }
+    return merged;
+  };
+
+  it("sends each delta once instead of resending the accumulated text", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    const deltas = ["Hel", "lo", ", ", "world"];
+    const sent = deltas.map((text, index) => streamedText(projector.projectStream(chunk("a1", 10 + index, text))[0]));
+
+    assert.deepEqual(sent, deltas);
+    assert.equal(sent.join(""), "Hello, world");
+  });
+
+  it("keeps payload volume linear in the number of deltas", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    const deltas = Array.from({ length: 200 }, (_, index) => `chunk-${index};`);
+    let sentChars = 0;
+    for (const [index, text] of deltas.entries()) {
+      sentChars += streamedText(projector.projectStream(chunk("a1", index, text))[0]).length;
+    }
+
+    assert.equal(sentChars, deltas.join("").length);
+  });
+
+  it("gives every delta its own id so non-cumulative deltas survive Paseo snapshot diffing", () => {
+    // Paseo treats same-id assistant text as a cumulative snapshot and slices
+    // off the previous snapshot's prefix. Because we send only each delta
+    // rather than cumulative text, each delta must carry its own id or two
+    // identical deltas / a delta starting with the previous one would be
+    // stripped by Paseo's prefix diffing.
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    const deltas = ["    ", "    ", "x", " ", " foo"];
+    const events = deltas.map((text, index) => projector.projectStream(chunk("a1", 10 + index, text))[0]);
+
+    const ids = events.map((event) => {
+      assert.ok(event);
+      return timelineItem(event).id;
+    });
+    assert.equal(new Set(ids).size, deltas.length);
+
+    const sent = events.map((event) => {
+      assert.ok(event);
+      const item = timelineItem(event);
+      return item.type === "assistant_message" ? item.text : "";
+    });
+    assert.deepEqual(sent, deltas);
+    assert.equal(sent.join(""), deltas.join(""));
+  });
+
+  it("reconstructs exact assistant and reasoning text through Paseo's snapshot diffing and chunk merge", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    const reasoningDeltas = ["  ", "  ", "plan", " ", " plan more"];
+    const textDeltas = ["def f():\n", "    ", "    ", "return", " ", " 1\n"];
+    const emitted: ProviderEvent[] = [];
+
+    for (const [index, text] of reasoningDeltas.entries()) {
+      emitted.push(
+        ...projector.projectStream({
+          type: "chunk",
+          attemptId: "a1",
+          revision: 0,
+          index,
+          time: 1_000 + index,
+          chunk: { type: "reasoning-delta", index: 0, text },
+        }),
+      );
+    }
+    for (const [index, text] of textDeltas.entries()) {
+      emitted.push(
+        ...projector.projectStream({
+          type: "chunk",
+          attemptId: "a1",
+          revision: 0,
+          index: 100 + index,
+          time: 1_100 + index,
+          chunk: { type: "text-delta", index: 1, text },
+        }),
+      );
+    }
+    emitted.push(
+      ...projector.projectEvent({
+        type: "assistant/message",
+        seq: 20,
+        time: 2_000,
+        data: {
+          turn: 1,
+          step: 1,
+          message: {
+            id: "message-1",
+            content: [
+              { type: "reasoning", text: reasoningDeltas.join("") },
+              { type: "text", text: `${textDeltas.join("")}print(f())` },
+            ],
+          },
+        },
+      }),
+    );
+
+    assert.deepEqual(projectThroughPaseo(emitted), [
+      { type: "reasoning", text: "    plan  plan more" },
+      {
+        type: "assistant_message",
+        text: "def f():\n        return  1\nprint(f())",
+        messageId: "assistant_message:turn:1:step:1:attempt:0:1",
+      },
+    ]);
+  });
+
+  it("does not emit an item for an empty delta", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    assert.deepEqual(projector.projectStream(chunk("a1", 0, "")), []);
+  });
+
+  it("sends reasoning deltas the same way", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    const reasoning = (index: number, text: string) => ({
+      type: "chunk" as const,
+      attemptId: "a1",
+      revision: 0,
+      index,
+      time: 1_000 + index,
+      chunk: { type: "reasoning-delta", index: 0, text },
+    });
+
+    const deltas = ["Think", "ing", " hard"];
+    const sent = deltas.map((text, index) => {
+      const [event] = projector.projectStream(reasoning(index, text));
+      assert.ok(event);
+      const item = timelineItem(event);
+      assert.equal(item.type, "reasoning");
+      return item.type === "reasoning" ? item.text : "";
+    });
+
+    assert.deepEqual(sent, deltas);
+  });
+
+  it("does not repeat text that the stream already delivered", () => {
+    // Because streamed deltas use per-chunk ids instead of the settled block id,
+    // the settled message must omit the prefix already delivered by the stream.
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    const deltas = ["Hel", "lo, ", "wor", "ld"];
+    const streamed: string[] = [];
+    for (const [index, text] of deltas.entries()) {
+      const [event] = projector.projectStream({
+        type: "chunk",
+        attemptId: "a1",
+        revision: 0,
+        index: 100 + index,
+        time: 1_000 + index,
+        chunk: { type: "text-delta", index: 0, text },
+      });
+      const item = timelineItem(event!);
+      assert.equal(item.type, "assistant_message");
+      if (item.type === "assistant_message") streamed.push(item.text);
+    }
+
+    const durable = projector.projectEvent({
+      type: "assistant/message",
+      seq: 20,
+      time: 2_000,
+      data: {
+        turn: 1,
+        step: 1,
+        message: { id: "message-1", content: [{ type: "text", text: "Hello, world" }] },
+      },
+    });
+
+    assert.deepEqual(streamed, deltas);
+    assert.deepEqual(durable, []);
+    assert.equal(streamed.join(""), "Hello, world");
+  });
+
+  it("sends only the tail when the stream stopped short of the settled text", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+    projector.projectStream({
+      type: "chunk",
+      attemptId: "a1",
+      revision: 0,
+      index: 100,
+      time: 1_000,
+      chunk: { type: "text-delta", index: 0, text: "Hello" },
+    });
+
+    const durable = projector.projectEvent({
+      type: "assistant/message",
+      seq: 20,
+      time: 2_000,
+      data: {
+        turn: 1,
+        step: 1,
+        message: { id: "message-1", content: [{ type: "text", text: "Hello, world" }] },
+      },
+    });
+
+    const item = timelineItem(durable[0]!);
+    assert.equal(item.type, "assistant_message");
+    assert.equal(item.type === "assistant_message" ? item.text : "", ", world");
+  });
+
+  it("replays the full text when no stream reached this projector", () => {
+    const projector = new TimelineProjector("paseo-session");
+    const durable = projector.projectEvent({
+      type: "assistant/message",
+      seq: 20,
+      time: 2_000,
+      data: {
+        turn: 1,
+        step: 1,
+        message: { id: "message-1", content: [{ type: "text", text: "Hello, world" }] },
+      },
+    });
+
+    const item = timelineItem(durable[0]!);
+    assert.equal(item.type, "assistant_message");
+    assert.equal(item.type === "assistant_message" ? item.text : "", "Hello, world");
+  });
+
+  it("keeps the settled tail in the same message as the streamed deltas", () => {
+    // Paseo only merges adjacent items whose messageId matches. The settled
+    // tail has to reuse the block id, or the reply splits into two messages.
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+    const [streamed] = projector.projectStream({
+      type: "chunk",
+      attemptId: "a1",
+      revision: 0,
+      index: 10,
+      time: 1_000,
+      chunk: { type: "text-delta", index: 0, text: "Hello" },
+    });
+    const durable = projector.projectEvent({
+      type: "assistant/message",
+      seq: 20,
+      time: 2_000,
+      data: {
+        turn: 1,
+        step: 1,
+        message: { id: "message-1", content: [{ type: "text", text: "Hello, world" }] },
+      },
+    });
+
+    const streamedItem = timelineItem(streamed!);
+    const tailItem = timelineItem(durable[0]!);
+    assert.equal(streamedItem.type, "assistant_message");
+    assert.equal(tailItem.type, "assistant_message");
+    assert.equal(
+      streamedItem.type === "assistant_message" ? streamedItem.messageId : undefined,
+      tailItem.type === "assistant_message" ? tailItem.messageId : null,
+    );
+  });
+
+  it("drops streamed text when an attempt fails without settling", () => {
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 1, turn: 2, step: 3 });
+    projector.projectStream({
+      type: "chunk",
+      attemptId: "a1",
+      revision: 2,
+      index: 0,
+      time: 1_000,
+      chunk: { type: "text-delta", index: 0, text: "Partial" },
+    });
+    projector.projectEvent({
+      type: "assistant/attempt",
+      seq: 8,
+      time: 1_001,
+      data: { turn: 2, step: 3, message: { content: [{ type: "text", text: "Partial" }] }, stream: [] },
+    });
+
+    // A later attempt on the same step must not inherit the abandoned tail.
+    projector.projectStream({ type: "start", attemptId: "a2", revision: 4, turn: 2, step: 3 });
+    const retried = projector.projectStream({
+      type: "chunk",
+      attemptId: "a2",
+      revision: 5,
+      index: 0,
+      time: 1_002,
+      chunk: { type: "text-delta", index: 0, text: "Complete" },
+    });
+    const item = timelineItem(retried[0]!);
+    assert.equal(item.type, "assistant_message");
+    assert.equal(item.type === "assistant_message" ? item.text : "", "Complete");
+  });
+
+  it("releases an attempt's streamed text when its end frame arrives", () => {
+    // DSH sends `end` after the settled event for every attempt, including one
+    // that never settles, so this is where an abandoned attempt is released.
+    const projector = new TimelineProjector("paseo-session");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 1, turn: 2, step: 3 });
+    projector.projectStream({
+      type: "chunk",
+      attemptId: "a1",
+      revision: 2,
+      index: 0,
+      time: 1_000,
+      chunk: { type: "text-delta", index: 0, text: "Partial" },
+    });
+    projector.projectStream({
+      type: "end",
+      attemptId: "a1",
+      revision: 3,
+      index: 1,
+      outcome: { kind: "abandoned" },
+    });
+
+    // A later attempt on the same step starts from a clean slate.
+    projector.projectStream({ type: "start", attemptId: "a2", revision: 4, turn: 2, step: 3 });
+    const retried = projector.projectStream({
+      type: "chunk",
+      attemptId: "a2",
+      revision: 5,
+      index: 0,
+      time: 1_002,
+      chunk: { type: "text-delta", index: 0, text: "Complete" },
+    });
+    const item = timelineItem(retried[0]!);
+    assert.equal(item.type, "assistant_message");
+    assert.equal(item.type === "assistant_message" ? item.text : "", "Complete");
   });
 });
