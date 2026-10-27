@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.13
+
+- File tool cards show their path, read window and old/new text again: the adapter read `filePath` and `path`, while DSH sends `file_path`, `old_string` and `new_string`. Shell cards read the working directory from `workdir`, and tools are recognized by exact name, so `todo_write` no longer renders as a file write and MCP tools stay generic.
+- Question replies reach DSH intact. A single-choice label containing a comma is matched whole instead of being split, cached and typed answers keep their text after the comma, and multi-select answers match complete labels before treating the remainder as custom text. Paseo joins multi-select answers with commas, so the rare combination of labels `A`, `B` and `A, B` still cannot be told apart; that needs a structured answer format in Paseo.
+- Closing a connection while a session is starting no longer leaves a bridge running. The connection tracks pending opens and acquired bridges, stops initialization after closure, waits for cleanup before finishing, and shares one cleanup promise when several paths close the same bridge.
+- Verified on the merged `main` with DSH `0.2.1-rc.2`: build, all four typechecks, 241 tests passing with one pre-existing skip, notes and documentation gates. Earlier isolated checks covered question round-trips through Paseo's own serializer and real DSH startup races at 114 ms and 1901 ms, both ending with no running process and no ready event. Native mobile, real compaction and whole-daemon restart recovery were not tested for these changes.
+
 ## 0.2.12
 
 - Choose which models subagents may use from the DeepSeek Harness settings page. Search by model or provider, select individual models, select all, clear the list, or disable model selection. Saved choices go directly into the DSH profile and apply to new sessions.
