@@ -83,7 +83,7 @@ Paseo 提供的会话环境变量传入该会话的 DSH 子进程。已有历史
 
 DSH 会话写锁由原生运行时拥有。不要删除 `.lock` 文件来强行恢复正在另一个客户端使用的会话，也不要把生成的新 session id 当成恢复原会话的替代。
 
-发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。
+手工部署与生产实测按照根 [AGENTS.md](../AGENTS.md) 记入 `.agents/ops-log.md`；那是待蒸馏的临时材料，长期结论要整理进本文档。发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。
 
 ## 官方参考
 
