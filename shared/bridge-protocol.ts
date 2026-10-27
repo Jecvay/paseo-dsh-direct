@@ -1,3 +1,5 @@
+import type { SubagentSettingsSave, SubagentSettingsView } from "./subagent-settings.js";
+
 /** The package-owned JSONL boundary. No DSH or Node runtime imports. */
 export const BRIDGE_PROTOCOL_VERSION = 1 as const;
 export type JsonObject = Record<string, unknown>;
@@ -160,6 +162,8 @@ export interface CommandResult {
 }
 export interface BridgeMethods {
   "bridge.initialize": { params: {}; result: BridgeInitializeResult };
+  "subagent.settings.read": { params: {}; result: SubagentSettingsView };
+  "subagent.settings.save": { params: SubagentSettingsSave; result: SubagentSettingsView };
   "session.list": {
     params: { cwd?: string; query?: string; limit?: number };
     result: { sessions: SessionSummary[] };

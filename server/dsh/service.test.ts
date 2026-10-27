@@ -18,7 +18,7 @@ import type {
 function fixture(
   options: Pick<
     Partial<HostServices>,
-    "commands" | "skills" | "attachments" | "systemPrompt" | "sessionProjections" | "sessionQuery"
+    "commands" | "skills" | "attachments" | "systemPrompt" | "sessionProjections" | "sessionQuery" | "settings" | "configEditor"
   > = {},
 ) {
   const listeners = new Map<keyof HostEvents, unknown>();
@@ -32,6 +32,8 @@ function fixture(
   let createGate = Promise.resolve();
   const models = { provider: "configured", model: "test" };
   const services = {
+    settings: options.settings,
+    configEditor: options.configEditor,
     agents: {
       get: () => created,
       async create(options) {
@@ -142,6 +144,71 @@ test("one unavailable model provider does not prevent profile initialization", a
   const result = await f.bridge.handle("bridge.initialize");
   assert.equal(result.catalog.models.length, 1);
   assert.equal(result.catalog.models[0]?.provider, "configured");
+  await f.bridge.shutdown();
+});
+
+test("missing optional settings leave initialization and normal sessions usable", async () => {
+  const f = fixture();
+  await f.bridge.handle("bridge.initialize");
+  assert.equal((await f.bridge.handle("subagent.settings.read")).supported, false);
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "without-settings" });
+  await f.bridge.shutdown();
+});
+
+test("failed subagent initialization is visible to settings but does not block normal sessions", async (t) => {
+  const errors: unknown[][] = [];
+  t.mock.method(console, "error", (...args: unknown[]) => errors.push(args));
+  const f = fixture({
+    settings: {
+      documentPath: "/test/cordis.patch.yml",
+      describe: () => [{ ns: "subagent-model-selection-settings", revision: 0,
+        value: { enabled: false, allowedModels: [] } }],
+      mutate: async () => { throw new Error("disk full"); },
+    },
+    configEditor: { configuration: () => [{ entry: {
+      options: { id: "subagent-model-selection-settings", config: {} },
+    } }] },
+  });
+  const result = await f.bridge.handle("bridge.initialize");
+  assert.equal(result.catalog.models.length, 1);
+  assert.match(String(errors[0]?.[0]), /initialization failed: disk full/);
+  await assert.rejects(f.bridge.handle("subagent.settings.read"), /initialization failed: disk full/);
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "settings-failed" });
+  await f.bridge.shutdown();
+});
+
+test("bridge initializes subagent settings and exposes atomic read/save RPCs", async () => {
+  let raw: Record<string, unknown> = {};
+  let revision = 0;
+  let writes = 0;
+  const f = fixture({
+    settings: {
+      documentPath: "/test/cordis.patch.yml",
+      describe: () => [{ ns: "subagent-model-selection-settings", revision,
+        value: { enabled: false, allowedModels: [], ...raw }, user: raw }],
+      mutate: async (_ns, ops, expectedRevision) => {
+        assert.equal(expectedRevision, revision);
+        for (const op of ops) raw = { ...raw, [op.path[0]!]: op.value };
+        revision++;
+        writes++;
+      },
+    },
+    configEditor: { configuration: () => [{ entry: {
+      options: { id: "subagent-model-selection-settings", config: raw },
+    } }] },
+  });
+  await f.bridge.handle("bridge.initialize");
+  const read = await f.bridge.handle("subagent.settings.read");
+  assert.deepEqual(read.selection, {
+    enabled: true, allowedModels: [{ provider: "configured", model: "test" }],
+  });
+  assert.deepEqual(read.failedProviders, ["broken"]);
+  const saved = await f.bridge.handle("subagent.settings.save", {
+    profile: read.profile, revision: read.revision, selection: { enabled: false, allowedModels: [] },
+  });
+  assert.deepEqual(saved.selection, { enabled: false, allowedModels: [] });
+  await f.bridge.handle("bridge.initialize");
+  assert.equal(writes, 2);
   await f.bridge.shutdown();
 });
 

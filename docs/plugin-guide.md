@@ -73,7 +73,9 @@ Provider 注册了 `command: ["dsh"]`，也可以在 Paseo 配置里覆盖，不
 
 Paseo 提供的会话环境变量传入该会话的 DSH 子进程。已有历史恢复优先保留原生模型、preset、思考和权限配置；恢复后可通过 Paseo 的会话配置主动调整。
 
-`npm run smoke:bridge` 构建桥接并验证真实 profile 的目录、历史读取和关闭，不调用模型；`paseo` profile 不存在时会先创建它。`npm run smoke:bridge -- --prompt` 额外创建测试会话、调用模型并恢复历史，会产生模型用量。
+`DSH_SETTINGS_E2E=1 npx tsx --test server/subagent-settings.e2e.test.ts` 使用临时 DSH home 验证首次全选、重启持久化、过期草稿拒绝及会话策略保留，不请求模型、不写真实 profile。测试后关闭全部桥接。
+
+`npm run smoke:bridge` 构建桥接并验证真实 profile 的目录、历史读取和关闭，不调用模型；`paseo` profile 不存在时会先创建它，未配置子代理模型时会执行首次全选初始化。`npm run smoke:bridge -- --prompt` 额外创建测试会话、调用模型并恢复历史，会产生模型用量。
 
 ## 测试数据
 

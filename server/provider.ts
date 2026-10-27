@@ -65,6 +65,8 @@ type DetectVersion = (
 
 interface DshProviderOptions {
   createBridge(launch?: SessionLaunch): Promise<DshBridge>;
+  /** Share the daemon-resolved launch with settings RPCs targeting the same provider. */
+  observeLaunch?(launch: SessionLaunch["providerLaunch"]): void;
   /**
    * The environment and settings-screen choices, read on every call so a changed
    * setting applies to new sessions. The executable outranks the `launch` Paseo
@@ -112,6 +114,7 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
     description: "Direct connection to the local DeepSeek Harness (dsh)",
     icon: "dsh.svg",
     getCatalogCacheKey: async (request) => {
+      options.observeLaunch?.(request.launch);
       const configured = (await options.configured?.()) ?? {};
       const launch = describeDshLaunch(resolveDshLaunch(configured.executable, request.launch));
       const scope = request.scope === "workspace" ? request.cwd : "global";
@@ -119,6 +122,7 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
     },
     command: [options.command ?? "dsh"],
     async status(request) {
+      options.observeLaunch?.(request?.launch);
       return dshStatus(
         resolveDshLaunch((await options.configured?.())?.executable, request?.launch),
         request?.launch?.env,
@@ -128,6 +132,7 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
     async connect(request) {
       if (!request.versions.includes(1)) throw new Error("Provider protocol version 1 is required");
       const providerLaunch = request.launch;
+      options.observeLaunch?.(providerLaunch);
       const createBridge = (launch?: SessionLaunch) =>
         options.createBridge(providerLaunch ? { ...launch, providerLaunch } : launch);
       const bridge = await createBridge();

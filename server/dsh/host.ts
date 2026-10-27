@@ -66,7 +66,30 @@ interface AgentOptions {
   agentOptions: ModelSelection;
   setup(ctx: HostContext, agent: HostAgent): Promise<void>;
 }
+export interface HostSettingsDescriptor {
+  ns: string;
+  revision: number;
+  value: unknown;
+  base?: unknown;
+  user?: unknown;
+}
+export interface HostSettings {
+  readonly writable?: boolean;
+  readonly documentPath: string;
+  describe(options: { redactSecrets: true }): HostSettingsDescriptor[];
+  mutate(
+    ns: string,
+    ops: readonly { op: "set"; path: readonly string[]; value: unknown }[],
+    expectedRevision: number,
+  ): Promise<void>;
+}
 export interface HostServices {
+  settings?: HostSettings;
+  configEditor?: {
+    configuration(): Array<{
+      entry: { options: { id: string; config?: unknown } };
+    }>;
+  };
   agents: {
     get(id: string): HostAgent | undefined;
     create(options: AgentOptions): Promise<HostHandle>;
