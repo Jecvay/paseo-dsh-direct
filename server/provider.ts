@@ -188,7 +188,23 @@ function createConnection(
 ): ProviderConnection {
   const listeners = new Set<(event: ProviderEvent) => void>();
   const sessions = new Map<string, SessionState>();
+  const pendingOpens = new Set<Promise<void>>();
+  const openingBridges = new Set<DshBridge>();
+  const bridgeClosures = new WeakMap<DshBridge, Promise<void>>();
+  const cleanupErrors: unknown[] = [];
   let closed = false;
+  let closePromise: Promise<void> | undefined;
+  const closeBridge = (bridge: DshBridge): Promise<void> => {
+    let closing = bridgeClosures.get(bridge);
+    if (!closing) {
+      closing = Promise.resolve().then(() => bridge.close()).catch((error) => {
+        cleanupErrors.push(error);
+        throw error;
+      });
+      bridgeClosures.set(bridge, closing);
+    }
+    return closing;
+  };
   const emit = (event: ProviderEvent) => {
     if (closed) return;
     for (const listener of listeners) listener(event);
@@ -200,28 +216,41 @@ function createConnection(
     async send(input) {
       if (closed) throw new Error("Provider connection is closed");
       validateAdmission(input, sessions, capabilities);
-      queueMicrotask(() => {
-        void dispatch(input, { discoveryBridge, createBridge, sessions, emit, capabilities, detectVersion, launchEnv }).catch(
-          (error) => failInput(input, error, emit),
-        );
-      });
+      const pending = Promise.resolve().then(async () => {
+        if (closed) return;
+        await dispatch(input, {
+          discoveryBridge, createBridge, sessions, emit, capabilities, detectVersion, launchEnv,
+          openingBridges, closeBridge, isClosed: () => closed,
+        });
+      }).catch((error) => failInput(input, error, emit));
+      if (input.type === "session.open") {
+        pendingOpens.add(pending);
+        void pending.then(() => pendingOpens.delete(pending));
+      }
     },
     onEvent(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async close() {
-      if (closed) return;
+    close() {
+      if (closePromise) return closePromise;
       closed = true;
-      const bridges = [discoveryBridge];
+      const bridges = new Set([discoveryBridge, ...openingBridges]);
       for (const session of sessions.values()) {
         session.closed = true;
         session.releaseBridgeListeners.forEach((release) => release());
-        bridges.push(session.bridge);
+        bridges.add(session.bridge);
       }
       sessions.clear();
       listeners.clear();
-      await Promise.all(bridges.map((bridge) => bridge.close()));
+      closePromise = (async () => {
+        await Promise.allSettled([
+          ...Array.from(bridges, closeBridge),
+          ...pendingOpens,
+        ]);
+        if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "Could not close DSH bridges");
+      })();
+      return closePromise;
     },
   };
 }
@@ -363,6 +392,9 @@ interface DispatchState {
   capabilities: readonly string[];
   detectVersion: DetectVersion;
   launchEnv: Readonly<Record<string, string>> | undefined;
+  openingBridges: Set<DshBridge>;
+  closeBridge(bridge: DshBridge): Promise<void>;
+  isClosed(): boolean;
 }
 
 async function dispatch(input: ProviderInput, state: DispatchState): Promise<void> {
@@ -452,8 +484,10 @@ async function openSession(
     ephemeral: !input.config.persist,
     mcpServers: bridgeMcpServers(input.config.mcpServers),
   });
+  state.openingBridges.add(bridge);
   let session: SessionState | undefined;
   try {
+    if (state.isClosed()) return;
     // Resume from DSH's durable model and preset. Paseo fills catalog defaults into
     // open config, so forwarding them would accidentally overwrite native history.
     const selection = nativeId
@@ -473,11 +507,13 @@ async function openSession(
         ? { preapprovedTools: preapprovedTools(input.config) }
         : {}),
     });
+    if (state.isClosed()) return;
     const title = nativeId ? undefined : input.config.title?.trim();
     const [commands] = await Promise.all([
       fetchCommands(bridge, opened.sessionId),
       title ? bridge.request("session.rename", { sessionId: opened.sessionId, title }) : undefined,
     ]);
+    if (state.isClosed()) return;
     session = {
       paseoId: input.sessionId,
       nativeId: opened.sessionId,
@@ -501,10 +537,18 @@ async function openSession(
       await setPlanMode(session, true);
     }
   } catch (error) {
-    if (session) state.sessions.delete(input.sessionId);
-    await bridge.close();
+    if (session) {
+      session.closed = true;
+      session.releaseBridgeListeners.forEach((release) => release());
+      state.sessions.delete(input.sessionId);
+    }
+    await state.closeBridge(bridge);
     throw error;
+  } finally {
+    state.openingBridges.delete(bridge);
+    if (state.isClosed()) await state.closeBridge(bridge);
   }
+  if (state.isClosed()) return;
   state.emit({
     type: "session.opened",
     requestId: input.requestId,
@@ -1085,12 +1129,28 @@ function questionAnswers(
   return questions.map((question) => {
     const key = question.header ?? question.id;
     const raw = answers?.[key];
-    const selected = typeof raw === "string" ? raw.split(",").map((value) => value.trim()).filter(Boolean) : [];
-    const known = new Set((question.options ?? []).map((option) => option.label));
-    const custom = selected.find((value) => !known.has(value));
+    if (typeof raw !== "string" || raw.length === 0) return { id: question.id, selected: [] };
+    const labels = (question.options ?? []).map((option) => option.label);
+    if (!question.multiSelect) {
+      return labels.includes(raw)
+        ? { id: question.id, selected: [raw] }
+        : { id: question.id, selected: [], custom: raw };
+    }
+    // Paseo joins checked labels and the optional typed answer with ", ".
+    // Match complete labels (longest first), keeping the remaining text intact.
+    const candidates = labels.filter(Boolean).sort((left, right) => right.length - left.length);
+    const selected: string[] = [];
+    let custom = raw;
+    while (custom.length > 0) {
+      const label = candidates.find((value) =>
+        !selected.includes(value) && (custom === value || custom.startsWith(`${value}, `)));
+      if (label === undefined) break;
+      selected.push(label);
+      custom = custom === label ? "" : custom.slice(label.length + 2);
+    }
     return {
       id: question.id,
-      selected: selected.filter((value) => known.has(value)),
+      selected,
       ...(custom ? { custom } : {}),
     };
   });
