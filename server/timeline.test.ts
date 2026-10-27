@@ -225,7 +225,7 @@ describe("TimelineProjector", () => {
       type: "tool/call",
       seq: 3,
       time: 1_000,
-      data: { callId: "call-1", name: "shell", arguments: '{"command":"pwd"}' },
+      data: { callId: "call-1", name: "bash", arguments: '{"command":"pwd"}' },
     });
     // DSH 0.1.7 records the call id on the tool message with plain text blocks.
     const completed = projector.projectEvent({
@@ -547,5 +547,74 @@ describe("TimelineProjector plugin cards", () => {
     assert.deepEqual(replayItems, liveItems);
     assert.equal(liveItems.length, 4);
     assert.ok(liveItems.every((event) => timelineItem(event).type === "plugin"));
+  });
+});
+
+describe("tool detail arguments", () => {
+  const call = (name: string, args: Record<string, unknown>) => {
+    const projector = new TimelineProjector("paseo-session");
+    const events = projector.projectEvent({
+      type: "tool/call",
+      seq: 3,
+      time: 1_000,
+      data: { callId: "c1", name, arguments: JSON.stringify(args) },
+    });
+    const item = timelineItem(events[0]!);
+    assert.equal(item.type, "tool_call");
+    return item.type === "tool_call" ? (item as { detail: Record<string, unknown> }).detail : {};
+  };
+
+  it("reads the dsh file_path and workdir arguments", () => {
+    const read = call("read", { file_path: "/tmp/a.png", offset: 1, limit: 2 });
+    assert.equal(read.type, "read");
+    assert.equal(read.filePath, "/tmp/a.png");
+    assert.equal(read.offset, 1);
+    assert.equal(read.limit, 2);
+
+    const write = call("write", { file_path: "/tmp/b.txt", content: "hi" });
+    assert.equal(write.type, "write");
+    assert.equal(write.filePath, "/tmp/b.txt");
+
+    const edit = call("edit", { file_path: "/tmp/c.txt", old_string: "a", new_string: "b" });
+    assert.equal(edit.type, "edit");
+    assert.equal(edit.filePath, "/tmp/c.txt");
+    assert.equal(edit.oldString, "a");
+    assert.equal(edit.newString, "b");
+
+    const shell = call("bash", { command: "pwd", workdir: "/tmp" });
+    assert.equal(shell.type, "shell");
+    assert.equal(shell.cwd, "/tmp");
+
+    const pwsh = call("pwsh", { command: "Get-Location", workdir: "C:/tmp" });
+    assert.equal(pwsh.type, "shell");
+    assert.equal(pwsh.command, "Get-Location");
+    assert.equal(pwsh.cwd, "C:/tmp");
+  });
+
+  it("does not treat todo_write as a file write", () => {
+    const detail = call("todo_write", { todos: [{ text: "x", completed: false }] });
+    assert.notEqual(detail.type, "write");
+  });
+
+  it("keeps MCP tools generic instead of guessing a card type", () => {
+    // A substring match on "write" used to render this as a file write with an
+    // empty path.
+    const detail = call("mcp__notes__write_note", { content: "hello" });
+    assert.equal(detail.type, "unknown");
+  });
+
+  it("maps grep, glob and web_fetch to their cards", () => {
+    const grep = call("grep", { pattern: "needle", path: "/tmp" });
+    assert.equal(grep.type, "search");
+    assert.equal(grep.query, "needle");
+
+    const glob = call("glob", { pattern: "**/*.ts" });
+    assert.equal(glob.type, "search");
+    assert.equal(glob.query, "**/*.ts");
+    assert.equal(glob.toolName, "glob");
+
+    const fetched = call("web_fetch", { url: "https://example.com" });
+    assert.equal(fetched.type, "fetch");
+    assert.equal(fetched.url, "https://example.com");
   });
 });
