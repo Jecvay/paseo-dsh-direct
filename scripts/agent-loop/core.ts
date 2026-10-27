@@ -273,11 +273,11 @@ export function inScope(labels: string[], onlyLabel: string | undefined, knownTh
 
 // ---------- branches and dsh selection ----------
 
-/** `line:0.1` → `release/0.1`; otherwise `main`. */
+/** `line:0.1` → `rel/0.1`; otherwise `main`. */
 export function baseBranchFor(labels: string[]): string {
   for (const label of labels) {
     const match = label.match(/^line:(\d+\.\d+)$/)
-    if (match) return `release/${match[1]}`
+    if (match) return `rel/${match[1]}`
   }
   return 'main'
 }

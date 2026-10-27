@@ -202,9 +202,9 @@ describe('scope', () => {
 })
 
 describe('branches and dsh selection', () => {
-  it('maps line labels to release branches', () => {
+  it('maps line labels to rel branches', () => {
     assert.equal(baseBranchFor(['bug']), 'main')
-    assert.equal(baseBranchFor(['line:0.1', 'bug']), 'release/0.1')
+    assert.equal(baseBranchFor(['line:0.1', 'bug']), 'rel/0.1')
   })
 
   it('derives the dsh line from package.json major.minor', () => {

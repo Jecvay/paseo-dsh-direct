@@ -13,7 +13,7 @@ In Paseo, open **Settings → Plugins → Install Plugin** and paste either the 
 | Your dsh | npm | Git |
 |---|---|---|
 | `0.2.x` | `npm:paseo-dsh-direct` | `https://github.com/Jecvay/paseo-dsh-direct` |
-| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | CLI only: `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1` |
+| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | CLI only: `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref rel/0.1` |
 
 To update, run on the daemon machine (the app's plugin menu has no update entry):
 
@@ -46,6 +46,8 @@ Create a conversation with the **DeepSeek Harness** provider. Models and presets
 The provider supports streamed assistant and reasoning output, tool execution and approval, user questions, model/preset configuration, interruption, and session recovery. It starts DSH with its own `paseo` profile and does not modify Paseo or DSH core.
 
 The plugin uses the DSH profile `paseo`. On first start it creates that profile from DSH's official `web` template (`~/.dsh/profiles/paseo`, or under `$DSH_HOME` when set). Model routes, the default model, and permission presets go in `~/.dsh/profiles/paseo/cordis.patch.yml`. The executable and the profile can be set on the **DeepSeek Harness** screen in Paseo's settings (fields `dsh executable` and `dsh profile`). The executable is chosen in this order: `PASEO_DSH_EXECUTABLE`, the settings screen, `agents.providers.dsh-pi.command` in the Paseo configuration, then `dsh` on `PATH`. The profile is chosen from `PASEO_DSH_PROFILE`, then the settings screen, then `paseo`; a profile named explicitly is not created automatically. Changed settings apply to new sessions; running sessions keep their `dsh`. If the Paseo Daemon has plugin loading disabled, enable `pluginsEnabled` in its configuration before installing the plugin.
+
+The **Subagent models** section on that settings screen lets you search models by name or provider, select individual models, select all, clear the list, or disable model selection. On first initialization, the plugin selects all currently available models and saves the choice in the DSH profile. Existing choices, including an explicit disabled setting, are preserved; newly added models require selection. Changes apply to new sessions with a supported preset. See [settings behavior](docs/client-architecture.md#设置页).
 
 If a native session is still held by another DSH client (such as a terminal UI), release it there before importing or resuming it from Paseo.
 

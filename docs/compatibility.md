@@ -11,7 +11,7 @@
 
 ## npm 发布与 dist-tag
 
-插件以包名 `paseo-dsh-direct`（无 scope）发布到 npm。当前最新 dsh 线（`main` 分支）发布为 `latest`；更早的 dsh 线（如 `release/0.1`）发布时带 `--tag dsh-<major.minor>`（如 `dsh-0.1`），装法是 `npm:paseo-dsh-direct@dsh-<major.minor>`。发布流程见 [AGENTS.md](../AGENTS.md)「发布到 npm」。
+插件以包名 `paseo-dsh-direct`（无 scope）发布到 npm。当前最新 dsh 线（`main` 分支）发布为 `latest`；更早的 dsh 线（如 `rel/0.1`）发布时带 `--tag dsh-<major.minor>`（如 `dsh-0.1`），装法是 `npm:paseo-dsh-direct@dsh-<major.minor>`。发布流程见 [AGENTS.md](../AGENTS.md)「发布到 npm」。
 
 Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git 地址总是装 `main` 分支（当前 dsh 线）；要装旧线的 Git tag，须用命令行 `paseo plugin install <url> --ref <tag>`。npm 来源不受这个限制——dist-tag 直接写在 `npm:<package>@<tag>` 里，Settings 输入框和命令行都能用。
 
@@ -20,7 +20,7 @@ Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git
 | 插件版本线 | 已实测的 DSH 版本 | 获取方式 |
 |---|---|---|
 | `0.2.x` | `0.2.1-rc.2`（推荐，安装方式见下）；`0.2.0-rc.2` 与回合级能力在 `0.2.0-rc.1` 下实测 | `npm:paseo-dsh-direct`，或 Git `main` |
-| `0.1.x` | `0.1.7-rc.2` | `npm:paseo-dsh-direct@dsh-0.1`，或 Git 分支 `release/0.1` |
+| `0.1.x` | `0.1.7-rc.2` | `npm:paseo-dsh-direct@dsh-0.1`，或 Git 分支 `rel/0.1` |
 
 Paseo 验证基线为 `0.12.0`（插件安装、加载、provider 可用性、诊断与模型目录，Daemon 运行于 Node.js `24`），此前的基线 `0.11.2`（Node.js `22`）结论仍有效；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 

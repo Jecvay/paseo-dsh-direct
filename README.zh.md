@@ -13,7 +13,7 @@
 | 你的 dsh | npm | Git |
 |---|---|---|
 | `0.2.x` | `npm:paseo-dsh-direct` | `https://github.com/Jecvay/paseo-dsh-direct` |
-| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | 只能用命令行：`paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref release/0.1` |
+| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | 只能用命令行：`paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref rel/0.1` |
 
 更新插件在 daemon 所在机器上运行（App 的插件菜单里没有更新入口）：
 
@@ -46,6 +46,8 @@ paseo plugin update paseo-dsh-direct --yes     # 更新到最新
 Provider 支持连续正文和思考输出、工具执行与审批、用户问答、模型和 preset 配置、中断及会话恢复。它用插件专用的 `paseo` profile 启动 DSH，不修改 Paseo 或 DSH 核心。
 
 插件使用名为 `paseo` 的 DSH profile。首次启动时，插件用 DSH 官方的 `web` 模板自动创建它（位置是 `~/.dsh/profiles/paseo`；设置了 `$DSH_HOME` 时在其下）。模型路由、默认模型和权限预设写在 `~/.dsh/profiles/paseo/cordis.patch.yml`。可在 Paseo 设置里的 **DeepSeek Harness** 页（`dsh executable`、`dsh profile` 两项）指定可执行文件与 profile。可执行文件的选择顺序：`PASEO_DSH_EXECUTABLE`、设置页、Paseo 配置的 `agents.providers.dsh-pi.command`、`PATH` 里的 `dsh`。profile 的选择顺序：`PASEO_DSH_PROFILE`、设置页、默认的 `paseo`；显式指定的 profile 不会被自动创建。改动对新会话生效，已在运行的会话继续使用原来的 `dsh`。如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
+
+同一设置页的 **Subagent models** 区域可以按名称或提供方搜索模型、逐项勾选、全选、清空或关闭选模。首次初始化会选中当前可用的全部模型并保存到 DSH profile；已有选择（包括显式关闭）会保留，后续新增模型需要手动勾选。改动对支持选模的 preset 的新会话生效，详见[设置页说明](docs/client-architecture.md#设置页)。
 
 如果原生会话仍被另一个 DSH 客户端（如终端界面）占用，请先在那里释放，再从 Paseo 导入或恢复。
 

@@ -1,7 +1,7 @@
 name: Publish
 
 # A version is released when package.json's version reaches main or a
-# release/<major.minor> branch: this workflow publishes it to npm and pushes
+# rel/<major.minor> branch: this workflow publishes it to npm and pushes
 # the tag v<version>. Pushing that tag by hand, or running the workflow by hand
 # on a branch, also works. Tags pushed here with GITHUB_TOKEN start no further
 # workflow runs.
@@ -15,7 +15,7 @@ on:
   push:
     branches:
       - main
-      - "release/*"
+      - "rel/*"
     paths:
       - package.json
       - .github/workflows/publish.yml
@@ -50,13 +50,13 @@ jobs:
           name="$(node -p "require('./package.json').name")"
           version="$(node -p "require('./package.json').version")"
           tag="v${version}"
-          # A release/* branch publishes only when it is a line branch
-          # (release/0.1, release/0.2): a version-bump PR branch such as
-          # release/0.2.11 must wait for its merge into main, or its push
+          # A rel/* branch publishes only when it is a line branch
+          # (rel/0.1, rel/0.2): a version-bump PR branch such as
+          # rel/0.2.12 must wait for its merge into main, or its push
           # would publish the version under a line dist-tag derived from
           # the branch name.
-          if [ "${GITHUB_REF_TYPE}" = branch ] && [[ "${GITHUB_REF_NAME}" =~ ^release/ ]] && ! [[ "${GITHUB_REF_NAME}" =~ ^release/[0-9]+\.[0-9]+$ ]]; then
-            echo "${GITHUB_REF_NAME} is a release PR branch, not a release/<major.minor> line; publish happens when it merges into main" >&2
+          if [ "${GITHUB_REF_TYPE}" = branch ] && [[ "${GITHUB_REF_NAME}" =~ ^rel/ ]] && ! [[ "${GITHUB_REF_NAME}" =~ ^rel/[0-9]+\.[0-9]+$ ]]; then
+            echo "${GITHUB_REF_NAME} is a release PR branch, not a rel/<major.minor> line; publish happens when it merges into main" >&2
             exit 0
           fi
           if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "${tag}" ]; then
@@ -103,11 +103,11 @@ jobs:
           else
             tag=""
             for ref in $(git branch -r --contains "$GITHUB_SHA" --format='%(refname:short)'); do
-              if [[ "$ref" =~ ^origin/release/[0-9]+\.[0-9]+$ ]]; then tag="dsh-${ref#origin/release/}"; break; fi
+              if [[ "$ref" =~ ^origin/rel/[0-9]+\.[0-9]+$ ]]; then tag="dsh-${ref#origin/rel/}"; break; fi
             done
           fi
           if [ -z "$tag" ]; then
-            echo "commit is on neither origin/main nor a release/<major.minor> branch" >&2
+            echo "commit is on neither origin/main nor a rel/<major.minor> branch" >&2
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -127,11 +127,11 @@ jobs:
           else
             tag=""
             for ref in $(git branch -r --contains "$GITHUB_SHA" --format='%(refname:short)'); do
-              if [[ "$ref" =~ ^origin/release/[0-9]+\.[0-9]+$ ]]; then tag="dsh-${ref#origin/release/}"; break; fi
+              if [[ "$ref" =~ ^origin/rel/[0-9]+\.[0-9]+$ ]]; then tag="dsh-${ref#origin/rel/}"; break; fi
             done
           fi
           if [ -z "$tag" ]; then
-            echo "commit is on neither origin/main nor a release/<major.minor> branch; no dist-tag to reconcile" >&2
+            echo "commit is on neither origin/main nor a rel/<major.minor> branch; no dist-tag to reconcile" >&2
             exit 0
           fi
           npm dist-tag add "${{ steps.plan.outputs.name }}@$(node -p "require('./package.json').version")" "$tag"

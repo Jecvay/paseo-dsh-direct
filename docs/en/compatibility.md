@@ -22,7 +22,7 @@ The Paseo daemon fixes its `PATH` at startup; after upgrading DSH, run `paseo da
 
 ## npm releases and dist-tags
 
-The plugin publishes to npm as `paseo-dsh-direct` (unscoped). The current dsh line (`main`) publishes as `latest`; older lines (such as `release/0.1`) publish with `--tag dsh-<major.minor>` (for example `dsh-0.1`), installed as `npm:paseo-dsh-direct@dsh-<major.minor>`. See [AGENTS.md](../../AGENTS.md) for the release steps.
+The plugin publishes to npm as `paseo-dsh-direct` (unscoped). The current dsh line (`main`) publishes as `latest`; older lines (such as `rel/0.1`) publish with `--tag dsh-<major.minor>` (for example `dsh-0.1`), installed as `npm:paseo-dsh-direct@dsh-<major.minor>`. See [AGENTS.md](../../AGENTS.md) for the release steps.
 
 Paseo's Install Plugin field has no Git ref input, so pasting a Git URL there always installs the `main` branch (the current dsh line); installing an older line's Git tag needs the CLI, `paseo plugin install <url> --ref <tag>`. A Git source is written `github:owner/repository` or a full Git URL; since Paseo 0.11 a bare `owner/slug` names a plugin-registry entry and does not install this plugin. The npm source has no such limit — a dist-tag is part of the `npm:<package>@<tag>` string itself, so it works from both the Settings field and the CLI.
 
