@@ -38,4 +38,4 @@ Status: implemented
 
 - 协议和 Provider 测试覆盖流式身份、请求失败、会话环境、恢复配置、审批/问答与退出清理；分层类型检查和文档门禁验证构建边界。
 - 本机 Paseo 完成安装、真实模型对话、工具调用、停止后继续对话、官方历史入口导入并保留原生会话标识。
-- 真实 profile 探活、权限配置与部署证据见 [仓外事件](../../../ops-log.md)。测试和实际验证范围以 [Alpha 验收规范](../../../../docs/alpha-acceptance.md) 和 [兼容性说明](../../../../docs/compatibility.md) 为准。
+- 测试和实际验证范围以 [Alpha 验收规范](../../../../docs/alpha-acceptance.md) 和 [兼容性说明](../../../../docs/compatibility.md) 为准。

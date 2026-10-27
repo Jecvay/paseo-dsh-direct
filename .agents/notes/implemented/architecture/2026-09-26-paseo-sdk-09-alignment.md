@@ -22,4 +22,4 @@ Status: implemented
 
 ## 怎么验证的
 
-`npm install` 后 `npm run typecheck` 四个 tsconfig 全部通过，`npm test` 31 个用例全过；在 daemon 0.9.2 + 插件重载后完成真实会话验证（工具卡收敛，见 [ops-log](../../../../.agents/ops-log.md)）。
+`npm install` 后 `npm run typecheck` 四个 tsconfig 全部通过，`npm test` 31 个用例全过；在 daemon 0.9.2 + 插件重载后完成真实会话验证（工具卡收敛）。

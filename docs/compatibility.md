@@ -22,7 +22,7 @@ Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git
 | `0.2.x` | `0.2.1-rc.2`（推荐，安装方式见下）；`0.2.0-rc.2` 与回合级能力在 `0.2.0-rc.1` 下实测 | `npm:paseo-dsh-direct`，或 Git `main` |
 | `0.1.x` | `0.1.7-rc.2` | `npm:paseo-dsh-direct@dsh-0.1`，或 Git 分支 `rel/0.1` |
 
-Paseo 验证基线为 `0.12.0`（插件安装、加载、provider 可用性、诊断与模型目录，Daemon 运行于 Node.js `24`），此前的基线 `0.11.2`（Node.js `22`）结论仍有效；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手工运行证据见 [仓外事件](../.agents/ops-log.md)。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
+Paseo 验证基线为 `0.12.0`（插件安装、加载、provider 可用性、诊断与模型目录，Daemon 运行于 Node.js `24`），此前的基线 `0.11.2`（Node.js `22`）结论仍有效；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
 **0.2 线**：在 DSH `0.2.1-rc.2` 下用 `npm run smoke:bridge` 验证了桥接握手、模型/preset 目录与 `session.list`（真实历史 350+ 会话）；该版本包源码里 `compaction/summary` 已写入压缩影子价格、`contextPressure` 投影已带 `projectedTokens`，上下文圆环据此在压缩后即时更新（真实压缩会话未复测）。真实回合由贡献者 @rayzart 在 0.2.7 用 dsh `0.2.1-rc.2` 加 Paseo `0.11.4`（DeepSeek 账号登录）验证：诊断报可用、模型目录可列出、真实回合完成；审批、问答、`/compact`、`/plan` 与会话恢复没有该版本的复测记录（本仓缺少 API 密钥）。在 DSH `0.2.0-rc.2` 下验证了握手、目录与 `session.list`，并在 Paseo `0.11.2` 的 Daemon 内验证了：本地目录安装并加载（插件名 `DeepSeek Harness`、图标被接受、插件日志无错误）、`dsh-pi` 列出且可用、模型目录加载；`PASEO_DSH_EXECUTABLE` 指向不存在的路径时，`paseo provider diagnostic dsh-pi` 报告不可用并给出 `Could not run "<path> --version"…` 的说明。`0.2.0-rc.2` 下的真实回合、工具调用、审批、问答、`/compact`、`/plan` 与会话恢复也没有复测。
 

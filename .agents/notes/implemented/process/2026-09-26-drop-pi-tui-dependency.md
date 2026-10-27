@@ -35,7 +35,7 @@ dsh 的差距正在于此:官方 sdk profile 仅 3 请求+4 通知,无 cancel/�
 ### E4. 依赖 pi-tui 的代价(本机事故史)
 
 - 版本硬耦合:pi-tui 逐版精确绑死 dsh(0.4.9 要求 ≥0.1.7-rc.2),它掉队则插件被卡在旧 dsh;
-- 两次真实事故均由 pi-tui 挖坑:0.4.7-alpha.2 强制 markSurfaceMounted(桥被迫补假握手)、0.4.8 peer floor 连锁要求 dsh 0.1.7-rc.1(见 .agents/ops-log.md 09-24);
+- 两次真实事故均由 pi-tui 挖坑:0.4.7-alpha.2 强制 markSurfaceMounted(桥被迫补假握手)、0.4.8 peer floor 连锁要求 dsh 0.1.7-rc.1;
 - 18 星第三方包,无 SLA,追不上 dsh 节奏时无解。
 
 ### E5. pi-tui 提供而需要补齐的全部内容

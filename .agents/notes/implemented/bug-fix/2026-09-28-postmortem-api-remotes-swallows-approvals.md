@@ -37,4 +37,4 @@ Status: implemented
 ## 怎么验证的
 
 - 在 DSH 0.2.0-rc.1 和 0.1.7-rc.2 下，用 `createDshProvider` + `launchDshBridge` 以 `read-only` 权限预设让模型越权写文件：不禁 `api-remotes` 时 DSH 日志有 `approval/asked`、桥接收不到请求、回合不结束；禁用后 Paseo 收到审批请求，允许时文件写成、拒绝时文件不存在，两种情况回合都正常完成。
-- 同样在 0.2.0-rc.1 下验证问答：应答后模型按所选项回复，拒答后回合正常完成。证据见 [仓外事件](../../../ops-log.md) 2026-09-28 的 dsh 0.2 适配条目。
+- 同样在 0.2.0-rc.1 下验证问答：应答后模型按所选项回复，拒答后回合正常完成。
