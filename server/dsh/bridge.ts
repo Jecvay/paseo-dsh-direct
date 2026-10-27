@@ -32,6 +32,8 @@ export function safeError(error: unknown): string {
 const METHODS = new Set<keyof BridgeMethods>([
   "bridge.initialize",
   "bridge.shutdown",
+  "subagent.settings.read",
+  "subagent.settings.save",
   "session.list",
   "session.read",
   "session.open",

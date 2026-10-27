@@ -3,6 +3,7 @@ import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsInput, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { useRef } from "react";
 import { DSH_SETTINGS } from "../shared/settings.js";
+import SubagentSettings from "./subagent-settings.js";
 
 const EXECUTABLE_HINT =
   "Path or command of dsh. PASEO_DSH_EXECUTABLE overrides this; leave it empty to use the Paseo provider command or dsh on PATH.";
@@ -96,6 +97,7 @@ export default function DshSettingsScreen() {
           disabled={settings.saving}
         />
       </SettingsSection>
+      <SubagentSettings launchRevision={revision} launchSaving={settings.saving} />
     </ScrollView>
   );
 }

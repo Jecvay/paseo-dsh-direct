@@ -1,6 +1,6 @@
 {
   "name": "paseo-dsh-direct",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "DeepSeek Harness Direct Provider Plugin for Paseo",
   "repository": {
     "type": "git",
@@ -58,6 +58,7 @@
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.12.0",
+    "@tanstack/react-query": "^5.105.0",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.0.0",
     "@types/react": "~19.2.0",

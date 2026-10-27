@@ -6,9 +6,9 @@
 
 运行链路为 Paseo Daemon → 插件服务端 → DSH 子进程 → `paseo` profile。插件不修改 Paseo 或 DSH 核心。
 
-`paseo` profile 由 DSH 官方 `web` 模板生成：bundle 为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`，后者自带 `standard`、`ptc`、`minimal`、`cordis` 四个 agent preset。启动前 `server/bridge-client.ts` 检查 `$DSH_HOME/profiles/<profile>`（`$DSH_HOME` 为空或未设置时是 `~/.dsh`，解析方式与 DSH 相同）。目录缺失且 profile 是默认的 `paseo` 时，执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它（60 秒超时，输出丢弃）；`PASEO_DSH_PROFILE` 或设置页指定的 profile 缺失时直接报错并给出创建命令。模型路由、默认模型和权限预设属于用户层 `cordis.patch.yml`，插件不写它。
+`paseo` profile 由 DSH 官方 `web` 模板生成：bundle 为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`，后者自带 `standard`、`ptc`、`minimal`、`cordis` 四个 agent preset。启动前 `server/bridge-client.ts` 检查 `$DSH_HOME/profiles/<profile>`（`$DSH_HOME` 为空或未设置时是 `~/.dsh`，解析方式与 DSH 相同）。目录缺失且 profile 是默认的 `paseo` 时，执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它（60 秒超时，输出丢弃）；`PASEO_DSH_PROFILE` 或设置页指定的 profile 缺失时直接报错并给出创建命令。模型路由、默认模型和权限预设属于用户层 `cordis.patch.yml`，插件不改这些字段。
 
-DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里服务浏览器界面的五行，再加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。用户持久 profile 文件保持原样。
+DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里服务浏览器界面的五行，再加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。子代理选模设置通过下述 DSH 原生设置服务持久化，其余用户配置保持原样。
 
 | 禁用的行 | 原本作用 | 为什么一并禁用 |
 |---|---|---|
@@ -54,6 +54,14 @@ Paseo 在调用插件之前就按 `PATH` 解析注册的 `command`，找不到�
 
 桥接子进程的环境以 `launch.env` 为底（没有 `launch` 时用 `process.env`），再叠加会话环境变量。`status()` 对同一请求的 `launch` 套用同一顺序，对解析出的命令加参数运行 `--version`，结果按命令与参数缓存，探测使用 `launch.env`。无法运行时返回不可用，并提示安装 dsh、设置 `agents.providers.dsh-pi.command`、在插件设置页填写 `dsh executable` 或设置 `PASEO_DSH_EXECUTABLE`，然后重启 Daemon；`major.minor` 线与插件不一致时返回可用并附与会话时间线相同的警告。
 
+### 子代理模型设置
+
+`shared/subagent-settings.ts` 定义设置页 RPC；`server/subagent-settings.ts` 为每次读写启动并关闭独立桥接。启动参数沿用 Provider 发现时 Paseo 解析出的 command、args 和 env，再按现有优先级应用插件设置。草稿 token 绑定有效命令、参数、DSH home 和 profile，切换配置源后拒绝旧草稿。
+
+`server/dsh/subagent-settings.ts` 使用 `settings.describe`、`configEditor.configuration` 和 `settings.mutate` 读写 DSH 的 `subagent-model-selection-settings`，不在 Paseo 设置中保存第二份列表。桥接初始化时，只有原始有效配置同时缺少 `enabled` 和 `allowedModels` 才默认选中当前成功返回的全部模型并开启；目录为空时不写，部分提供方失败由页面列出。已有配置保留，新增模型不自动加入。缺少原生可写设置的 profile 返回不支持；初始化失败不影响普通会话，但设置页显示错误。
+
+每次写入同时保存开关和精确的 provider/model 列表。跨桥接的 token 是配置内容与源文件身份的 hash；保存先比较 token，再用当前桥接的 DSH revision 写入，由 DSH 文件锁内的重读与 revision 检查处理并发修改。DSH 自己记录新会话策略和子会话继承，插件不修改已有会话策略。
+
 ### 漂移防护
 
 DSH 内部契约随版本变化。桥接启动有两道检查，任一失败都使连接失败并写明原因：
@@ -75,7 +83,9 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 
 | 请求 | 用途 |
 |---|---|
-| `bridge.initialize` | 确认桥接版本与能力，读取模型和 preset 目录 |
+| `bridge.initialize` | 确认桥接版本与能力，初始化未配置的子代理模型列表，读取模型和 preset 目录 |
+| `subagent.settings.read` | 读取原生子代理设置、模型目录及加载失败的提供方 |
+| `subagent.settings.save` | 校验草稿版本并原子保存子代理开关和模型列表 |
 | `session.list` | 查询原生持久会话摘要，支持 `cwd` 过滤、`query` 标题/ID 匹配与 `limit` 截断；标题折叠只作用于返回的行并按桥接进程缓存 |
 | `session.read` | 只读读取原生历史 |
 | `session.open` | 创建会话或通过 DSH 官方恢复接口接管会话 |

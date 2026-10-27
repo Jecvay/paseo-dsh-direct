@@ -18,6 +18,7 @@ import type {
   PromptPart,
   SlashCommand,
 } from "../../shared/bridge-protocol.js";
+import { SubagentSettings } from "./subagent-settings.js";
 import { slashLine } from "../../shared/bridge-protocol.js";
 import type {
   ApprovalOutcome,
@@ -144,6 +145,8 @@ export class BridgeService {
   private readonly titles = new Map<string, string>();
   private stopping = false;
   private stopTask?: Promise<{}>;
+  private readonly subagentSettings: SubagentSettings;
+  private subagentSettingsInitializationError?: Error;
 
   constructor(
     private readonly ctx: HostContext,
@@ -151,6 +154,7 @@ export class BridgeService {
     private readonly profile = "paseo",
     private readonly helpers?: HostHelpers,
   ) {
+    this.subagentSettings = new SubagentSettings(ctx, profile);
     this.subscriptions.push(
       ctx.on("session/created", (session) => {
         if (session.header.parentSession)
@@ -453,6 +457,15 @@ export class BridgeService {
           }, catalog: { models: [], presets: [] }, missing } satisfies BridgeInitializeResult;
           break;
         }
+        try {
+          await this.subagentSettings.initialize();
+          this.subagentSettingsInitializationError = undefined;
+        } catch (error) {
+          this.subagentSettingsInitializationError = new Error(
+            `Subagent settings initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          console.error(this.subagentSettingsInitializationError.message);
+        }
         result = {
           protocolVersion: 1,
           profile: this.profile,
@@ -467,6 +480,14 @@ export class BridgeService {
         } satisfies BridgeInitializeResult;
         break;
       }
+      case "subagent.settings.read":
+        if (this.subagentSettingsInitializationError) throw this.subagentSettingsInitializationError;
+        result = await this.subagentSettings.read();
+        break;
+      case "subagent.settings.save":
+        result = await this.subagentSettings.save(params);
+        this.subagentSettingsInitializationError = undefined;
+        break;
       case "session.list":
         result = { sessions: await this.listSessions(listParams(params)) };
         break;

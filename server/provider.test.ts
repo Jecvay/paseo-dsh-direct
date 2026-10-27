@@ -785,6 +785,19 @@ describe("dsh catalog cache key", () => {
     assert.equal(await keyFor({ executable: "/a/dsh" }, launch("/p/dsh")), await keyFor({ executable: "/a/dsh" }, launch("/q/dsh")));
   });
 
+  it("observes the latest launch even when the catalog cache key stays unchanged", async () => {
+    const seen: unknown[] = [];
+    const provider = createDshProvider({
+      observeLaunch: (launch) => { seen.push(launch); },
+      createBridge: async () => { throw new Error("cache lookup must not create a bridge"); },
+    });
+    const first = { command: "dsh", args: [], env: { DSH_HOME: "/first" } };
+    const second = { ...first, env: { DSH_HOME: "/second" } };
+    await provider.getCatalogCacheKey!({ scope: "global", launch: first });
+    await provider.getCatalogCacheKey!({ scope: "global", launch: second });
+    assert.deepEqual(seen, [first, second]);
+  });
+
   it("keeps global and per-workspace discovery apart", async () => {
     const keys = new Set([
       await keyFor({}),

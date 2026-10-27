@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.12
+
+- Choose which models subagents may use from the DeepSeek Harness settings page. Search by model or provider, select individual models, select all, clear the list, or disable model selection. Saved choices go directly into the DSH profile and apply to new sessions.
+- On first initialization, select all currently available models when the profile has no explicit subagent model settings. Preserve existing choices, including disabled settings and empty lists; models added later require selection. Show unavailable providers and retain selected models missing from the current catalog.
+- Reject stale settings edits and drafts from a different executable, DSH home or profile. Refresh the daemon-resolved launch configuration before opening settings bridges, and release each bridge after the operation.
+- Verified with DSH `0.2.1-rc.2` in an isolated home: initialization, persistence, stale-edit rejection and existing session policies. Tested the real Paseo `0.13.2` Web UI at desktop and narrow widths, in light and dark themes, including search, selection, validation and save/reload. Screenshots were captured; native mobile devices and image-based aesthetic review were not tested.
+
 ## 0.2.11
 
 - The context-window meter now drops as soon as a compaction finishes on dsh 0.2.1 or later, instead of waiting for the next request. The bridge reads the `projectedTokens` projection, which folds the compaction's shadow price into the last request's prompt size, and falls back to the raw prompt size on older dsh. Compaction cards also gain the real token count on dsh 0.2.1+, because they read the same shadow price.

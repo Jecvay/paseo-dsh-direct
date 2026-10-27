@@ -54,7 +54,7 @@ dsh 的差距正在于此:官方 sdk profile 仅 3 请求+4 通知,无 cancel/�
 - **运行时 patch**:禁用 `web-startup`、`webserver`、`web-runtime`、`connection`、`api-remotes` 五行,再插入桥。preset 行和会话、工具行不动。`api-remotes` 为什么也要禁,见 [复盘](../bug-fix/2026-09-28-postmortem-api-remotes-swallows-approvals.md)。
 - **桥**:inject 不含 `tuiStartup`,不调用 `markSurfaceMounted`;`appReady`/`appExit` 由 DSH 启动器提供,要求保留。
 - **命名**:Provider 显示名为「DeepSeek Harness」;包名 `paseo-dsh-pi` 与 Provider id `dsh-pi` 不变,避免弄坏已装的 Paseo 配置和已有 agent。
-- **用户层配置**:模型路由(`llm-pi-ai` 的 CPA-an/CPA-rs)、`agent-default-model`、`permission` 写在 `~/.dsh/profiles/paseo/cordis.patch.yml`,插件不写它。
+- **用户层配置**:模型路由(`llm-pi-ai` 的 CPA-an/CPA-rs)、`agent-default-model`、`permission` 写在 `~/.dsh/profiles/paseo/cordis.patch.yml`,插件不改这些字段；子代理选模通过原生设置服务写入，见[子代理模型设置](../feature/2026-10-27-subagent-model-settings.md)。
 
 上游耦合由三方(dsh + pi-tui + paseo SDK)收敛为两方;插件自包含可分发,不再要求用户装第三方 profile。与 [路线方针](../../proposed/process/2026-09-26-roadmap-multi-angle-research.md) 的放弃判据③④(「自建 profile 去掉第三方依赖」)直接衔接。
 
