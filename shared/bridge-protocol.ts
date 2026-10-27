@@ -45,6 +45,16 @@ export type DshStreamFrame =
             seq: number;
           };
     };
+/**
+ * One image a tool result produced, already written to a file the plugin can
+ * hand to Paseo. `index` is the position of the image block in the tool
+ * message's content, so the plugin can keep the order the model saw.
+ */
+export type ToolImageOutcome =
+  | { index: number; status: "ready"; path: string; name?: string }
+  | { index: number; status: "failed"; code: string; message: string }
+  | { index: number; status: "unavailable" };
+
 export interface SessionSummary {
   id: string;
   createdAt: number;
@@ -235,7 +245,16 @@ export interface BridgeUsage {
 }
 export interface BridgeNotifications {
   "bridge.ready": { protocolVersion: 1 };
-  "session.event": { sessionId: string; event: DshSessionEvent };
+  /**
+   * `images` carries the tool-result images the bridge already materialized on
+   * disk. It is present on every event so the plugin never has to infer whether
+   * a given event type can carry images.
+   */
+  "session.event": {
+    sessionId: string;
+    event: DshSessionEvent;
+    images: ToolImageOutcome[];
+  };
   "session.stream": { sessionId: string; frame: DshStreamFrame };
   "session.status": { sessionId: string; status: "idle" | "running" };
   "session.usage": { sessionId: string; usage: BridgeUsage };

@@ -112,7 +112,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - Paseo 的 system prompt 在 agent `setup` 中以 agent 作用域的 `systemPrompt.section`（order 10100）追加；tool policy 预先批准的 `mcp__<server>__<tool>` 在桥接的审批钩子中直接允许，其他工具照常询问。
 - 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。
 - 同一条助手消息和思考使用稳定 item id，向 Paseo 发送累计快照，由宿主切出网络增量。
-- 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。
+- 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。工具结果里的图片由桥接进程读出并写成内容寻址的文件，插件为每张图发一条 markdown 图片助手消息，Paseo 据此显示内联大图和打开原图的入口。
 - DSH 会话投影 `tokenUsage` 或 `contextPressure` 变化时，桥接发 `session.usage` 通知，插件转为 Paseo 的 usage 事件：未命中缓存的输入、缓存命中输入与输出 token 是会话累计值，另带上下文已用与上限 token。上下文已用优先取 `contextPressure` 的 `projectedTokens`（dsh 0.2.1 起随压缩的影子价格下调，压缩结束即更新），字段不存在时回退到最近一次请求的 `pressureTokens`。全零的初始值与未变的值不发送；DSH 不提供 `sessionProjections` 服务时不上报用量。
 - 只将真实用户来源的消息显示为用户气泡，运行时注入的上下文和技能目录不冒充用户输入。
 - 每个已开始的回合有且仅有一个完成、失败或取消终态。失败终态携带 DSH `turn/end` 记录的 LLM 失败信息（消息、错误码、HTTP 状态与 request id）。

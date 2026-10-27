@@ -133,6 +133,22 @@ export interface HostServices {
       name?: string;
     }): Promise<unknown>;
     saveFile(input: { data: Uint8Array; name?: string }): Promise<unknown>;
+    /**
+     * Read a stored image after verifying its digest, size and dimensions.
+     * Absent on older DSH releases, which is why tool-result images degrade to
+     * `unavailable` rather than failing the turn.
+     */
+    readImage?(
+      ref: {
+        attachmentId: string;
+        mediaType: string;
+        bytes: number;
+        width: number;
+        height: number;
+        name?: string;
+      },
+      signal?: AbortSignal,
+    ): Promise<{ ref: unknown; data: Uint8Array }>;
   };
   llm: {
     listProviders(): Array<{ id: string; name?: string }>;

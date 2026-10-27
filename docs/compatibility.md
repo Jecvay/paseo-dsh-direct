@@ -58,7 +58,7 @@ DSH 的界面扩展不会自动变成 Paseo 界面，具体范围见 [客户端�
 
 支持文字、图片与文件输入，正文/思考流、工具卡片、审批与用户问答、模型/preset/思考/权限/计划模式选择、中断、压缩卡片和原生历史恢复。profile 中的运行时扩展照常加载，只有服务浏览器界面的几行在启动时禁用（清单见 [服务端架构](server-architecture.md)）。
 
-图片与上传文件存入 DSH 附件库后随消息发送；当前模型声明不接受图片时，提示词明确报错。PR、issue、代码评审等 Paseo 上下文附件以文字发送。归档由 Paseo 管理，不改动 DSH 原生会话。
+图片与上传文件存入 DSH 附件库后随消息发送；当前模型声明不接受图片时，提示词明确报错。工具结果里的图片（如 `read_image`）写到本地缓存目录后显示在时间线里。DSH 未提供 `attachments.readImage` 时不显示这类图片，回合照常进行。PR、issue、代码评审等 Paseo 上下文附件以文字发送。归档由 Paseo 管理，不改动 DSH 原生会话。
 
 Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt；MCP server（stdio 与 streamable HTTP）挂载到该会话的 DSH 进程，工具名为 `mcp__<server>__<tool>`；tool policy 预先批准的 MCP 工具不再弹出审批。SSE 类型的 MCP server 明确报错。不持久化的会话写入该会话进程的临时目录，关闭时删除，不进入 DSH 历史。达到输出上限、被插件拦截或因进程中止未完成的回合显示警告。
 
