@@ -315,3 +315,24 @@
 - Additional daemon checks exercised a real stdio MCP echo service with exact preapproval and no permission prompt, native PowerShell background work with `job_output`, and a native child sending its result to its parent. The child's message is durable in the parent's native v4 log, and the parent emits a response confirming receipt. Paseo deliberately omits internal agent-message entries from its projected timeline; this does not verify separate child-chat UI.
 - Daily-daemon validation used existing local credentials: a real model called `read` and returned a file marker; a DeepSeek Account model called native `web_search` successfully. A custom proxy model's search failed with the expected missing official search credential, so chat-proxy authentication must not be described as search authentication.
 - The scripted checks do not measure remote-model quality. Physical mobile UI, attachments, real compaction, and whole-daemon restart recovery were not exercised in this validation.
+
+## 2026-10-27 — 0.2.13 桌面端采样验证
+
+- 环境：插件 `paseo-dsh-direct` `0.2.13`（npm 来源，状态 running），Paseo `0.13.2`，dsh `0.2.1-rc.2`。
+- 用户按清单抽样 5 项，均正常：`read` 卡片带路径与 offset/limit 读取窗口；`read_image` 显示为文件读取卡片而非文本 read；单选标签含逗号时完整回传；手输答案含逗号时后半段不丢；新会话启动即关闭后没有残留的 dsh 桥接进程。
+- 未覆盖：`write`/`edit`/`bash` 卡片、`todo_write`、`grep`/`glob`/`web_fetch`、多选与拒绝问答、启动途中停 daemon、真机界面、真实压缩、整机重启恢复。
+- 结论：按采样处理，不据此改写 `docs/compatibility.md` 里「未实测」的表述；其余项等完整跑过再更新。
+
+## 2026-10-30 — dsh rc.4 与 Paseo 0.13.2 基础兼容检查
+
+- 环境：插件 `0.2.13`（npm 安装，状态 running），Paseo CLI `0.13.2`，dsh `0.2.1-rc.4`，Node.js `24.22.0`。
+- 本机 `paseo provider diagnostic dsh-pi --json` 报告可用，列出 10 个模型；源码 `npm run smoke:bridge` 握手、模型目录、487 条原生历史摘要读取及关闭通过，退出码 0。
+- `DSH_SETTINGS_E2E=1` 的原生设置测试在临时 DSH home 中通过：首次初始化、持久化、过期草稿拒绝和已有会话策略保留；未请求模型。
+- 未覆盖真实回合、审批与问答、真实压缩、手机界面，以及 Paseo `0.14.0` 的运行时加载和空闲回收；没有升级或重载生产插件。
+
+## 2026-10-31 — 发布 0.2.14（Paseo 0.14 空闲回收安全查询）
+
+- 合并 PR #89（merge commit 125bad9，版本 0.2.14），CI 通过后 `main` 上的 Publish 工作流成功：npm `latest` = `0.2.14`，tag `v0.2.14` 已推送到该提交。
+- 本机 `paseo plugin update paseo-dsh-direct --yes` 更新到 0.2.14，插件状态 running；`paseo provider diagnostic dsh-pi` 报告可用、10 个模型、Ready。
+- 隔离 Paseo 0.14.0 Daemon E2E（真实 `@getpaseo/server`/`client` 0.14.0、真实 dsh 0.2.1-rc.4、loopback 脚本模型、临时 Paseo/DSH home、注入时钟快进一小时）：插件编译并 running、完整回合、空闲安全查询可回收、dsh 后台任务运行期间拒绝回收、任务结束后回收并关闭 dsh 子进程、下一条消息与 `agent.reload()` 恢复同一原生 `sessionId`；`session_open` 注入的 MCP server 与每 agent 工具出现在模型可见工具中。未用远端模型、未等待真实一小时。
+- 未覆盖：真机界面、真实远端模型、真实压缩、整机重启恢复，以及 Paseo 0.14 之外的宿主在本次未复测。
