@@ -33,6 +33,8 @@ Paseo 编译器检查客户端、服务端和共享模块边界。分层 TypeScr
 4. 正文与思考使用稳定 item id 和累计文本快照。Paseo 根据前后快照切片，不应向同一个 item 发互不关联的 token。
 5. 每个 started turn 恰好有一个终态；进程崩溃也必须终结活动回合、工具和交互。
 6. Provider 只声明实际实现的能力；不支持的输入明确失败，不静默丢弃图片、配置或交互。
+7. `session.can_stop_runtime` 仅在协商出该能力时处理。成功回复同名事件，带原 `requestId`、`sessionId` 与布尔值 `canStop`；失败回复 `request.failed`，不回复 `request.completed`。查询不停止进程、不取消任务、不修改会话。
+8. 空闲查询同时检查 Provider 和 DSH 内部工作，查询期间出现新活动时拒绝回收。缺少必需检查接口、响应不合法或超时都不能被当成可安全停止。连接关闭仍须等待启动中的会话和桥接完成清理。
 
 ## 本机安装
 
@@ -76,6 +78,14 @@ Paseo 提供的会话环境变量传入该会话的 DSH 子进程。已有历史
 `DSH_SETTINGS_E2E=1 npx tsx --test server/subagent-settings.e2e.test.ts` 使用临时 DSH home 验证首次全选、重启持久化、过期草稿拒绝及会话策略保留，不请求模型、不写真实 profile。测试后关闭全部桥接。
 
 `npm run smoke:bridge` 构建桥接并验证真实 profile 的目录、历史读取和关闭，不调用模型；`paseo` profile 不存在时会先创建它，未配置子代理模型时会执行首次全选初始化。`npm run smoke:bridge -- --prompt` 额外创建测试会话、调用模型并恢复历史，会产生模型用量。
+
+Paseo 0.14 的 Daemon 集成 E2E 仅在 Linux 运行，使用已安装的 `@getpaseo/server`、`@getpaseo/client` 和 `@getpaseo/plugin` `0.14.0`，以及可运行的真实 `dsh`。`PASEO_014_NODE_MODULES` 指向包含这些包的绝对 `node_modules` 路径；测试不下载依赖。先执行 `npm run build`，再运行：
+
+```bash
+PASEO_014_E2E=1 PASEO_014_NODE_MODULES=/abs/preinstalled/node_modules npx --no-install tsx --test scripts/paseo-014.e2e.test.ts
+```
+
+测试使用临时 Paseo 与 DSH home，以及仅监听 loopback 的脚本模型服务，不请求远端模型。具体断言以 `scripts/paseo-014.e2e.test.ts` 为准，实测范围记录在 [兼容性说明](compatibility.md)。未设置 `PASEO_014_E2E=1` 时跳过该测试；单元测试通过不代表这项集成验证已完成。
 
 ## 测试数据
 

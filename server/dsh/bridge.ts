@@ -45,6 +45,7 @@ const METHODS = new Set<keyof BridgeMethods>([
   "session.commands",
   "session.command",
   "session.cancel",
+  "session.can_stop_runtime",
   "interaction.respond",
 ]);
 

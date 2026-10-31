@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.14
+
+- Add a read-only safety query for Paseo 0.14 idle runtime cleanup. The provider refuses cleanup while DSH inspection APIs report pending agents, inbox messages, maintenance, jobs, subagent completion delivery, goals or reminders. Missing required inspection capabilities or failed checks keep the runtime alive; normal session use remains available.
+- Keep Paseo 0.11 and later supported through capability negotiation; development SDK types move to 0.14.0 and the lockfile to Zod 4.6.7.
+- Verified in an isolated Paseo `0.14.0` Daemon with real `@getpaseo/server`/`client` 0.14.0 and real dsh `0.2.1-rc.4` over a loopback scripted model: both plugin subprocesses load, a full turn completes, idle safety allows collection, a running dsh background job vetoes it, collection after the job finishes exits the dsh child, the next message and `agent.reload()` resume the same native session id, and a `session_open` MCP server plus a per-agent tool reach the model's tools. The one-hour idle window is simulated with an injected clock. Local gates: build, four typecheck targets, 283 tests passing (two environment-gated skips), notes and documentation gates.
+
 ## 0.2.13
 
 - File tool cards show their path, read window and old/new text again: the adapter read `filePath` and `path`, while DSH sends `file_path`, `old_string` and `new_string`. Shell cards read the working directory from `workdir`, and tools are recognized by exact name, so `todo_write` no longer renders as a file write and MCP tools stay generic.

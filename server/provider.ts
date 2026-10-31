@@ -48,6 +48,7 @@ const CAPABILITIES = [
   "prompt.command",
   "prompt.image",
   "prompt.steer",
+  "session.can_stop_runtime",
   "session.configure",
   "session.list",
   "session.persistence",
@@ -57,6 +58,8 @@ const CAPABILITIES = [
 ] as const;
 const PERMISSION_PRESET_SETTING = "permissionPreset";
 const PLAN_MODE_SETTING = "planMode";
+// Leave room for the host's ten-second safety-query deadline and IPC overhead.
+const RUNTIME_SAFETY_TIMEOUT_MS = 5_000;
 
 type DetectVersion = (
   executable: string,
@@ -104,6 +107,11 @@ interface SessionState {
   planMode: boolean;
   pendingInteractions: Map<string, InteractionRequest>;
   lane: Promise<void>;
+  /** Includes admitted input still waiting for its dispatch microtask or lane. */
+  pendingOperations: number;
+  /** Reject a safety snapshot if any input or native activity happened meanwhile. */
+  activityRevision: number;
+  ready: boolean;
   closed: boolean;
 }
 
@@ -216,13 +224,22 @@ function createConnection(
     async send(input) {
       if (closed) throw new Error("Provider connection is closed");
       validateAdmission(input, sessions, capabilities);
+      const operationSession = input.type !== "session.can_stop_runtime" && "sessionId" in input
+        ? sessions.get(input.sessionId)
+        : undefined;
+      if (operationSession) {
+        operationSession.pendingOperations += 1;
+        operationSession.activityRevision += 1;
+      }
       const pending = Promise.resolve().then(async () => {
         if (closed) return;
         await dispatch(input, {
           discoveryBridge, createBridge, sessions, emit, capabilities, detectVersion, launchEnv,
           openingBridges, closeBridge, isClosed: () => closed,
         });
-      }).catch((error) => failInput(input, error, emit));
+      }).catch((error) => failInput(input, error, emit)).finally(() => {
+        if (operationSession) operationSession.pendingOperations -= 1;
+      });
       if (input.type === "session.open") {
         pendingOpens.add(pending);
         void pending.then(() => pendingOpens.delete(pending));
@@ -265,6 +282,7 @@ function listenToSessionBridge(
   return [
     session.bridge.on("session.event", ({ sessionId, event }) => {
       if (!isCurrentSession(sessionId)) return;
+      session.activityRevision += 1;
       // The prompt path emits its own bubble with the clientMessageId.
       if (event.type === "user/message" && session.dispatch?.kind === "prompt") return;
       if (event.type === "turn/start") {
@@ -309,10 +327,12 @@ function listenToSessionBridge(
     }),
     session.bridge.on("session.stream", ({ sessionId, frame }) => {
       if (!isCurrentSession(sessionId)) return;
+      session.activityRevision += 1;
       for (const projected of session.projector.projectStream(frame)) emit(projected);
     }),
     session.bridge.on("session.status", ({ sessionId, status }) => {
       if (!isCurrentSession(sessionId)) return;
+      session.activityRevision += 1;
       if (status === "running") {
         if (session.dispatch) session.dispatch.sawRunning = true;
         return;
@@ -325,6 +345,7 @@ function listenToSessionBridge(
     }),
     session.bridge.on("session.usage", ({ sessionId, usage }) => {
       if (!isCurrentSession(sessionId)) return;
+      session.activityRevision += 1;
       emit({
         type: "session.usage",
         sessionId: session.paseoId,
@@ -334,6 +355,7 @@ function listenToSessionBridge(
     }),
     session.bridge.on("interaction.request", (interaction) => {
       if (!isCurrentSession(interaction.sessionId)) return;
+      session.activityRevision += 1;
       session.pendingInteractions.set(interaction.requestId, interaction);
       emit({
         type: "session.permission",
@@ -343,6 +365,7 @@ function listenToSessionBridge(
     }),
     session.bridge.on("interaction.closed", ({ requestId, sessionId }) => {
       if (!isCurrentSession(sessionId) || !session.pendingInteractions.delete(requestId)) return;
+      session.activityRevision += 1;
       emit({
         type: "session.permission_resolved",
         sessionId: session.paseoId,
@@ -423,6 +446,9 @@ async function dispatch(input: ProviderInput, state: DispatchState): Promise<voi
       return;
     case "session.configure":
       await enqueue(requireSession(state.sessions, input.sessionId), () => configureSession(input, state));
+      return;
+    case "session.can_stop_runtime":
+      await canStopRuntime(input, state);
       return;
     case "session.close":
       await closeSession(input, state);
@@ -529,6 +555,9 @@ async function openSession(
       planMode: latestPlanMode(opened.events),
       pendingInteractions: new Map(),
       lane: Promise.resolve(),
+      pendingOperations: 0,
+      activityRevision: 0,
+      ready: false,
       closed: false,
     };
     state.sessions.set(input.sessionId, session);
@@ -569,6 +598,8 @@ async function openSession(
     session.projector.seed(session.open.events);
   }
   await warnOnDshVersionMismatch(session, state);
+  if (state.isClosed() || session.closed) return;
+  session.ready = true;
   state.emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });
 }
 
@@ -825,6 +856,54 @@ async function respondToPermission(
   }
 }
 
+async function canStopRuntime(
+  input: Extract<ProviderInput, { type: "session.can_stop_runtime" }>,
+  state: DispatchState,
+): Promise<void> {
+  const session = requireSession(state.sessions, input.sessionId);
+  if (!isProviderSessionIdle(session)) {
+    state.emit({
+      type: "session.can_stop_runtime",
+      requestId: input.requestId,
+      sessionId: input.sessionId,
+      canStop: false,
+    });
+    return;
+  }
+  const revision = session.activityRevision;
+  const result = await session.bridge.request(
+    "session.can_stop_runtime",
+    { sessionId: session.nativeId },
+    RUNTIME_SAFETY_TIMEOUT_MS,
+  );
+  if (typeof result?.canStop !== "boolean") {
+    throw new Error("Invalid DSH runtime safety response");
+  }
+  const canStop =
+    result.canStop &&
+    state.sessions.get(input.sessionId) === session &&
+    session.activityRevision === revision &&
+    isProviderSessionIdle(session);
+  state.emit({
+    type: "session.can_stop_runtime",
+    requestId: input.requestId,
+    sessionId: input.sessionId,
+    canStop,
+  });
+}
+
+function isProviderSessionIdle(session: SessionState): boolean {
+  return (
+    session.ready &&
+    !session.closed &&
+    session.config.persist &&
+    !session.activeTurnId &&
+    !session.dispatch &&
+    session.pendingInteractions.size === 0 &&
+    session.pendingOperations === 0
+  );
+}
+
 async function closeSession(
   input: Extract<ProviderInput, { type: "session.close" }>,
   state: DispatchState,
@@ -860,6 +939,7 @@ function validateAdmission(
     if (sessions.has(input.sessionId)) throw new Error(`Session already exists: ${input.sessionId}`);
     return;
   }
+  if (input.type === "session.can_stop_runtime") return;
   if ("sessionId" in input && !sessions.has(input.sessionId)) {
     throw new Error(`Unknown session: ${input.sessionId}`);
   }

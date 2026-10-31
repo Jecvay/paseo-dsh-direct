@@ -19,6 +19,7 @@ import type {
   SlashCommand,
 } from "../../shared/bridge-protocol.js";
 import { SubagentSettings } from "./subagent-settings.js";
+import { canStopSessionRuntime, SubagentRunTracker } from "./runtime-safety.js";
 import { slashLine } from "../../shared/bridge-protocol.js";
 import type {
   ApprovalOutcome,
@@ -147,6 +148,7 @@ export class BridgeService {
   private stopTask?: Promise<{}>;
   private readonly subagentSettings: SubagentSettings;
   private subagentSettingsInitializationError?: Error;
+  private readonly subagentRuns = new SubagentRunTracker();
 
   constructor(
     private readonly ctx: HostContext,
@@ -157,11 +159,12 @@ export class BridgeService {
     this.subagentSettings = new SubagentSettings(ctx, profile);
     this.subscriptions.push(
       ctx.on("session/created", (session) => {
-        if (session.header.parentSession)
+        if (session.header.parentSession) {
           this.parent.set(
             String(session.id),
             String(session.header.parentSession),
           );
+        }
       }),
     );
     this.subscriptions.push(
@@ -236,6 +239,11 @@ export class BridgeService {
           return value;
         });
       }),
+    );
+    this.subscriptions.push(
+      ...this.subagentRuns.observeHost(ctx, (childId) =>
+        this.rootForId(childId),
+      ),
     );
   }
 
@@ -316,13 +324,19 @@ export class BridgeService {
   }
 
   private rootFor(agent: HostAgent | undefined): string | undefined {
-    let id = agent?.id && String(agent.id);
+    return agent && this.rootForId(String(agent.id), agent);
+  }
+
+  private rootForId(
+    sessionId: string,
+    agent = this.ctx.get("agents")?.get(sessionId),
+  ): string | undefined {
+    let id: string | undefined = sessionId;
     const seen = new Set<string>();
     while (id && !seen.has(id)) {
       if (this.tracked.has(id)) return id;
       seen.add(id);
-      id =
-        this.parent.get(id) ??
+      id = this.parent.get(id) ??
         (id === agent?.id ? agent.session.header.parentSession : undefined);
     }
     return undefined;
@@ -581,6 +595,13 @@ export class BridgeService {
         );
         result = {};
         break;
+      case "session.can_stop_runtime":
+        result = {
+          canStop: await this.canStopRuntime(
+            nonempty(params.sessionId, "sessionId"),
+          ),
+        };
+        break;
       case "session.close":
         await this.close(nonempty(params.sessionId, "sessionId"));
         result = {};
@@ -815,6 +836,7 @@ export class BridgeService {
         this.tracked.delete(id);
         this.preapproved.delete(id);
         this.lastUsage.delete(id);
+        this.subagentRuns.clearRoot(id);
       },
     );
     return task;
@@ -853,6 +875,7 @@ export class BridgeService {
       assembled: undefined,
     };
     const setup = async (agentCtx: HostContext) => {
+      this.subagentRuns.observeRootScope(id, agentCtx);
       this.helpers?.installModelSelection(agentCtx, modelRef);
       await presets.mount(agentCtx, preset.id);
       if (params.systemPrompt) {
@@ -950,6 +973,23 @@ export class BridgeService {
     pending.finish({ answers: params.answers });
   }
 
+  private canStopRuntime(sessionId: string): Promise<boolean> {
+    return canStopSessionRuntime({
+      ctx: this.ctx,
+      sessionId,
+      rootAgent: this.owned.get(sessionId)?.handle.agent,
+      hasBridgeActivity: () =>
+        this.stopping ||
+        this.opening.has(sessionId) ||
+        this.closing.has(sessionId) ||
+        this.commandAborts.has(sessionId) ||
+        [...this.interactions.values()].some(
+          (pending) => pending.request.sessionId === sessionId,
+        ),
+      hasActiveSubagentRuns: () => this.subagentRuns.hasActiveRuns(),
+    });
+  }
+
   private close(id: string): Promise<void> {
     const previous = this.closing.get(id);
     if (previous) return previous;
@@ -964,6 +1004,7 @@ export class BridgeService {
       this.tracked.delete(id);
       this.preapproved.delete(id);
       this.lastUsage.delete(id);
+      this.subagentRuns.clearRoot(id);
     })();
     this.closing.set(id, task);
     void task.finally(() => this.closing.delete(id)).catch(() => undefined);
@@ -978,6 +1019,7 @@ export class BridgeService {
       const results = await Promise.allSettled(
         [...this.owned.keys()].map((id) => this.close(id)),
       );
+      this.subagentRuns.clearAll();
       for (const dispose of this.subscriptions.splice(0)) dispose();
       if (results.some((result) => result.status === "rejected"))
         throw new Error("One or more DSH sessions failed to close");
