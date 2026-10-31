@@ -204,6 +204,10 @@ export interface BridgeMethods {
     result: {};
   };
   "session.cancel": { params: { sessionId: string }; result: {} };
+  "session.can_stop_runtime": {
+    params: { sessionId: string };
+    result: { canStop: boolean };
+  };
   "session.close": { params: { sessionId: string }; result: {} };
   "interaction.respond": {
     params: {

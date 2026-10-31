@@ -35,7 +35,8 @@ class FakeBridge implements DshBridge {
       defaultPermissionPreset: "read-only",
     },
   };
-  readonly calls: Array<{ method: keyof BridgeMethods; params: unknown }> = [];
+  readonly calls: Array<{ method: keyof BridgeMethods; params: unknown; timeoutMs?: number }> = [];
+  canStop = true;
   closeCount = 0;
   private listeners = new Map<string, Set<(params: unknown) => void>>();
   private failureListeners = new Set<(error: Error) => void>();
@@ -46,9 +47,10 @@ class FakeBridge implements DshBridge {
     private readonly completePromptSynchronously = true,
   ) {}
 
-  async request<Name extends keyof BridgeMethods>(method: Name, params: BridgeMethods[Name]["params"]): Promise<BridgeMethods[Name]["result"]> {
-    this.calls.push({ method, params });
+  async request<Name extends keyof BridgeMethods>(method: Name, params: BridgeMethods[Name]["params"], timeoutMs?: number): Promise<BridgeMethods[Name]["result"]> {
+    this.calls.push({ method, params, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
     if (this.failures.has(method)) throw new Error(`${method} failed`);
+    if (method === "session.can_stop_runtime") return { canStop: this.canStop } as BridgeMethods[Name]["result"];
     if (method === "session.open") {
       const open = params as BridgeMethods["session.open"]["params"];
       return {
@@ -868,6 +870,238 @@ describe("dsh provider shutdown during startup", () => {
     launch.reject(new Error("startup failed"));
     await closing;
     assert.equal(discovery.closeCount, 1);
+  });
+});
+
+describe("dsh provider runtime safety", () => {
+  const defaultCapabilities = ["prompt.message", "session.configure", "session.persistence", "session.can_stop_runtime"];
+
+  async function setup(runtime: FakeBridge, capabilities = defaultCapabilities, persist = true) {
+    const discovery = new FakeBridge();
+    const provider = createDshProvider({ createBridge: async (launch) => launch ? runtime : discovery, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open", requestId: "open-1", sessionId: "paseo-1", history: "skip",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist },
+    });
+    await tick();
+    await tick();
+    return { connection, events };
+  }
+
+  it("negotiates session.can_stop_runtime for new hosts and drops it for older hosts", async () => {
+    const { connection: modern, events: modernEvents } = await setup(new FakeBridge());
+    const opened = modernEvents.find((event) => event.type === "session.opened");
+    assert.ok(modern.capabilities.includes("session.can_stop_runtime"));
+    assert.ok(opened?.type === "session.opened" && opened.capabilities.includes("session.can_stop_runtime"));
+    await modern.close();
+
+    const { connection: legacy } = await setup(new FakeBridge(), ["prompt.message", "session.persistence"]);
+    assert.equal(legacy.capabilities.includes("session.can_stop_runtime"), false);
+    await assert.rejects(
+      () => legacy.send({ type: "session.can_stop_runtime", requestId: "stop-0", sessionId: "paseo-1" }),
+      /session\.can_stop_runtime/,
+    );
+    await legacy.close();
+  });
+
+  it("queries the session bridge with a bounded timeout and preserves the session state", async () => {
+    const runtime = new FakeBridge();
+    const { connection, events } = await setup(runtime);
+
+    for (const expected of [true, false]) {
+      runtime.canStop = expected;
+      await connection.send({ type: "session.can_stop_runtime", requestId: `stop-${expected}`, sessionId: "paseo-1" });
+      await tick();
+      await tick();
+      assert.deepEqual(
+        events.find((event) => "requestId" in event && event.requestId === `stop-${expected}`),
+        { type: "session.can_stop_runtime", requestId: `stop-${expected}`, sessionId: "paseo-1", canStop: expected },
+      );
+    }
+    const safetyCalls = runtime.calls.filter((call) => call.method === "session.can_stop_runtime");
+    assert.deepEqual(safetyCalls, [
+      { method: "session.can_stop_runtime", params: { sessionId: "native-new" }, timeoutMs: 5_000 },
+      { method: "session.can_stop_runtime", params: { sessionId: "native-new" }, timeoutMs: 5_000 },
+    ]);
+    assert.equal(runtime.closeCount, 0);
+    assert.equal(events.some((event) => event.type === "session.closed"), false);
+    assert.equal(events.some((event) => event.type === "request.completed"), false);
+    await connection.close();
+  });
+
+  it("answers false without waiting on the session lane while a turn or configure is running", async () => {
+    const configureGate = deferred<void>();
+    class SlowConfigureBridge extends FakeBridge {
+      override async request<Name extends keyof BridgeMethods>(method: Name, params: BridgeMethods[Name]["params"], timeoutMs?: number): Promise<BridgeMethods[Name]["result"]> {
+        if (method === "session.configure") await configureGate.promise;
+        return super.request(method, params, timeoutMs);
+      }
+    }
+    const runtime = new SlowConfigureBridge(new Set(), false, false);
+    const { connection, events } = await setup(runtime);
+
+    // Admitted configure work is still in the lane.
+    void connection.send({
+      type: "session.configure",
+      requestId: "cfg-1",
+      sessionId: "paseo-1",
+      changes: { model: "deepseek/chat" },
+    });
+    await connection.send({ type: "session.can_stop_runtime", requestId: "stop-pending-op", sessionId: "paseo-1" });
+    await tick();
+    assert.deepEqual(
+      events.find((event) => "requestId" in event && event.requestId === "stop-pending-op"),
+      { type: "session.can_stop_runtime", requestId: "stop-pending-op", sessionId: "paseo-1", canStop: false },
+    );
+
+    configureGate.resolve();
+    await tick();
+    await tick();
+
+    // Start a turn that remains active.
+    await connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "c-1", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "work" }] } },
+    });
+    await tick();
+    await tick();
+    await connection.send({ type: "session.can_stop_runtime", requestId: "stop-active-turn", sessionId: "paseo-1" });
+    await tick();
+    assert.deepEqual(
+      events.find((event) => "requestId" in event && event.requestId === "stop-active-turn"),
+      { type: "session.can_stop_runtime", requestId: "stop-active-turn", sessionId: "paseo-1", canStop: false },
+    );
+    assert.equal(runtime.calls.some((call) => call.method === "session.can_stop_runtime"), false);
+    await connection.close();
+  });
+
+  for (const blockedBy of ["non-persistent session", "pending interaction"] as const) {
+    it(`answers false without a bridge query for a ${blockedBy}`, async () => {
+      const runtime = new FakeBridge();
+      const { connection, events } = await setup(runtime, defaultCapabilities, blockedBy !== "non-persistent session");
+      if (blockedBy === "pending interaction") {
+        runtime.notify("interaction.request", {
+          sessionId: "native-new", requestId: "question-1", kind: "questions",
+          questions: [{ id: "q1", question: "Continue?" }],
+        });
+      }
+      await connection.send({ type: "session.can_stop_runtime", requestId: "stop-blocked", sessionId: "paseo-1" });
+      await tick();
+      assert.deepEqual(
+        events.find((event) => "requestId" in event && event.requestId === "stop-blocked"),
+        { type: "session.can_stop_runtime", requestId: "stop-blocked", sessionId: "paseo-1", canStop: false },
+      );
+      assert.equal(runtime.calls.some((call) => call.method === "session.can_stop_runtime"), false);
+      assert.equal(runtime.closeCount, 0);
+      await connection.close();
+    });
+  }
+
+  for (const closing of ["session", "connection"] as const) {
+    it(`never answers true when the ${closing} closes during the bridge query`, async () => {
+      const queryEntered = deferred<void>();
+      const queryResult = deferred<{ canStop: boolean }>();
+      class ClosingBridge extends FakeBridge {
+        override async request<Name extends keyof BridgeMethods>(method: Name, params: BridgeMethods[Name]["params"], timeoutMs?: number): Promise<BridgeMethods[Name]["result"]> {
+          if (method === "session.can_stop_runtime") {
+            queryEntered.resolve();
+            return queryResult.promise as Promise<BridgeMethods[Name]["result"]>;
+          }
+          return super.request(method, params, timeoutMs);
+        }
+      }
+      const { connection, events } = await setup(new ClosingBridge());
+      await connection.send({ type: "session.can_stop_runtime", requestId: "stop-closing", sessionId: "paseo-1" });
+      await queryEntered.promise;
+      if (closing === "session") {
+        await connection.send({ type: "session.close", requestId: "close-1", sessionId: "paseo-1" });
+        await tick();
+      } else {
+        await connection.close();
+      }
+      queryResult.resolve({ canStop: true });
+      await tick();
+      await tick();
+      const reply = events.find((event) => "requestId" in event && event.requestId === "stop-closing");
+      if (closing === "session") {
+        assert.deepEqual(reply, {
+          type: "session.can_stop_runtime", requestId: "stop-closing", sessionId: "paseo-1", canStop: false,
+        });
+      } else {
+        assert.equal(reply, undefined, "closed connections cannot publish a late safety response");
+      }
+      await connection.close();
+    });
+  }
+
+  it("answers false when activity happens while the bridge safety query is in flight", async () => {
+    const queryEntered = deferred<void>();
+    const queryResult = deferred<{ canStop: boolean }>();
+    class RacingBridge extends FakeBridge {
+      override async request<Name extends keyof BridgeMethods>(method: Name, params: BridgeMethods[Name]["params"], timeoutMs?: number): Promise<BridgeMethods[Name]["result"]> {
+        if (method === "session.can_stop_runtime") {
+          queryEntered.resolve();
+          return queryResult.promise as Promise<BridgeMethods[Name]["result"]>;
+        }
+        return super.request(method, params, timeoutMs);
+      }
+    }
+    const runtime = new RacingBridge();
+    const { connection, events } = await setup(runtime);
+
+    await connection.send({ type: "session.can_stop_runtime", requestId: "stop-race", sessionId: "paseo-1" });
+    await queryEntered.promise;
+    // A turn starts and completes before the bridge answers the older safety snapshot.
+    await connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "c-race", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "quick" }] } },
+    });
+    await tick();
+    await tick();
+    queryResult.resolve({ canStop: true });
+    await tick();
+    await tick();
+
+    assert.deepEqual(
+      events.find((event) => "requestId" in event && event.requestId === "stop-race"),
+      { type: "session.can_stop_runtime", requestId: "stop-race", sessionId: "paseo-1", canStop: false },
+    );
+    await connection.close();
+  });
+
+  it("reports request.failed for an unknown session, a bridge error or a malformed bridge result", async () => {
+    class MalformedBridge extends FakeBridge {
+      malformed = false;
+      override async request<Name extends keyof BridgeMethods>(method: Name, params: BridgeMethods[Name]["params"], timeoutMs?: number): Promise<BridgeMethods[Name]["result"]> {
+        if (method === "session.can_stop_runtime" && this.malformed) {
+          return { canStop: "yes" } as unknown as BridgeMethods[Name]["result"];
+        }
+        return super.request(method, params, timeoutMs);
+      }
+    }
+    const runtime = new MalformedBridge(new Set(["session.can_stop_runtime"]));
+    const { connection, events } = await setup(runtime);
+
+    await connection.send({ type: "session.can_stop_runtime", requestId: "stop-missing", sessionId: "unknown" });
+    await connection.send({ type: "session.can_stop_runtime", requestId: "stop-error", sessionId: "paseo-1" });
+    await tick();
+    await tick();
+
+    runtime.malformed = true;
+    await connection.send({ type: "session.can_stop_runtime", requestId: "stop-bad", sessionId: "paseo-1" });
+    await tick();
+    await tick();
+
+    for (const requestId of ["stop-missing", "stop-error", "stop-bad"]) {
+      assert.ok(events.some((event) => event.type === "request.failed" && event.requestId === requestId), requestId);
+    }
+    assert.equal(events.some((event) => event.type === "session.can_stop_runtime"), false);
+    await connection.close();
   });
 });
 

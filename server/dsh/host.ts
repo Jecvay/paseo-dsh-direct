@@ -30,6 +30,10 @@ export interface HostAgent {
   id: string;
   ctx: HostContext;
   session: HostSession;
+  inbox?: {
+    readonly nextTurn: readonly unknown[];
+    readonly nextStep: readonly unknown[];
+  };
   options: ModelSelection;
   status: "idle" | "running";
   followup(message: unknown): void;
@@ -92,6 +96,8 @@ export interface HostServices {
   };
   agents: {
     get(id: string): HostAgent | undefined;
+    list?(): HostAgent[];
+    isOwnedBy?(id: string, owner: HostAgent): boolean;
     create(options: AgentOptions): Promise<HostHandle>;
     resume(options: AgentOptions): Promise<HostHandle>;
   };
@@ -199,6 +205,28 @@ export interface HostServices {
       | undefined
     >;
   };
+  jobs?: {
+    list(
+      caller?: string,
+    ): Array<{
+      id: string;
+      owner?: string;
+      status: "running" | "stopping" | "completed" | "killed" | "failed";
+    }>;
+  };
+  goals?: {
+    get(
+      agent: HostAgent,
+    ):
+      | {
+          phase?: string;
+          activation?: string;
+        }
+      | undefined;
+  };
+  schedule?: {
+    list(request: { sessionId: string }): Promise<readonly unknown[]>;
+  };
   userQuestions: object | undefined;
   appReady: { onReady(listener: () => void): () => void } | undefined;
   appExit: ((code: number) => void) | undefined;
@@ -216,6 +244,7 @@ export interface HostHelpers {
 export type ApprovalOutcome =
   "allowed-once" | "rejected" | "cancelled" | "unavailable";
 export interface HostEvents {
+  "schedule/changed": () => void;
   "session/created": (session: HostSession) => void;
   "session/event": (session: HostSession, event: DshSessionEvent) => void;
   "agent/assistant-stream": (payload: {
@@ -244,4 +273,16 @@ export interface HostEvents {
     },
     next: () => Promise<{ answers: QuestionAnswer[] }>,
   ) => Promise<{ answers: QuestionAnswer[] }>;
+  "subagent/start": (info: {
+    runId: string;
+    id: string;
+    provider?: string;
+    local?: boolean;
+  }) => void;
+  "subagent/end": (info: {
+    runId: string;
+    id: string;
+    provider?: string;
+    local?: boolean;
+  }) => void;
 }

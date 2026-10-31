@@ -19,10 +19,12 @@ Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git
 
 | 插件版本线 | 已实测的 DSH 版本 | 获取方式 |
 |---|---|---|
-| `0.2.x` | `0.2.1-rc.2`（推荐，安装方式见下）；`0.2.0-rc.2` 与回合级能力在 `0.2.0-rc.1` 下实测 | `npm:paseo-dsh-direct`，或 Git `main` |
+| `0.2.x` | `0.2.1-rc.4`（握手、目录、历史读取、隔离 Paseo 0.14 集成）；`0.2.1-rc.2`（安装方式见下）；`0.2.0-rc.2` 与回合级能力在 `0.2.0-rc.1` 下实测 | `npm:paseo-dsh-direct`，或 Git `main` |
 | `0.1.x` | `0.1.7-rc.2` | `npm:paseo-dsh-direct@dsh-0.1`，或 Git 分支 `rel/0.1` |
 
-Paseo 验证基线为 `0.12.0`（插件安装、加载、provider 可用性、诊断与模型目录，Daemon 运行于 Node.js `24`），此前的基线 `0.11.2`（Node.js `22`）结论仍有效；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
+DSH `0.2.1-rc.4` 的桥接 smoke 已通过：握手、10 个模型、495 条原生历史摘要读取及正常关闭。SDK `0.14.0` 与 `0.11.0` 的真实发布包已交叉验证能力协商。在隔离的 Paseo `0.14.0` Daemon（真实 `@getpaseo/server`/`client` `0.14.0`、真实 DSH `0.2.1-rc.4`、loopback 脚本模型、临时 Paseo/DSH home）中验证了：两个插件子进程编译并 `running`、完整模型回合、空闲时安全查询返回可回收、DSH 后台任务运行期间拒绝回收、任务结束后同步回收并关闭 DSH 子进程、回收后下一条消息与 `agent.reload()` 都恢复同一原生 `sessionId`；`agent.session_open` 注入的外部 MCP server 与每 agent 工具经 `session.open.config.mcpServers` 出现在模型可见工具中。该 E2E 用注入时钟快进一小时触发回收，不使用真实等待或远端模型。隔离 DSH home 的原生子代理设置 E2E 验证初始化、持久化、过期草稿拒绝及会话策略保留，不调用模型。
+
+Paseo 验证基线为 `0.14.0`（隔离 Daemon：插件加载、真实回合、空闲安全查询、后台任务否决、回收与恢复）与 `0.12.0`（插件安装、加载、provider 可用性、诊断与模型目录，Daemon 运行于 Node.js `24`），此前的基线 `0.11.2`（Node.js `22`）结论仍有效；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
 **0.2 线**：在 DSH `0.2.1-rc.2` 下用 `npm run smoke:bridge` 验证了桥接握手、模型/preset 目录与 `session.list`（真实历史 350+ 会话）；该版本包源码里 `compaction/summary` 已写入压缩影子价格、`contextPressure` 投影已带 `projectedTokens`，上下文圆环据此在压缩后即时更新（真实压缩会话未复测）。真实回合由贡献者 @rayzart 在 0.2.7 用 dsh `0.2.1-rc.2` 加 Paseo `0.11.4`（DeepSeek 账号登录）验证：诊断报可用、模型目录可列出、真实回合完成；审批、问答、`/compact`、`/plan` 与会话恢复没有该版本的复测记录（本仓缺少 API 密钥）。在 DSH `0.2.0-rc.2` 下验证了握手、目录与 `session.list`，并在 Paseo `0.11.2` 的 Daemon 内验证了：本地目录安装并加载（插件名 `DeepSeek Harness`、图标被接受、插件日志无错误）、`dsh-pi` 列出且可用、模型目录加载；`PASEO_DSH_EXECUTABLE` 指向不存在的路径时，`paseo provider diagnostic dsh-pi` 报告不可用并给出 `Could not run "<path> --version"…` 的说明。`0.2.0-rc.2` 下的真实回合、工具调用、审批、问答、`/compact`、`/plan` 与会话恢复也没有复测。
 
@@ -40,11 +42,13 @@ DSH 保持用户原有安装，插件不自动升级或替换它。插件只需�
 
 ## 宿主契约
 
-[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.11.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.12.0`，可选 peer 依赖 `@getpaseo/client`、`@getpaseo/protocol` 同为 `0.12.0`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。清单带 `name` 与 `icon`（均要求 Paseo 0.11.0 及以上）；Paseo 0.8 至 0.10 的用户安装 `npm:paseo-dsh-direct@0.2.1`。
+[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.11.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.14.0`，可选 peer 依赖 `@getpaseo/client`、`@getpaseo/protocol` 同为 `0.14.0`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。清单带 `name` 与 `icon`（均要求 Paseo 0.11.0 及以上）；Paseo 0.8 至 0.10 的用户安装 `npm:paseo-dsh-direct@0.2.1`。
 
 Provider 注册了 `status()`：Paseo 0.11 及以上列出 Provider 时，用 `PASEO_DSH_EXECUTABLE`（未设置则取 `PATH` 里的 `dsh`）运行 `--version`（结果按可执行路径缓存；Paseo 配置了 `agents.providers.dsh-pi.command` 时探测该命令）。`dsh` 无法运行时报告不可用并给出原因；`major.minor` 线与插件不一致时仍报告可用，附带与会话时间线相同的版本线警告。Provider 注册 `command: ["dsh"]`，详见 [服务端架构](server-architecture.md#dsh-的选择)。`paseo-plugin.json` 的 `name` 为 `DeepSeek Harness`，`icon` 指向仓库根的 256x256 透明底 PNG `dsh.png`（由彩色标志 `dsh-logo.svg` 渲染，图形是取自 dsh 网页前端 favicon 的 DeepSeek 鲸鱼，`@deepseek-ai/dsh-web-frontend`，MIT）。Provider 的 `icon` 是 `dsh.svg`，一个用 `currentColor` 的单色图形，因为 Paseo 以主题文字色绘制 provider 图标。
 
 插件注册 `dsh-pi`，不会覆盖名为 `dsh` 的既有自定义 Provider。
+
+Paseo 0.14 的空闲回收通过协商 `session.can_stop_runtime` 接入。只有 Provider 与 DSH 检查都确认没有待处理工作，才允许宿主释放持久会话运行时；缺少必需检查接口、检查失败或查询期间有新活动时保留进程。旧宿主自动忽略该能力，普通会话沿用原协议。实际关闭仍执行启动期清理与桥接释放，详情见 [空闲运行时回收](server-architecture.md#空闲运行时回收)。
 
 ## DSH 契约
 
@@ -60,7 +64,7 @@ DSH 的界面扩展不会自动变成 Paseo 界面，具体范围见 [客户端�
 
 图片与上传文件存入 DSH 附件库后随消息发送；当前模型声明不接受图片时，提示词明确报错。PR、issue、代码评审等 Paseo 上下文附件以文字发送。归档由 Paseo 管理，不改动 DSH 原生会话。
 
-Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt；MCP server（stdio 与 streamable HTTP）挂载到该会话的 DSH 进程，工具名为 `mcp__<server>__<tool>`；tool policy 预先批准的 MCP 工具不再弹出审批。SSE 类型的 MCP server 明确报错。不持久化的会话写入该会话进程的临时目录，关闭时删除，不进入 DSH 历史。达到输出上限、被插件拦截或因进程中止未完成的回合显示警告。
+Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt；`session.open.config.mcpServers` 中的 MCP server（stdio 与 streamable HTTP，含 Paseo 0.14 每 agent 工具与会话打开钩子注入项）挂载到该会话的 DSH 进程，工具名为 `mcp__<server>__<tool>`；tool policy 预先批准的 MCP 工具不再弹出审批。SSE 类型的 MCP server 明确报错。不持久化的会话写入该会话进程的临时目录，关闭时删除，不进入 DSH 历史。达到输出上限、被插件拦截或因进程中止未完成的回合显示警告。
 
 当前不支持会话回退与 Paseo 的 provider options。DSH profile 本身已有的配置仍由 DSH 管理。Paseo 的 `/` 目录列出 DSH 已注册命令（如 `/compact`、`/goal`、`/plan`）和用户可调用的技能；只属于终端界面的命令（如 `/model`、`/sessions`）不在其中。Paseo 会话标题与 DSH 标题仅在新建时同步，后续 Paseo 改名不会写回原生历史。会话回退与改名受 Paseo 插件宿主限制，理由见 [回退与改名同步决策](../.agents/notes/rejected/feature/2026-09-24-paseo-rewind-and-rename-sync.md)。
 

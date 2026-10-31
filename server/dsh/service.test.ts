@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { parseRequest } from "./bridge.js";
 import { BridgeService, missingHostSurface, savedModel, validateAnswers } from "./service.js";
 import type {
   HostAgent,
@@ -18,10 +19,20 @@ import type {
 function fixture(
   options: Pick<
     Partial<HostServices>,
-    "commands" | "skills" | "attachments" | "systemPrompt" | "sessionProjections" | "sessionQuery" | "settings" | "configEditor"
+    | "commands"
+    | "skills"
+    | "attachments"
+    | "systemPrompt"
+    | "sessionProjections"
+    | "sessionQuery"
+    | "settings"
+    | "configEditor"
+    | "jobs"
+    | "goals"
+    | "schedule"
   > = {},
 ) {
-  const listeners = new Map<keyof HostEvents, unknown>();
+  const listeners = new Map<keyof HostEvents, Array<(...args: any[]) => unknown>>();
   const notifications: Array<{
     method: keyof BridgeNotifications;
     params: unknown;
@@ -36,11 +47,14 @@ function fixture(
     configEditor: options.configEditor,
     agents: {
       get: () => created,
+      list: () => (created ? [created] : []),
+      isOwnedBy: () => false,
       async create(options) {
         await createGate;
         const agent: HostAgent = {
           id: options.sessionId!,
           ctx,
+          inbox: { nextTurn: [], nextStep: [] },
           options: models,
           status: "idle",
           session: {
@@ -55,7 +69,11 @@ function fixture(
           },
           steer: () => undefined,
           cancel: () => undefined,
-          whenIdle: async () => undefined,
+          whenIdle: async () => {
+            const activityDone = Promise.resolve();
+            let activity: Promise<void>;
+            do { await (activity = activityDone); } while (activity !== activityDone);
+          },
         };
         created = agent;
         await options.setup(ctx, agent);
@@ -99,6 +117,9 @@ function fixture(
     approval: {},
     permissionPresets: undefined,
     commands: options.commands,
+    jobs: options.jobs ?? { list: () => [] },
+    goals: options.goals,
+    schedule: options.schedule,
     skills: options.skills,
     attachments: options.attachments,
     systemPrompt: options.systemPrompt,
@@ -110,9 +131,12 @@ function fixture(
   const ctx: HostContext = {
     get: (name) => services[name],
     on: (event, listener) => {
-      listeners.set(event, listener);
+      const list = listeners.get(event) ?? [];
+      list.push(listener as (...args: any[]) => unknown);
+      listeners.set(event, list);
       return () => {
-        listeners.delete(event);
+        const index = list.indexOf(listener as (...args: any[]) => unknown);
+        if (index >= 0) list.splice(index, 1);
       };
     },
     effect: () => undefined,
@@ -134,7 +158,12 @@ function fixture(
       createGate = promise;
     },
     listener<K extends keyof HostEvents>(event: K): HostEvents[K] {
-      return listeners.get(event) as HostEvents[K];
+      const list = listeners.get(event) ?? [];
+      return ((...args: any[]) => {
+        let last: unknown;
+        for (const fn of list) last = fn(...args);
+        return last;
+      }) as HostEvents[K];
     },
   };
 }
@@ -670,5 +699,88 @@ test("session.list rejects a malformed window", async () => {
   await assert.rejects(
     f.bridge.handle("session.list", { query: 42 }),
     /query must be a string/,
+  );
+});
+
+test("session.can_stop_runtime parses on the wire and tracks bridge interactions and subagent runs", async () => {
+  const parsed = parseRequest(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "session.can_stop_runtime",
+      params: { sessionId: "s-1" },
+    }),
+  );
+  assert.equal(parsed.method, "session.can_stop_runtime");
+
+  const f = fixture();
+  await f.bridge.handle("session.open", { sessionId: "s-1", cwd: "/tmp" });
+  assert.deepEqual(
+    await f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" }),
+    { canStop: true },
+  );
+
+  // An in-flight subagent run (external or awaiting settlement notice) vetoes stop.
+  f.listener("subagent/start")({
+    runId: "run-1",
+    id: "child-ext",
+    local: false,
+  });
+  assert.deepEqual(
+    await f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" }),
+    { canStop: false },
+  );
+  f.listener("subagent/end")({
+    runId: "run-1",
+    id: "child-ext",
+    local: false,
+  });
+  assert.deepEqual(
+    await f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" }),
+    { canStop: true },
+  );
+
+  // A pending approval interaction vetoes stop until answered.
+  const approval = f.listener("approval/request")(
+    {
+      agent: f.agent,
+      toolName: "bash",
+    },
+    async () => "unavailable",
+  );
+  assert.deepEqual(
+    await f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" }),
+    { canStop: false },
+  );
+  const requestId = (f.notifications.at(-1)?.params as { requestId: string })
+    .requestId;
+  await f.bridge.handle("interaction.respond", {
+    requestId,
+    outcome: "allowed-once",
+  });
+  await approval;
+  assert.deepEqual(
+    await f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" }),
+    { canStop: true },
+  );
+});
+
+test("session.can_stop_runtime observes subagent admission while schedule lookup awaits", async () => {
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: (rows: unknown[]) => void;
+  const listed = new Promise<unknown[]>((resolve) => { release = resolve; });
+  const f = fixture({ schedule: { list: () => { entered(); return listed; } } });
+  await f.bridge.handle("session.open", { sessionId: "s-1", cwd: "/tmp" });
+  const query = f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" });
+  await started;
+  const run = { runId: "late-external", id: "external", local: false };
+  f.listener("subagent/start")(run);
+  release([]);
+  assert.deepEqual(await query, { canStop: false });
+  f.listener("subagent/end")(run);
+  assert.deepEqual(
+    await f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" }),
+    { canStop: true },
   );
 });

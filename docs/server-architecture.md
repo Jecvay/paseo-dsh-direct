@@ -8,7 +8,7 @@
 
 `paseo` profile 由 DSH 官方 `web` 模板生成：bundle 为 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`，后者自带 `standard`、`ptc`、`minimal`、`cordis` 四个 agent preset。启动前 `server/bridge-client.ts` 检查 `$DSH_HOME/profiles/<profile>`（`$DSH_HOME` 为空或未设置时是 `~/.dsh`，解析方式与 DSH 相同）。目录缺失且 profile 是默认的 `paseo` 时，执行一次 `dsh --profile paseo --from-default-profile web --dump-config` 创建它（60 秒超时，输出丢弃）；`PASEO_DSH_PROFILE` 或设置页指定的 profile 缺失时直接报错并给出创建命令。模型路由、默认模型和权限预设属于用户层 `cordis.patch.yml`，插件不改这些字段。
 
-DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里服务浏览器界面的五行，再加载桥接；会话的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。子代理选模设置通过下述 DSH 原生设置服务持久化，其余用户配置保持原样。
+DSH 桥接以 Cordis 插件形式运行在 DSH 内部。启动时生成临时 patch，先禁用 web 模板里服务浏览器界面的五行，再加载桥接；`session.open.config.mcpServers` 中的 MCP server 以 `@deepseek-ai/dsh-mcp-client` 条目插入同一 patch；不持久化的会话把 `session-persistence-jsonl` 的 `root` 覆盖到该进程的临时目录，关闭桥接时随目录删除。子代理选模设置通过下述 DSH 原生设置服务持久化，其余用户配置保持原样。
 
 | 禁用的行 | 原本作用 | 为什么一并禁用 |
 |---|---|---|
@@ -96,6 +96,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 | `session.commands` | 列出会话可用的 DSH 命令与用户可调用技能 |
 | `session.command` | 通过 DSH 命令服务执行一条已注册命令 |
 | `session.cancel` | 取消当前工作 |
+| `session.can_stop_runtime` | 只读检查当前会话运行时能否安全释放，返回 `{ canStop }` |
 | `session.close` | 释放会话和写租约 |
 | `interaction.respond` | 回复审批或用户问答 |
 | `bridge.shutdown` | 清理运行时并结束桥接 |
@@ -133,8 +134,20 @@ Paseo 的 Import session 入口查询 DSH 原生历史。Provider 持久化数�
 
 权限选项来自官方 permission preset 目录。会话级切换沿用 DSH `/permission` 命令，写入原生会话事件，不修改全局默认值。`danger-full-access` 的 `never` 审批策略表示不发起审批，并非自动允许所有需要额外授权的操作。
 
+## 空闲运行时回收
+
+Provider 在连接和会话层协商 `session.can_stop_runtime`。Paseo 0.14 在满足宿主条件且空闲一小时后可以释放可恢复运行时；旧宿主不协商此能力，不发送安全查询。查询只判断能否释放，实际关闭仍由宿主发起。
+
+Provider 先确认会话已就绪、开启持久化且没有活动回合、分发、交互或进行中的操作，再请求桥接检查 DSH 内部工作。关闭桥接会退出整个 DSH 进程，因此 `server/dsh/runtime-safety.ts` 检查该进程内全部 agent 的执行状态、inbox、活动目标及已注册调度，并检查全进程后台任务，涵盖自定义 profile 自行启动的工作。`subagent/start` 到 `subagent/end` 之间的全部原生子代理运行也阻止回收，包括不在本地 agent 表里或无法归属会话的外部后端。子代理完成通知送达父会话、收尾结束后才解除该项保护。
+
+桥接的必需检查接口（如 `agents.list`、`jobs.list` 与 agent inbox）缺失、读取失败或仍有工作时返回 `canStop: false`，不影响普通会话。Provider 在查询结束后重新核对会话及活动状态；查询期间出现新活动时不放行。超时、无效响应与查询失败均不能作为安全停止的依据。成功仅回复同名事件及原请求和会话标识，不另发 `request.completed`。
+
+Paseo 0.14 提供的每 agent 工具和会话打开钩子注入的 MCP server 统一进入 `session.open.config.mcpServers`，沿用本插件的 MCP 挂载与 `toolPolicy` 预批准路径。插件无需另一套工具传输协议。
+
 ## 关闭与错误
+
+连接关闭会等待已接收的会话启动请求与已取得的桥接完成清理；启动过程中取得的桥接同样关闭，并发关闭共享同一个清理 promise。空闲安全查询与这条清理路径分别负责何时允许关闭和关闭后释放资源。
 
 请求超时、协议失败和进程退出须结束挂起请求。关闭时先请求桥接释放 agent、等待持久化清理；无法正常退出的子进程采用有界终止。活动回合、工具和交互不能在进程退出后保留永久运行状态。
 
-架构理由见 `.agents/notes/implemented/` 下的桥接与 profile 决策记录，行为验收见 [Alpha 验收规范](alpha-acceptance.md)。
+空闲回收的取舍见 [安全停止决策](../.agents/notes/implemented/architecture/2026-10-31-paseo-idle-runtime-safety.md)，桥接与 profile 的其他理由见 `.agents/notes/implemented/`；行为验收见 [Alpha 验收规范](alpha-acceptance.md)。
