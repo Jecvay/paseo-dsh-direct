@@ -8,6 +8,8 @@ Provider 在 Paseo 中显示为 `DeepSeek Harness`，标识为 `dsh-pi`。手机
 
 会话历史从 Paseo 的 Import session 入口导入；已有会话继续使用原生 DSH 标识。手机端使用同一个 Daemon 安装的插件，不需要另外安装 DSH 或 npm 包。
 
+DSH 原生子代理的内部消息不直接投影成独立聊天气泡，插件也不据此创建 Paseo 子会话面板。
+
 ## 设置页
 
 插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `Settings`）。SDK 的 `useSettings(DSH_SETTINGS)` 读写 `dsh executable` 与 `dsh profile`，留空表示不设置，环境变量优先。设置定义在 `shared/settings.ts`，改动对新会话生效。设置的取值如何参与选择见 [服务端架构](server-architecture.md)。

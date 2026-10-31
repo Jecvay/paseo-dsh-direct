@@ -71,7 +71,9 @@ npm run verify:docs
 - 在 Actions 页面手动运行 Publish（Run workflow，选分支）；
 - 推送 tag `v*`，tag 必须与 `package.json` 版本一致。
 
-工作流先查 npm 上有没有这个版本、远端有没有 tag `v<版本号>`：都有就什么也不做，所以只改依赖不改版本号的提交不会发布。npm 上没有时，先跑构建、类型检查、测试与文档门禁，再发布；tag 没有时，发布成功后用 Actions 自带的令牌把 tag 打在这次提交上并推送（这个推送不会再触发工作流）。门禁失败则不发布也不打 tag：把修复合进同一分支，再在 Actions 页面对该分支手动运行 Publish；版本号在 npm 上被占用（例如手动发过）时只补 tag。dist-tag 按提交所在分支决定：在 `origin/main` 上发 `latest`，在 `rel/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
+工作流先查 npm 上有没有这个版本、远端有没有 tag `v<版本号>`：已有版本不重复发布、已有 tag 不重复创建；从分支运行时，已发布版本仍会对齐该分支应使用的 dist-tag。因此只改依赖不改版本号的提交不会发布新包。npm 上没有时，先跑构建、类型检查、测试与文档门禁，再发布；tag 没有时，发布成功后用 Actions 自带的令牌把 tag 打在这次提交上并推送（这个推送不会再触发工作流）。门禁失败则不发布也不打 tag：把修复合进同一分支，再在 Actions 页面对该分支手动运行 Publish；版本号在 npm 上被占用（例如手动发过）时不重发包，按需校正 dist-tag 并补 tag。dist-tag 按提交所在分支决定：在 `origin/main` 上发 `latest`，在 `rel/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。
+
+一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish 与 Allow npm dist-tag（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
 
 **手动发布（兜底）**：Actions 不可用时，从 tag 的干净 checkout 发布——`main` 线（当前最新 dsh 线）发布为 `latest`；旧线加 `--tag dsh-<major.minor>`（如 `--tag dsh-0.1`）。发布前用 `npm pack --dry-run` 核对文件列表。npm 账号开了 Security Key 两步验证，`npm publish` 只在真实终端里才会给出网页确认地址，否则直接报 `EOTP`；agent 在后台发布时用 `script` 包一层伪终端，从日志里取出 `https://www.npmjs.com/auth/cli/...` 地址交给人在浏览器确认：
 
