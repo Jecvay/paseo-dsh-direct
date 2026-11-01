@@ -1,7 +1,8 @@
-import { useRpc } from "@getpaseo/plugin/client";
-import { SettingsAction, SettingsInput, SettingsRow, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { useRpc, type PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { Modal, SettingsAction, SettingsInput, SettingsRow, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import SettingsSection from "./settings-section.js";
 import {
   readSubagentSettings,
   saveSubagentSettings,
@@ -30,7 +31,8 @@ function errorMessage(error: unknown): string {
 }
 
 /** Keeps edits tied to the exact profile and revision returned by the daemon. */
-export default function SubagentSettings({ launchRevision, launchSaving }: {
+export default function SubagentSettings({ theme, launchRevision, launchSaving }: {
+  theme: PluginSurfaceProps["theme"];
   launchRevision: string;
   launchSaving: boolean;
 }) {
@@ -47,6 +49,7 @@ export default function SubagentSettings({ launchRevision, launchSaving }: {
   });
   const [draft, setDraft] = useState<Draft | null>(null);
   const [search, setSearch] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
   const dirty = draft !== null && !sameSelection(draft.selection, draft.view.selection);
   // A background read or a saved launch-setting change must never replace pending edits.
   const activeDraft = dirty ? draft : null;
@@ -88,13 +91,12 @@ export default function SubagentSettings({ launchRevision, launchSaving }: {
 
   if (!view || !selection) {
     return (
-      <SettingsSection title="Subagent models">
+      <SettingsSection theme={theme} title="Subagents">
         <SettingsRow
           label={query.isError ? "Could not load subagent models" : "Loading subagent models"}
           error={query.isError ? errorMessage(query.error) : undefined}
-          hint="Models and saved choices come from the active dsh profile."
         />
-        {query.isError && <SettingsAction label="Load models again" actionLabel="Retry" onPress={refresh} disabled={busy} />}
+        {query.isError && <SettingsAction label="Load models" actionLabel="Retry" onPress={refresh} disabled={busy} />}
       </SettingsSection>
     );
   }
@@ -134,70 +136,66 @@ export default function SubagentSettings({ launchRevision, launchSaving }: {
     edit({ ...selection, allowedModels: [...routes.values()] });
   };
 
-  return (
+  // Older clients expose the same UI module without Modal; keep their inline editor.
+  const hasModal = typeof Modal !== "undefined" && Modal.Content != null;
+  const feedback = (
     <>
-      <SettingsSection title="Subagent models">
+      {conflict && (
+        <SettingsRow label="Settings changed elsewhere" hint="Discard your edits and reload the saved settings" />
+      )}
+      {query.isError && (
+        <SettingsRow label="Could not refresh models" error={errorMessage(query.error)} hint={dirty ? "Your edits are kept; discard and refresh to retry" : "The previous list is shown; refresh to retry"} />
+      )}
+      {launchChanged && (
+        <SettingsRow label="Connection settings changed" error="These edits belong to the previous connection. Discard and refresh before saving." />
+      )}
+      {!view.supported && (
         <SettingsRow
-          label={`Profile: ${view.profile}`}
-          hint="Saved changes apply only to new sessions. The first initialization selects all available models; models added later stay unselected until you choose them."
+          label="Model selection unavailable"
+          hint={view.reason ?? "Choose a profile that supports model selection, then refresh."}
         />
-        {query.isError && (
-          <SettingsRow label="Could not refresh models" error={errorMessage(query.error)} hint="The last loaded list is still shown. Retry after discarding any pending edits." />
-        )}
-        {launchChanged && (
-          <SettingsRow label="dsh launch settings changed" error="Your model edits still belong to the previously loaded profile. Discard changes and refresh before saving." />
-        )}
-        {!view.supported && (
-          <SettingsRow
-            label="Subagent model selection is unavailable"
-            hint={view.reason ?? "The current dsh profile does not support subagent model selection. Choose a supported profile and refresh."}
-          />
-        )}
-        {view.failedProviders.length > 0 && (
-          <SettingsRow
-            label="Some providers could not load models"
-            hint={`${view.failedProviders.join(", ")}. Their saved selections are preserved. Refresh to retry loading them.`}
-          />
-        )}
-        {!view.initialized && (
-          <SettingsRow label="Model selection has not been initialized" hint="No initial selection has been saved. If the catalog is empty, check your providers and refresh once models are available." />
-        )}
+      )}
+      {view.failedProviders.length > 0 && (
+        <SettingsRow
+          label="Some providers could not load models"
+          hint={`${view.failedProviders.join(", ")} · Saved choices kept; refresh to retry`}
+        />
+      )}
+      {view.supported && !view.initialized && (
+        <SettingsRow label="No saved selection" hint="Choose models and save, or check your providers if the list is empty" />
+      )}
+      {missingCount > 0 && (
+        <SettingsRow label={`${missingCount} selected ${missingCount === 1 ? "model is" : "models are"} missing from this catalog`} hint="Saved choices are kept unless you remove them" />
+      )}
+    </>
+  );
+  const editor = (
+    <>
+      <SettingsSection theme={theme} title="Selection">
+        <SettingsRow
+          label={`${selection.allowedModels.length} selected · ${view.models.length} available · Profile: ${view.profile}`}
+          hint="Closing keeps your unsaved changes"
+          error={emptyEnabled ? "Select at least one model, or turn off Use selected models." : undefined}
+        />
+        {feedback}
+      </SettingsSection>
+      <SettingsSection theme={theme} title="Model selection">
         <SettingsSwitch
-          label="Enable subagent model selection"
-          hint="Allow new sessions to choose subagent models from the selected list. Turning this off keeps your model choices."
+          label="Use selected models"
+          hint="Turn off to use the profile’s default behavior"
           value={selection.enabled}
           onValueChange={(enabled) => edit({ ...selection, enabled })}
           disabled={busy || !view.supported}
         />
-        <SettingsRow
-          label={`${selection.allowedModels.length} selected · ${view.models.length} available`}
-          hint={missingCount > 0 ? `${missingCount} selected model(s) are not in the current catalog. You can keep or remove them below.` : "New models are never added to your saved selection automatically."}
-          error={emptyEnabled ? "Select at least one model, or turn off model selection before saving." : undefined}
-        />
-        <SettingsInput label="Search models" placeholder="Name, model ID, or provider" initialValue={search} onChangeText={setSearch} />
-        <SettingsAction
-          label="Select all available models"
-          hint="Includes all providers, even models hidden by search. Keeps saved models that are currently unavailable."
-          actionLabel="Select all"
-          onPress={selectAvailable}
-          disabled={busy || !view.supported || view.models.length === 0 || view.models.every((model) => selectedKeys.has(subagentRouteKey(model)))}
-        />
-        <SettingsAction label="Clear model selection" hint="Clears every selection, including models hidden by search." actionLabel="Clear" onPress={() => edit({ ...selection, allowedModels: [] })} disabled={busy || !view.supported || selectedKeys.size === 0} />
-        <SettingsAction
-          label={query.isFetching ? "Refreshing models" : "Refresh models"}
-          hint={dirty ? "Save or discard your changes before refreshing." : "Reload the catalog and saved selection for the active profile."}
-          actionLabel={query.isError ? "Retry" : "Refresh"}
-          onPress={refresh}
-          disabled={busy || dirty}
-        />
+        <SettingsInput label="Search" placeholder="Name, ID or provider" initialValue={search} onChangeText={setSearch} />
       </SettingsSection>
       {[...groups].sort(([left], [right]) => left.localeCompare(right)).map(([provider, group]) => (
-        <SettingsSection key={provider} title={`${group.name} (${group.rows.filter((model) => selectedKeys.has(subagentRouteKey(model))).length}/${group.rows.length}${term ? " matching" : ""})`}>
+        <SettingsSection theme={theme} key={provider} title={`${group.name} (${group.rows.filter((model) => selectedKeys.has(subagentRouteKey(model))).length}/${group.rows.length}${term ? " matching" : ""})`}>
           {group.rows.sort((left, right) => left.name.localeCompare(right.name) || left.model.localeCompare(right.model)).map((model) => (
             <SettingsSwitch
               key={subagentRouteKey(model)}
               label={model.name}
-              hint={`${model.provider} / ${model.model}${model.available ? "" : " · Not in the current catalog; uncheck to remove from saved selection."}`}
+              hint={model.name === model.model ? (model.available ? undefined : "Not in this catalog") : `${model.model}${model.available ? "" : " · Not in this catalog"}`}
               value={selectedKeys.has(subagentRouteKey(model))}
               onValueChange={(checked) => toggle(model, checked)}
               disabled={busy || !view.supported}
@@ -205,15 +203,32 @@ export default function SubagentSettings({ launchRevision, launchSaving }: {
           ))}
         </SettingsSection>
       ))}
-      {groups.size === 0 && (
-        <SettingsSection title="Models">
-          <SettingsRow label={term ? "No models match your search" : "No models are available"} hint={term ? "Try another name, model ID, or provider." : "Check your provider configuration, then refresh the catalog."} />
+      {view.supported && groups.size === 0 && (
+        <SettingsSection theme={theme} title="Models">
+          <SettingsRow label={term ? "No matching models" : "No models available"} hint={term ? "Try a different name, ID or provider" : "Check your providers, then refresh"} />
         </SettingsSection>
       )}
-      <SettingsSection title="Save subagent settings">
+      <SettingsSection theme={theme} title="All models">
         <SettingsAction
-          label={save.isSuccess ? "Subagent settings saved" : "Apply model selection"}
-          hint={conflict ? "Settings changed elsewhere. Your edits are still here; discard changes and refresh to load the latest version." : "Changes apply only to new sessions. Existing sessions keep their current model selection."}
+          label="Available models"
+          hint="Includes models hidden by your search"
+          actionLabel="Select all"
+          onPress={selectAvailable}
+          disabled={busy || !view.supported || view.models.length === 0 || view.models.every((model) => selectedKeys.has(subagentRouteKey(model)))}
+        />
+        <SettingsAction label="Selected models" hint="Clears every choice, including models not shown" actionLabel="Clear" onPress={() => edit({ ...selection, allowedModels: [] })} disabled={busy || !view.supported || selectedKeys.size === 0} />
+        <SettingsAction
+          label={query.isFetching ? "Refreshing models" : "Refresh models"}
+          hint={dirty ? "Save or discard edits first" : undefined}
+          actionLabel={query.isError ? "Retry" : "Refresh"}
+          onPress={refresh}
+          disabled={busy || dirty}
+        />
+      </SettingsSection>
+      <SettingsSection theme={theme} title="Changes">
+        <SettingsAction
+          label={save.isSuccess ? "Settings saved" : "Save selection"}
+          hint="Applies to new sessions"
           error={saveError}
           actionLabel={save.isPending ? "Saving" : "Save"}
           onPress={() => {
@@ -222,8 +237,28 @@ export default function SubagentSettings({ launchRevision, launchSaving }: {
           }}
           disabled={!dirty || busy || emptyEnabled || conflict || launchChanged || !view.supported || query.isError}
         />
-        <SettingsAction label="Discard changes and reload saved selection" actionLabel="Discard and refresh" onPress={discardAndRefresh} disabled={busy || (!dirty && !save.isError)} />
+        <SettingsAction label="Reload saved settings" hint="Discards your unsaved changes" actionLabel="Discard and refresh" onPress={discardAndRefresh} disabled={busy || (!dirty && !save.isError)} />
       </SettingsSection>
+    </>
+  );
+
+  return (
+    <>
+      <SettingsSection theme={theme} title="Subagents">
+        <SettingsAction
+          label={`Model selection: ${selection.enabled ? "On" : "Off"}${save.isPending ? " · Saving…" : dirty ? " · Unsaved changes" : ""}`}
+          hint={`${selection.allowedModels.length} selected · ${view.models.length} available`}
+          actionLabel={!hasModal && editorOpen ? "Close editor" : "Edit models"}
+          onPress={() => setEditorOpen((value) => hasModal || !value)}
+          error={emptyEnabled ? "Select at least one model, or turn off Use selected models." : saveError}
+        />
+        {feedback}
+      </SettingsSection>
+      {hasModal ? (
+        <Modal title="Subagent models" open={editorOpen} onOpenChange={setEditorOpen}>
+          <Modal.Content>{editor}</Modal.Content>
+        </Modal>
+      ) : editorOpen ? editor : null}
     </>
   );
 }

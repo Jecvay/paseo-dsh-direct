@@ -1,17 +1,16 @@
-import { useSettings } from "@getpaseo/plugin/client";
+import { useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
-import { SettingsAction, SettingsInput, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
+import { SettingsAction, SettingsInput, SettingsRow } from "@getpaseo/plugin/client/ui";
+import SettingsSection from "./settings-section.js";
 import { useRef } from "react";
 import { DSH_SETTINGS } from "../shared/settings.js";
 import SubagentSettings from "./subagent-settings.js";
 
-const EXECUTABLE_HINT =
-  "Path or command of dsh. PASEO_DSH_EXECUTABLE overrides this; leave it empty to use the Paseo provider command or dsh on PATH.";
-const PROFILE_HINT =
-  'Name of the dsh profile to launch. PASEO_DSH_PROFILE overrides this; leave it empty to use the "paseo" profile.';
+const EXECUTABLE_HINT = "DSH command or path; environment takes priority";
+const PROFILE_HINT = "Default: paseo, unless set by environment";
 
 /** Edits the dsh executable and profile that the server reads when it launches a bridge. */
-export default function DshSettingsScreen() {
+export default function DshSettingsScreen({ theme }: PluginSurfaceProps) {
   const settings = useSettings(DSH_SETTINGS);
   const draftState = useRef<{ revision: string | undefined; edits: { executable?: string; profile?: string } }>({
     revision: undefined,
@@ -21,7 +20,7 @@ export default function DshSettingsScreen() {
   if (settings.status === "loading") {
     return (
       <ScrollView>
-        <SettingsSection title="DeepSeek Harness">
+        <SettingsSection title="Connection" theme={theme}>
           <SettingsRow label="Loading settings" />
         </SettingsSection>
       </ScrollView>
@@ -30,9 +29,9 @@ export default function DshSettingsScreen() {
   if (settings.status === "error") {
     return (
       <ScrollView>
-        <SettingsSection title="DeepSeek Harness">
+        <SettingsSection title="Connection" theme={theme}>
           <SettingsRow label="Settings unavailable" error={settings.error} />
-          <SettingsAction label="Retry" actionLabel="Retry" onPress={() => void settings.reload()} />
+          <SettingsAction label="Load settings" actionLabel="Retry" onPress={() => void settings.reload()} />
         </SettingsSection>
       </ScrollView>
     );
@@ -40,9 +39,9 @@ export default function DshSettingsScreen() {
   if (settings.status === "invalid") {
     return (
       <ScrollView>
-        <SettingsSection title="DeepSeek Harness">
-          <SettingsRow label="Stored settings are invalid" error={settings.error} hint="They are ignored until you reset them." />
-          <SettingsAction label="Reset" actionLabel="Reset" onPress={() => void settings.reset()} disabled={settings.saving} />
+        <SettingsSection title="Connection" theme={theme}>
+          <SettingsRow label="Saved settings are invalid" error={settings.error} hint="Reset to use default settings" />
+          <SettingsAction label="Restore defaults" actionLabel="Reset" onPress={() => void settings.reset()} disabled={settings.saving} />
         </SettingsSection>
       </ScrollView>
     );
@@ -65,10 +64,10 @@ export default function DshSettingsScreen() {
 
   return (
     <ScrollView>
-      <SettingsSection title="DeepSeek Harness">
+      <SettingsSection title="Connection" theme={theme}>
         <SettingsInput
           key={`executable-${revision}`}
-          label="dsh executable"
+          label="Executable"
           hint={EXECUTABLE_HINT}
           placeholder="dsh"
           initialValue={values.executable ?? ""}
@@ -79,7 +78,7 @@ export default function DshSettingsScreen() {
         />
         <SettingsInput
           key={`profile-${revision}`}
-          label="dsh profile"
+          label="Profile"
           hint={PROFILE_HINT}
           placeholder="paseo"
           initialValue={values.profile ?? ""}
@@ -89,15 +88,15 @@ export default function DshSettingsScreen() {
           disabled={settings.saving}
         />
         <SettingsAction
-          label="Apply settings"
-          hint={settings.saveError ?? "Changes apply to new sessions."}
+          label="Save settings"
+          hint="Applies to new sessions"
           error={settings.saveError}
           actionLabel={settings.saving ? "Saving" : "Save"}
           onPress={save}
           disabled={settings.saving}
         />
       </SettingsSection>
-      <SubagentSettings launchRevision={revision} launchSaving={settings.saving} />
+      <SubagentSettings theme={theme} launchRevision={revision} launchSaving={settings.saving} />
     </ScrollView>
   );
 }

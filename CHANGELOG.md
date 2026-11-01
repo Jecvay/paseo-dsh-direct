@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.15
+
+- Keep the settings page compact with an Edit models button. Model selection opens in a host dialog on wide layouts and a bottom sheet on narrow layouts, with internal scrolling. Closing the editor preserves unsaved choices and search text; clients without the modal components keep a collapsed inline editor.
+- Make section headings more prominent and shorten field labels and help text. Save actions explain that changes apply to new sessions; model selection, missing catalog entries, refresh failures and unsupported profiles use clearer status and recovery messages.
+- Keep Paseo 0.11 and later supported. React Native 0.81.5 is a development dependency for checking the themed headings; clients continue to use the host runtime.
+- Verified with a clean dependency installation, build, four typecheck targets, 283 passing tests (two environment-gated skips), notes and documentation gates, package contents, and both entries compiled by the real Paseo 0.13.2 plugin compiler. Source previews with mocked host controls cover desktop and narrow layouts, modal scrolling, draft/search preservation, validation and discard. Missing modal exports are checked with a mocked runtime; real Paseo clients and native devices have not been retested for this release.
+
 ## 0.2.14
 
 - Add a read-only safety query for Paseo 0.14 idle runtime cleanup. The provider refuses cleanup while DSH inspection APIs report pending agents, inbox messages, maintenance, jobs, subagent completion delivery, goals or reminders. Missing required inspection capabilities or failed checks keep the runtime alive; normal session use remains available.

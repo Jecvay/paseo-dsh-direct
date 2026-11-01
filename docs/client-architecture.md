@@ -12,11 +12,13 @@ DSH 原生子代理的内部消息不直接投影成独立聊天气泡，插件�
 
 ## 设置页
 
-插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `Settings`）。SDK 的 `useSettings(DSH_SETTINGS)` 读写 `dsh executable` 与 `dsh profile`，留空表示不设置，环境变量优先。设置定义在 `shared/settings.ts`，改动对新会话生效。设置的取值如何参与选择见 [服务端架构](server-architecture.md)。
+插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `Settings`）。`Connection` 区域的 `Executable` 和 `Profile` 通过 SDK 的 `useSettings(DSH_SETTINGS)` 读写 DSH 启动命令与 profile，留空表示不设置，环境变量优先。设置定义在 `shared/settings.ts`，改动对新会话生效。设置的取值如何参与选择见 [服务端架构](server-architecture.md)。
 
-`Subagent models` 区域通过插件 RPC 读取当前 DSH profile 的模型目录和原生子代理设置。模型按提供方分组，可搜索名称、ID 和提供方，逐项勾选、全选或清空；全选和清空作用于全部模型，不受搜索过滤影响。目录里消失的已选模型仍显示并可移除。关闭选模开关保留列表；开启时至少选择一个模型。
+`Subagents` 区域通过插件 RPC 读取当前 DSH profile 的模型目录和原生子代理设置。设置页显示启用状态、已选与可用模型数量；点击 `Edit models` 打开宿主弹窗。宽屏使用居中对话框，窄屏使用底部抽屉，编辑内容在弹窗内滚动。关闭弹窗保留搜索条件和未保存的选择，摘要提示未保存的修改；加载失败、配置冲突与不可用模型等提示在设置页和编辑区均可见。客户端未提供 `Modal` 或 `Modal.Content` 时，使用默认收起的内联编辑区，点击 `Edit models` 展开、`Close editor` 收起。
 
-首次初始化选择当时可用的全部模型；已有配置（包括显式关闭和空列表）不会被覆盖，后续新增模型需要手动选择。部分提供方加载失败会显示提示，其模型恢复后也不会自动加入。保存后仅支持选模的 preset 的新会话生效，已有会话保留原策略。切换 profile 或其他客户端修改设置后，旧草稿不能直接覆盖新值，须放弃修改并刷新。列表与保存使用 TanStack Query；组件只使用 Paseo 跨端设置控件。
+编辑区内，模型按提供方分组，可搜索名称、ID 和提供方，逐项勾选、全选或清空；全选和清空作用于全部模型，不受搜索过滤影响。目录里消失的已选模型仍显示并可移除。关闭选模开关保留列表；开启时至少选择一个模型。
+
+首次初始化选择当时可用的全部模型；已有配置（包括显式关闭和空列表）不会被覆盖，后续新增模型需要手动选择。部分提供方加载失败会显示提示，其模型恢复后也不会自动加入。保存后仅支持选模的 preset 的新会话生效，已有会话保留原策略。切换 profile 或其他客户端修改设置后，旧草稿不能直接覆盖新值，须放弃修改并刷新。列表与保存使用 TanStack Query；表单使用 Paseo 跨端设置控件；分区标题用 `client/settings-section.tsx` 的 React Native 组件，采用主题前景色、18px 半粗体和标题语义。
 
 ## 时间线卡片
 
