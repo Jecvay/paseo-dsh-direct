@@ -54,7 +54,36 @@ paseo provider models dsh-pi
 paseo plugin reload paseo-dsh-direct
 ```
 
-Git 安装通过 `paseo plugin update paseo-dsh-direct` 更新。安装固定版本时使用已发布的 Git tag 或 commit；本地构建成功不代表远端已存在同名 tag。
+Git 与 npm 安装通过 `paseo plugin update paseo-dsh-direct` 更新。安装固定版本时使用已发布的 Git tag 或 commit；本地构建成功不代表远端已存在同名 tag。
+
+重载或激活更新会停止旧插件及其 Provider 连接，当前回合也会中断。若当前 agent 正由 `dsh-pi` 驱动，应从会话外的终端执行更新或重载；持久会话随后可以恢复，但正在执行的工具不能据此视为完成。源码加载用 `paseo plugin reload`，无需为此重启整个 Daemon。
+
+CLI 更新请求超时或连接中断时，先核对 Daemon 的实际结果，不立即重装：
+
+```bash
+paseo plugin ls --json
+paseo plugin logs paseo-dsh-direct
+paseo provider diagnostic dsh-pi
+```
+
+`currentRevision` 已是目标版本、插件状态为 `running`，且 Provider 诊断可用，表示安装与发现检查通过；真实对话仍需另测。CLI 等待结束不等于 Daemon 已停止构建，是否重试以插件状态和日志为准。
+
+## 发布验证与排障
+
+发布流程以 [AGENTS.md](../AGENTS.md#日常-ops) 和 `.github/workflows/publish.yml` 为准。维护分支只使用 `rel/<major.minor>`；发布 PR 分支使用不匹配 `rel/*` 的名称，避免与维护线的发布触发规则混淆。
+
+Publish 成功后，分别核对 npm 的版本、dist-tag 和远端 tag（将 `X.Y.Z` 换为本次版本）：
+
+```bash
+npm view paseo-dsh-direct@X.Y.Z version dist-tags --json
+git ls-remote --tags origin refs/tags/vX.Y.Z
+```
+
+若 npm 尚未查到新版本，先查看 Publish 日志中的发布与推送 tag 结果，再重新查询；节点同步延迟可能短暂返回旧信息。不要仅因一次 `ETARGET` 或旧 `latest` 结果就再次发布。
+
+版本已存在但 dist-tag 不正确时，重新运行对应分支的 Publish：工作流用 `npm dist-tag add` 校正 `latest` 或 `dsh-<major.minor>`，不重复发布同一版本。工作流为 OIDC dist-tag 操作升级 npm；现行实现要求 npm 11.21 及以上。Trusted Publisher 的 Allowed actions 需允许 `npm publish` 和 `npm dist-tag`。
+
+删除误发 dist-tag 若在 OIDC 下报 `E401`，可由维护者使用交互式 npm 登录与网页授权后执行 `npm dist-tag rm <package> <tag>`；不要因此添加长期令牌或改动正确的 dist-tag。
 
 ## 运行配置
 

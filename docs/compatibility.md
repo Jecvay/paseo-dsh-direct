@@ -26,9 +26,13 @@ DSH `0.2.1-rc.4` 的桥接 smoke 已通过：握手、10 个模型、495 条原�
 
 Paseo 验证基线为 `0.14.0`（隔离 Daemon：插件加载、真实回合、空闲安全查询、后台任务否决、回收与恢复）与 `0.12.0`（插件安装、加载、provider 可用性、诊断与模型目录，Daemon 运行于 Node.js `24`），此前的基线 `0.11.2`（Node.js `22`）结论仍有效；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
-**0.2 线**：在 DSH `0.2.1-rc.2` 下用 `npm run smoke:bridge` 验证了桥接握手、模型/preset 目录与 `session.list`（真实历史 350+ 会话）；该版本包源码里 `compaction/summary` 已写入压缩影子价格、`contextPressure` 投影已带 `projectedTokens`，上下文圆环据此在压缩后即时更新（真实压缩会话未复测）。真实回合由贡献者 @rayzart 在 0.2.7 用 dsh `0.2.1-rc.2` 加 Paseo `0.11.4`（DeepSeek 账号登录）验证：诊断报可用、模型目录可列出、真实回合完成；审批、问答、`/compact`、`/plan` 与会话恢复没有该版本的复测记录（本仓缺少 API 密钥）。在 DSH `0.2.0-rc.2` 下验证了握手、目录与 `session.list`，并在 Paseo `0.11.2` 的 Daemon 内验证了：本地目录安装并加载（插件名 `DeepSeek Harness`、图标被接受、插件日志无错误）、`dsh-pi` 列出且可用、模型目录加载；`PASEO_DSH_EXECUTABLE` 指向不存在的路径时，`paseo provider diagnostic dsh-pi` 报告不可用并给出 `Could not run "<path> --version"…` 的说明。`0.2.0-rc.2` 下的真实回合、工具调用、审批、问答、`/compact`、`/plan` 与会话恢复也没有复测。
+**0.2 线**：在 DSH `0.2.1-rc.2` 下用 `npm run smoke:bridge` 验证了桥接握手、模型/preset 目录与 `session.list`（真实历史 350+ 会话）；该版本包源码里 `compaction/summary` 已写入压缩影子价格、`contextPressure` 投影已带 `projectedTokens`，上下文圆环据此在压缩后即时更新（真实压缩会话未复测）。真实回合由贡献者 @rayzart 在 0.2.7 用 dsh `0.2.1-rc.2` 加 Paseo `0.11.4`（DeepSeek 账号登录）验证：诊断报可用、模型目录可列出、真实回合完成；`/compact`、`/plan` 与真实远端模型下的审批、问答和恢复没有该组合的完整复测记录，Windows 脚本模型验证范围见下文。在 DSH `0.2.0-rc.2` 下验证了握手、目录与 `session.list`，并在 Paseo `0.11.2` 的 Daemon 内验证了：本地目录安装并加载（插件名 `DeepSeek Harness`、图标被接受、插件日志无错误）、`dsh-pi` 列出且可用、模型目录加载；`PASEO_DSH_EXECUTABLE` 指向不存在的路径时，`paseo provider diagnostic dsh-pi` 报告不可用并给出 `Could not run "<path> --version"…` 的说明。`0.2.0-rc.2` 下的真实回合、工具调用、审批、问答、`/compact`、`/plan` 与会话恢复也没有复测。
 
-在 DSH `0.2.0-rc.1` 下，用插件真实的 provider 路径（`createDshProvider` + `launchDshBridge`，不经 Paseo Daemon）和真实模型验证了：自动创建 `paseo` profile、模型/preset/权限目录、含 bash 工具调用的真实回合、工具审批允许/拒绝、问答应答/拒绝、斜杠目录含 `/compact` 与 `/plan`、关闭后按持久化句柄恢复会话并继续对话；`npm run smoke:bridge -- --prompt` 通过，DSH 子进程不监听 TCP 端口、不开浏览器。图片与文件附件、MCP、中断、Paseo Daemon 内加载与重启恢复在 0.2 线尚未复测。
+在 DSH `0.2.0-rc.1` 下，用插件真实的 provider 路径（`createDshProvider` + `launchDshBridge`，不经 Paseo Daemon）和真实模型验证了：自动创建 `paseo` profile、模型/preset/权限目录、含 bash 工具调用的真实回合、工具审批允许/拒绝、问答应答/拒绝、斜杠目录含 `/compact` 与 `/plan`、关闭后按持久化句柄恢复会话并继续对话；`npm run smoke:bridge -- --prompt` 通过，DSH 子进程不监听 TCP 端口、不开浏览器。该 `0.2.0-rc.1` 组合没有图片与文件附件、MCP、中断及 Daemon 重启恢复的完整复测记录；其他组合的已验证范围分别列出。
+
+**Windows 验证范围**：DSH Desktop `0.2.1-rc.2` 与 Paseo `0.13.0-beta.1` 的贡献者实测覆盖插件加载和 Provider 可用性；隔离 Daemon 与 DSH home 使用 loopback 脚本模型，验证目录、增量文本、含逗号的选择及自由文本答案、`read-only` 权限下写入请求的审批允许/拒绝（核对实际文件）、中断后继续、Provider 重载后保持原生会话身份和模型错误。另有 stdio MCP 精确预批准、PowerShell 后台任务输出和原生子代理向父会话交付结果的验证。日常 Daemon 的真实模型完成文件读取，DeepSeek 账号模型完成原生网页搜索。该证据对应 [PR #82](https://github.com/Jecvay/paseo-dsh-direct/pull/82) 的修复 checkout，不代表 `0.2.14` 已在 Windows 完整复测；也不验证附件、真实压缩、整 Daemon 重启恢复或独立子会话界面。
+
+**桌面采样范围**：插件 `0.2.13`、Paseo `0.13.2` 与 DSH `0.2.1-rc.2` 的用户采样确认 `read` 卡片展示路径及读取窗口、`read_image` 卡片分类、含逗号的单选与手输答案，以及新会话启动即关闭后的桥接清理。采样不能扩展为全部工具卡、多选/拒答、启动中停止 Daemon 或手机真机的验证。
 
 推荐的 DSH `0.2.1-rc.2` 用 `npm install @deepseek-ai/dsh@0.2.1-rc.2` 即可正常安装；`0.2.0-rc.2` 与 `0.2.0-rc.1` 同样可装。
 
