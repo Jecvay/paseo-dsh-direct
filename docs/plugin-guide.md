@@ -122,7 +122,7 @@ PASEO_014_E2E=1 PASEO_014_NODE_MODULES=/abs/preinstalled/node_modules npx --no-i
 
 DSH 会话写锁由原生运行时拥有。不要删除 `.lock` 文件来强行恢复正在另一个客户端使用的会话，也不要把生成的新 session id 当成恢复原会话的替代。
 
-手工部署与生产实测按照根 [AGENTS.md](../AGENTS.md) 记入 `.agents/ops-log.md`；那是待蒸馏的临时材料，长期结论要整理进本文档。发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。
+手工部署与生产实测按照根 [AGENTS.md](../AGENTS.md) 记入本地 `.agents/ops-log.md`，文件由 Git 忽略、按需创建；agent 自行将长期结论核实、脱敏后整理进本文档，只提交长期产物。发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。
 
 ## 官方参考
 
