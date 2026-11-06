@@ -12,7 +12,7 @@ DSH 原生子代理的内部消息不直接投影成独立聊天气泡，插件�
 
 ## 设置页
 
-插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `Settings`）。`Connection` 区域的 `Executable` 和 `Profile` 通过 SDK 的 `useSettings(DSH_SETTINGS)` 读写 DSH 启动命令与 profile，留空表示不设置，环境变量优先。设置定义在 `shared/settings.ts`，改动对新会话生效。设置的取值如何参与选择见 [服务端架构](server-architecture.md)。
+插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `Settings`）。`Connection` 区域的 `Executable`、`Profile` 和 `Startup timeout` 通过 SDK 的 `useSettings(DSH_SETTINGS)` 读写 DSH 启动命令、profile 与桥接启动的等待秒数（1..600，留空用默认 15 秒），留空表示不设置，环境变量优先。设置定义在 `shared/settings.ts`，改动对新会话生效。设置的取值如何参与选择见 [服务端架构](server-architecture.md)。
 
 `Subagents` 区域通过插件 RPC 读取当前 DSH profile 的模型目录和原生子代理设置。设置页显示启用状态、已选与可用模型数量；点击 `Edit models` 打开宿主弹窗。宽屏使用居中对话框，窄屏使用底部抽屉，编辑内容在弹窗内滚动。关闭弹窗保留搜索条件和未保存的选择，摘要提示未保存的修改；加载失败、配置冲突与不可用模型等提示在设置页和编辑区均可见。客户端未提供 `Modal` 或 `Modal.Content` 时，使用默认收起的内联编辑区，点击 `Edit models` 展开、`Close editor` 收起。
 

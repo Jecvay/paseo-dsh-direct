@@ -3,16 +3,17 @@ import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsInput, SettingsRow } from "@getpaseo/plugin/client/ui";
 import SettingsSection from "./settings-section.js";
 import { useRef } from "react";
-import { DSH_SETTINGS } from "../shared/settings.js";
+import { DEFAULT_STARTUP_TIMEOUT_SECONDS, DSH_SETTINGS, MAX_STARTUP_TIMEOUT_SECONDS, type DshSettingsValues } from "../shared/settings.js";
 import SubagentSettings from "./subagent-settings.js";
 
 const EXECUTABLE_HINT = "DSH command or path; environment takes priority";
 const PROFILE_HINT = "Default: paseo, unless set by environment";
+const STARTUP_TIMEOUT_HINT = `Seconds to wait for dsh to start, ${DEFAULT_STARTUP_TIMEOUT_SECONDS} by default, up to ${MAX_STARTUP_TIMEOUT_SECONDS}`;
 
-/** Edits the dsh executable and profile that the server reads when it launches a bridge. */
+/** Edits the dsh executable, profile and startup timeout that the server reads when it launches a bridge. */
 export default function DshSettingsScreen({ theme }: PluginSurfaceProps) {
   const settings = useSettings(DSH_SETTINGS);
-  const draftState = useRef<{ revision: string | undefined; edits: { executable?: string; profile?: string } }>({
+  const draftState = useRef<{ revision: string | undefined; edits: DshSettingsValues }>({
     revision: undefined,
     edits: {},
   });
@@ -58,6 +59,7 @@ export default function DshSettingsScreen({ theme }: PluginSurfaceProps) {
       {
         executable: draft.current.executable ?? values.executable ?? "",
         profile: draft.current.profile ?? values.profile ?? "",
+        startupTimeoutSeconds: draft.current.startupTimeoutSeconds ?? values.startupTimeoutSeconds ?? "",
       },
       revision,
     );
@@ -84,6 +86,17 @@ export default function DshSettingsScreen({ theme }: PluginSurfaceProps) {
           initialValue={values.profile ?? ""}
           onChangeText={(text) => {
             draft.current.profile = text;
+          }}
+          disabled={settings.saving}
+        />
+        <SettingsInput
+          key={`startup-timeout-${revision}`}
+          label="Startup timeout"
+          hint={STARTUP_TIMEOUT_HINT}
+          placeholder={String(DEFAULT_STARTUP_TIMEOUT_SECONDS)}
+          initialValue={values.startupTimeoutSeconds ?? ""}
+          onChangeText={(text) => {
+            draft.current.startupTimeoutSeconds = text;
           }}
           disabled={settings.saving}
         />

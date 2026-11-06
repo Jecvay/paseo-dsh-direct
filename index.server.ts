@@ -16,8 +16,8 @@ export default function contribute(server: PluginServerContext) {
   let providerLaunch: ProviderLaunch | undefined;
   const subagents = createSubagentSettingsAccess({
     target: async () => ({ configured: await configured(), launch: providerLaunch }),
-    open: ({ configured: { executable, profile }, launch }) => launchDshBridge({
-      bridgeSource: DSH_BRIDGE_SOURCE, executable, profile, providerLaunch: launch,
+    open: ({ configured: { executable, profile, startupTimeoutMs }, launch }) => launchDshBridge({
+      bridgeSource: DSH_BRIDGE_SOURCE, executable, profile, startupTimeoutMs, providerLaunch: launch,
     }),
   });
   // Provider discovery supplies the same resolved command and environment used for sessions.
@@ -40,8 +40,8 @@ export default function contribute(server: PluginServerContext) {
       observeLaunch: (launch) => { providerLaunch = launch; },
       command: defaultDshCommand(process.env),
       createBridge: async (launch) => {
-        const { executable, profile } = await configured();
-        return launchDshBridge({ ...launch, bridgeSource: DSH_BRIDGE_SOURCE, executable, profile });
+        const { executable, profile, startupTimeoutMs } = await configured();
+        return launchDshBridge({ ...launch, bridgeSource: DSH_BRIDGE_SOURCE, executable, profile, startupTimeoutMs });
       },
     }),
   );
