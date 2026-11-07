@@ -45,6 +45,8 @@ profile 的顺序是非空的 `PASEO_DSH_PROFILE`、设置页里非空的 `profi
 
 `getCatalogCacheKey` 的键由范围（全局或工作区 `cwd`）、生效的启动命令加参数、生效的 profile 组成，因此改动 profile 或可执行文件后，新的目录发现不会复用旧结果。
 
+桥接启动的等待时间是 `server/dsh-config.ts` 的 `parseStartupTimeoutSeconds` 解析的设置页字段 `startupTimeoutSeconds`（整数秒，1..600，留空取 `launchDshBridge` 的 15 秒默认）；没有对应环境变量，因为它只影响起桥等待，不改变安装身份。除纯空白外，非法的值不让整页设置失效：其余字段照常生效，并向 stderr 写一行说明。等待从 `spawnDsh` 之后到 `bridge.ready` 握手，`startupTimeoutMs` 直接传给 `waitUntilReady`；窗口内的慢启动（例如多个 dsh-pi 会话同时起桥）不再被判失败，超过窗口的等待以 `DSH bridge did not become ready within <n>ms` 结束并终止子进程。
+
 插件启动的每个 dsh 进程（建 profile、`--dump-config` 行检查、起桥、`--version` 探测）都经 `spawnDsh`（`server/dsh-spawn.ts`）启动，它用 `resolveDshSpawn` 定出最终的 `command` / `args` / `env`。非 Windows 平台原样透传。Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本：Node 不经 shell 不按 PATHEXT 找 `.cmd`、也拒绝直接 spawn `.cmd`，`.ps1` 包装脚本在 stdin 为管道时等 EOF 才启动。命令解析到这类包装脚本（显式路径，或按大小写不敏感的 `PATH` 查找、同目录无 `dsh.exe`/`dsh.com`）时，按包装脚本所在布局改为执行它内部执行的命令：
 
 - npm：包装脚本目录下有 `node_modules/@deepseek-ai/dsh/lib/bin.js` 时执行 `node <bin.js> <args...>`，包装脚本旁有 `node.exe` 时用它。
