@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import type { ProviderEvent, ProviderInput } from "@getpaseo/plugin/server/provider";
 import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications, QuestionAnswer, QuestionItem } from "../shared/bridge-protocol.js";
 import type { DshBridge, SessionLaunch } from "./bridge-client.js";
@@ -91,15 +91,18 @@ class FakeBridge implements DshBridge {
       this.notify("session.event", {
         sessionId: "native-new",
         event: { type: "command/run", seq: 10, time: 1, data: { commandId: "c1", name: command.name, args: "" } },
+        images: [],
       });
       this.notify("session.event", {
         sessionId: "native-new",
         event: { type: "command/done", seq: 11, time: 2, data: { commandId: "c1", kind: "success", text: "Compacted 3 history items." } },
+        images: [],
       });
       if (command.name === "plan") {
         this.notify("session.event", {
           sessionId: "native-new",
           event: { type: "plan/mode", seq: 12, time: 2, data: { active: command.arguments !== "off" } },
+          images: [],
         });
         return { kind: "success", text: "Plan mode on.", running: false } as BridgeMethods[Name]["result"];
       }
@@ -223,15 +226,18 @@ describe("dsh provider", () => {
     bridge.notify("session.event", {
       sessionId: "native-new",
       event: { type: "turn/end", seq: 18, time: 3, data: { turn: 1, reason: { kind: "completed" } } },
+      images: [],
     });
     // DSH drains the goal continuation without going idle.
     bridge.notify("session.event", {
       sessionId: "native-new",
       event: { type: "turn/start", seq: 19, time: 3, data: { turn: 2 } },
+      images: [],
     });
     bridge.notify("session.event", {
       sessionId: "native-new",
       event: { type: "turn/end", seq: 20, time: 3, data: { turn: 2, reason: { kind: "completed" } } },
+      images: [],
     });
     const turns = events.flatMap((event) => (event.type === "session.turn" ? [`${event.turnId.replace(/-[0-9a-f-]{36}$/u, "")}:${event.state}`] : []));
     assert.deepEqual(turns, [
@@ -271,6 +277,7 @@ describe("dsh provider", () => {
     bridge.notify("session.event", {
       sessionId: "native-new",
       event: { type: "plan/mode", seq: 40, time: 5, data: { active: false } },
+      images: [],
     });
     assert.equal(planSetting()?.value, false);
     await connection.close();
@@ -282,6 +289,7 @@ describe("dsh provider", () => {
     bridge.notify("session.event", {
       sessionId: "native-new",
       event: { type: "permission/preset", seq: 30, time: 4, data: { preset: "workspace-write" } },
+      images: [],
     });
     const config = events.filter((event) => event.type === "session.config").at(-1);
     assert.equal(
@@ -308,6 +316,7 @@ describe("dsh provider", () => {
           usage: { inputTokens: 3091, outputTokens: 61, cacheReadTokens: 7808 },
         },
       },
+      images: [],
     });
     await tick();
     assert.deepEqual(events.filter((event) => event.type === "session.usage"), []);
@@ -389,6 +398,7 @@ describe("dsh provider", () => {
         time: 1,
         data: { turn: 1, reason: { kind: "error", error: { message: "429 rate limited", code: "RATE_LIMIT", status: 429 } } },
       },
+      images: [],
     });
     const failed = events.find((event) => event.type === "session.turn" && event.state === "failed");
     assert.deepEqual(failed?.type === "session.turn" && failed.error, {
@@ -1303,4 +1313,152 @@ describe("dsh provider status", () => {
     await provider.connect({ launch, versions: [1], capabilities: [] });
     assert.deepEqual(launches, [launch]);
   });
+});
+
+test("a tool result image becomes an assistant message with a file link", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  await connection.send({
+    type: "session.open",
+    requestId: "open-1",
+    sessionId: "paseo-1",
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+    history: "skip",
+  });
+  await tick();
+
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: { type: "tool/result", seq: 30, time: 4, data: { turn: 1, step: 1, message: { role: "tool", content: [] } } },
+    images: [{ index: 2, status: "ready", path: "/cache/images/abc.png", name: "shot.png" }],
+  });
+  await tick();
+
+  const images = events.filter(
+    (event): event is Extract<ProviderEvent, { type: "timeline.item" }> =>
+      event.type === "timeline.item" && event.item.id === "tool-image:30:2",
+  );
+  assert.equal(images.length, 1);
+  const item = images[0]!.item;
+  assert.equal(item.type, "assistant_message");
+  if (item.type !== "assistant_message") return;
+  assert.equal(item.messageId, "tool-image:30:2");
+  // The text is a standalone paragraph, so it has leading newlines.
+  assert.ok(item.text.includes("![shot.png](file:///cache/images/abc.png)"));
+  await connection.close();
+});
+
+test("a tool result without images adds no assistant message", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  await connection.send({
+    type: "session.open",
+    requestId: "open-1",
+    sessionId: "paseo-1",
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+    history: "skip",
+  });
+  await tick();
+
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: { type: "tool/result", seq: 31, time: 5, data: { turn: 1, step: 1, message: { role: "tool", content: [] } } },
+    images: [],
+  });
+  await tick();
+
+  assert.equal(
+    events.filter((event) => event.type === "timeline.item" && event.item.id.startsWith("tool-image:31")).length,
+    0,
+  );
+  await connection.close();
+});
+
+test("replaying a resumed session emits tool-result images from historical events", async () => {
+  class ReplayImageBridge extends FakeBridge {
+    override async request<Name extends keyof BridgeMethods>(
+      method: Name,
+      params: BridgeMethods[Name]["params"],
+      timeoutMs?: number,
+    ): Promise<BridgeMethods[Name]["result"]> {
+      if (method === "session.open") {
+        const open = params as BridgeMethods["session.open"]["params"];
+        return {
+          sessionId: open.sessionId ?? "native-resumed",
+          cwd: open.cwd,
+          model: this.initialized.catalog.defaultModel,
+          preset: "default",
+          permissionPreset: open.permissionPreset ?? "read-only",
+          events: [
+            {
+              type: "tool/call",
+              seq: 40,
+              time: 4,
+              data: { callId: "call-1", name: "read_image", arguments: JSON.stringify({ file_path: "/repo/shot.png" }) },
+            },
+            {
+              type: "tool/result",
+              seq: 41,
+              time: 5,
+              data: {
+                turn: 1,
+                step: 1,
+                message: {
+                  role: "tool",
+                  toolCallId: "call-1",
+                  content: [{ type: "text", text: "<type>image</type>" }],
+                },
+              },
+              images: [{ index: 1, status: "ready", path: "/cache/images/replayed.png", name: "shot.png" }],
+            },
+          ],
+        } as BridgeMethods[Name]["result"];
+      }
+      return super.request(method, params, timeoutMs);
+    }
+  }
+
+  const bridge = new ReplayImageBridge();
+  const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  await connection.send({
+    type: "session.open",
+    requestId: "open-replay",
+    sessionId: "paseo-replay",
+    persistence: { version: 1, data: { dshSessionId: "native-resumed" } },
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+    history: "replay",
+  });
+  await tick();
+  await tick();
+
+  const imageItems = events.filter(
+    (event): event is Extract<ProviderEvent, { type: "timeline.item" }> =>
+      event.type === "timeline.item" && event.item.id === "tool-image:41:1",
+  );
+  assert.equal(imageItems.length, 1);
+  const item = imageItems[0]!.item;
+  assert.equal(item.type, "assistant_message");
+  if (item.type === "assistant_message") {
+    assert.equal(item.messageId, "tool-image:41:1");
+    assert.ok(item.text.includes("![shot.png](file:///cache/images/replayed.png)"));
+  }
+  await connection.close();
 });
