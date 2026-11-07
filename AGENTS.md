@@ -7,7 +7,7 @@
 ## 核心原则
 
 - **严格遵守 Paseo 0.11 插件规范**：前后端三层分界明确（`server/` 运行于 Daemon 子进程，`client/` 运行于 App 前端，`shared/` 为跨端契约）。客户端代码禁止调用 Node.js 或 DOM 专属 API，必须保证移动端及跨平台兼容。
-- **敏感凭证绝不上仓**：API 密钥（如 `DEEPSEEK_API_KEY`）及本地敏感路径仅通过环境变量或 Paseo 凭证系统注入，禁止硬编码或提交入库。
+- **敏感凭证不进入记录与产物**：API 密钥、Telegram bot token、Discord webhook URL/token、GitHub token、私钥、签名密钥等仅通过环境变量或凭证系统注入，禁止硬编码、提交入库，或写入 ops-log、notes、文档、测试样本、issue/PR、通知及运行日志。说明配置时只写环境变量名、凭证标识或占位符，不附真实值；本地敏感路径也不提交。记录操作与故障前先脱敏，不原样输出完整环境、认证头、凭证文件、带密钥的请求 URL 或客户端异常；Telegram API URL 的 `/bot<token>/` 与 Discord webhook URL 本身都含凭证。排障和检查只报告缺少哪项配置、错误类别及必要的脱敏上下文；排查疑似泄露时也不复述密钥。
 - **直连优先原则**：优先采用 Paseo 的 Direct Provider 接口对接 DSH 内部事件总线/RPC，绕过泛型 ACP 适配器带来的流式 chunk 拆包撕裂与交互能力降级。
 - **开源交付标准**：工程与文档保持自包含、清晰规范，原生适配 `paseo plugin add` 安装机制与 [paseo.cafe](https://paseo.cafe) 社区索引。
 
@@ -55,6 +55,8 @@ npm install
 npm run verify:notes
 npm run verify:docs
 ```
+
+**自主维护与发布前确认**：用户允许 agent 对符合本项目开发目标的维护工作自主调查、实现、simplify 和验证，完成可审查的发布准备。改动须符合项目定位和服务目标，不夹带恶意或无关行为；交付前检查并消除不必要的抽象、重复实现和过时分支，防止代码腐化。正式发布前，主动通过用户可回复的渠道说明改了什么、影响范围、simplify 与验证结果、已知风险，并提供对应 PR 或变更链接；取得用户对本次发布的明确同意后，才执行发布或会触发发布的合并。未回复不视为同意，保持待发布；批准后内容发生实质变化须重新确认。发布后确认 Actions 与 npm 上的实际结果。遇到目标或方向上的真实歧义时及时讨论；验证不足时继续验证。
 
 **发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本：
 
