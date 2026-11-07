@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.16
+
+- Send streamed text and reasoning as individual deltas instead of repeatedly transferring the accumulated reply. Preserve repeated whitespace and indentation, and append only the unstreamed suffix when a reply settles (#83, contributed by @frederick-wang).
+- Display images returned by tools in live conversations and restored history. Read images through DSH's attachment service, store verified bytes in a persistent cache, and show a warning for individual image failures without failing the turn (#85, contributed by @frederick-wang).
+- Share concurrent reads and writes of the same image while retaining each block's name and position. Recheck completed cache entries for corruption, use native file URLs for Windows network paths, and keep attachment and filesystem error details out of image notifications.
+- Simplify deferred notification handling while preserving event order. Verify actual bridge JSON output and delayed-image ordering, and test streaming contracts without copying Paseo's internal mapper.
+- Keep Paseo 0.11 and later supported. Build, all four typecheck targets, 314 passing tests, and notes and documentation gates verify the release; two environment-gated tests are skipped. This release preparation does not repeat live-model, browser or native-device tests.
+
 ## 0.2.15
 
 - Keep the settings page compact with an Edit models button. Model selection opens in a host dialog on wide layouts and a bottom sheet on narrow layouts, with internal scrolling. Closing the editor preserves unsaved choices and search text; clients without the modal components keep a collapsed inline editor.
