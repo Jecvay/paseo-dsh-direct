@@ -17,6 +17,14 @@ const EXTENSIONS: Record<string, string> = {
 
 const SHA256_HEX = /^sha256:([0-9a-f]{64})$/u;
 
+type MaterializedImage =
+  | { status: "ready"; path: string }
+  | { status: "failed"; code: string; message: string }
+  | { status: "unavailable" };
+
+// Share only concurrent work; later calls must revalidate the on-disk cache.
+const inflightImages = new WeakMap<HostContext, Map<string, Promise<MaterializedImage>>>();
+
 interface ImageAttachmentRef {
   attachmentId: string;
   mediaType: string;
@@ -52,8 +60,8 @@ export function imageBlocksOf(message: JsonObject): Array<{ index: number; ref: 
     // Reject anything that could not be a real reference: the id is the only
     // value that ever reaches a file name, and it is matched strictly.
     if (!SHA256_HEX.test(attachmentId)) return;
-    if (EXTENSIONS[mediaType] === undefined) return;
-    if (bytes <= 0 || width <= 0 || height <= 0) return;
+    if (!Object.hasOwn(EXTENSIONS, mediaType)) return;
+    if (![bytes, width, height].every((value) => Number.isSafeInteger(value) && value > 0)) return;
     found.push({
       index,
       ref: {
@@ -100,28 +108,47 @@ async function hasValidCachedImage(
  * straight from the on-disk object instead would skip that check and would
  * assume a backend layout the profile is free to change.
  */
-async function materialize(
+function materialize(
   ctx: HostContext,
   dir: string,
   ref: ImageAttachmentRef,
-): Promise<ToolImageOutcome & { index: number }> {
+): Promise<MaterializedImage> {
   const { path, digest } = targetFile(dir, ref);
+  let inflight = inflightImages.get(ctx);
+  if (!inflight) {
+    inflight = new Map();
+    inflightImages.set(ctx, inflight);
+  }
+  const key = JSON.stringify([path, ref.bytes, ref.width, ref.height]);
+  const existing = inflight.get(key);
+  if (existing) return existing;
+  const pending = materializeFile(ctx, dir, path, digest, ref).finally(() => inflight.delete(key));
+  inflight.set(key, pending);
+  return pending;
+}
+
+async function materializeFile(
+  ctx: HostContext,
+  dir: string,
+  path: string,
+  digest: string,
+  ref: ImageAttachmentRef,
+): Promise<MaterializedImage> {
   if (await hasValidCachedImage(path, ref, digest)) {
-    return { index: -1, status: "ready", path, ...(ref.name ? { name: ref.name } : {}) };
+    return { status: "ready", path };
   }
   const service = ctx.get("attachments");
   if (service === undefined || typeof service.readImage !== "function")
-    return { index: -1, status: "unavailable" };
+    return { status: "unavailable" };
 
   let stored;
   try {
     stored = await service.readImage(ref, AbortSignal.timeout(10_000));
-  } catch (error) {
+  } catch {
     return {
-      index: -1,
       status: "failed",
       code: "read_failed",
-      message: error instanceof Error ? error.message : "Attachment read failed",
+      message: "Attachment read failed",
     };
   }
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -132,14 +159,13 @@ async function materialize(
     // half-written file, then publish it with rename.
     await writeFile(temporary, stored.data, { mode: 0o600 });
     await rename(temporary, path);
-    return { index: -1, status: "ready", path, ...(ref.name ? { name: ref.name } : {}) };
-  } catch (error) {
+    return { status: "ready", path };
+  } catch {
     await unlink(temporary).catch(() => undefined);
     return {
-      index: -1,
       status: "failed",
       code: "write_failed",
-      message: error instanceof Error ? error.message : "Attachment write failed",
+      message: "Attachment write failed",
     };
   }
 }
@@ -153,10 +179,14 @@ export async function materializeToolImages(
   const blocks = imageBlocksOf(message);
   if (blocks.length === 0) return [];
   const outcomes = await Promise.all(
-    blocks.map(async (block) => ({
-      ...(await materialize(ctx, dir, block.ref)),
-      index: block.index,
-    })),
+    blocks.map(async (block) => {
+      const outcome = await materialize(ctx, dir, block.ref);
+      return {
+        ...outcome,
+        index: block.index,
+        ...(outcome.status === "ready" && block.ref.name ? { name: block.ref.name } : {}),
+      };
+    }),
   );
   return outcomes;
 }

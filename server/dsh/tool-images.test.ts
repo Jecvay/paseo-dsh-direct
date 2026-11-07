@@ -64,6 +64,19 @@ describe("tool images", () => {
     assert.equal(blocks.length, 1);
   });
 
+  it("rejects inherited media types and non-positive or unsafe integer metadata", () => {
+    const invalid = [NaN, Infinity, -Infinity, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1];
+    const blocks = [
+      ...["__proto__", "constructor", "toString"].map((mediaType) =>
+        imageBlock(`sha256:${SHA}`, mediaType),
+      ),
+      ...["bytes", "width", "height"].flatMap((field) =>
+        invalid.map((value) => imageBlock(`sha256:${SHA}`, "image/png", { [field]: value })),
+      ),
+    ];
+    assert.deepEqual(imageBlocksOf(toolMessage(blocks) as never), []);
+  });
+
   it("writes the verified bytes under a content-addressed name", async () => {
     const service = { readImage: async () => ({ ref: {}, data: PNG_BYTES }) };
     const outcomes = await materializeToolImages(contextWith(service), dir, toolMessage([imageBlock()]) as never);
@@ -110,40 +123,104 @@ describe("tool images", () => {
     assert.deepEqual(new Uint8Array(await readFile(cachedPath)), PNG_BYTES);
   });
 
-  it("handles concurrent materialization of the same image without temp-file collisions", async () => {
+  it("shares concurrent image work while preserving each block's index and name", async () => {
     const freshBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5]);
     const freshSha = createHash("sha256").update(freshBytes).digest("hex");
-    const block = imageBlock(`sha256:${freshSha}`, "image/png", { bytes: freshBytes.length });
+    const block = imageBlock(`sha256:${freshSha}`, "image/png", { bytes: freshBytes.length, name: "first.png" });
+    const second = imageBlock(`sha256:${freshSha}`, "image/png", { bytes: freshBytes.length, name: "second.png" });
+    let reads = 0;
     const service = {
       readImage: async () => {
+        reads += 1;
         await new Promise((resolve) => setImmediate(resolve));
         return { ref: {}, data: freshBytes };
       },
     };
-
+    const ctx = contextWith(service);
+    const cachedPath = join(dir, `${freshSha}.png`);
+    const message = toolMessage([{ type: "text", text: "images" }, block, second]) as never;
     const runs = await Promise.all(
-      Array.from({ length: 8 }, () =>
-        materializeToolImages(contextWith(service), dir, toolMessage([block, block]) as never),
-      ),
+      Array.from({ length: 8 }, () => materializeToolImages(ctx, dir, message)),
     );
+    assert.equal(reads, 1);
     for (const outcomes of runs) {
-      assert.equal(outcomes.length, 2);
-      assert.equal(outcomes[0]?.status, "ready");
-      assert.equal(outcomes[1]?.status, "ready");
+      assert.deepEqual(outcomes, [
+        { status: "ready", path: cachedPath, index: 1, name: "first.png" },
+        { status: "ready", path: cachedPath, index: 2, name: "second.png" },
+      ]);
     }
-    assert.deepEqual(new Uint8Array(await readFile(join(dir, `${freshSha}.png`))), freshBytes);
+    assert.deepEqual(new Uint8Array(await readFile(cachedPath)), freshBytes);
+
+    // Completed work must not hide later corruption, even in the same context.
+    await writeFile(cachedPath, new Uint8Array(freshBytes.length));
+    await materializeToolImages(ctx, dir, message);
+    assert.equal(reads, 2);
+    assert.deepEqual(new Uint8Array(await readFile(cachedPath)), freshBytes);
+  });
+
+  it("isolates contexts and verification fields and retries failed work", async () => {
+    let reads = 0;
+    const service = {
+      readImage: async () => {
+        reads += 1;
+        await new Promise((resolve) => setImmediate(resolve));
+        throw new Error("unavailable");
+      },
+    };
+    const ctx = contextWith(service);
+    const otherCtx = contextWith(service);
+    const attachmentId = `sha256:${"e".repeat(64)}`;
+    const block = imageBlock(attachmentId);
+    const message = toolMessage([
+      block,
+      block,
+      imageBlock(attachmentId, "image/png", { bytes: PNG_BYTES.length + 1 }),
+      imageBlock(attachmentId, "image/png", { width: 9 }),
+      imageBlock(attachmentId, "image/png", { height: 9 }),
+    ]) as never;
+    const results = await Promise.all([
+      materializeToolImages(ctx, dir, message),
+      materializeToolImages(otherCtx, dir, toolMessage([block]) as never),
+    ]);
+    assert.equal(reads, 5);
+    assert.ok(results.flat().every((outcome) => outcome.status === "failed"));
+    await materializeToolImages(ctx, dir, toolMessage([block]) as never);
+    assert.equal(reads, 6);
   });
 
   it("reports a failed read without rejecting", async () => {
     const service = {
       readImage: async () => {
-        throw new Error("digest mismatch");
+        throw new Error("sensitive-error-marker");
       },
     };
     const fresh = `sha256:${"c".repeat(64)}`;
     const outcomes = await materializeToolImages(contextWith(service), dir, toolMessage([imageBlock(fresh)]) as never);
-    assert.equal(outcomes[0]?.status, "failed");
-    if (outcomes[0]?.status === "failed") assert.equal(outcomes[0].code, "read_failed");
+    assert.deepEqual(outcomes, [{
+      index: 0,
+      status: "failed",
+      code: "read_failed",
+      message: "Attachment read failed",
+    }]);
+    assert.ok(!JSON.stringify(outcomes).includes("sensitive-error-marker"));
+  });
+
+  it("does not expose filesystem error paths in failed image outcomes", async () => {
+    const blockedDirectory = join(dir, "sensitive-path-marker");
+    await writeFile(blockedDirectory, "not a directory");
+    const service = { readImage: async () => ({ ref: {}, data: PNG_BYTES }) };
+    const outcomes = await materializeToolImages(
+      contextWith(service),
+      blockedDirectory,
+      toolMessage([imageBlock()]) as never,
+    );
+    assert.deepEqual(outcomes, [{
+      index: 0,
+      status: "failed",
+      code: "write_failed",
+      message: "Attachment write failed",
+    }]);
+    assert.ok(!JSON.stringify(outcomes).includes("sensitive-path-marker"));
   });
 
   it("reports unavailable when the profile has no readImage", async () => {

@@ -25,7 +25,7 @@ import type {
   SlashCommand,
   ToolImageOutcome,
 } from "../shared/bridge-protocol.js";
-import { sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { slashLine } from "../shared/bridge-protocol.js";
 import {
   DEFAULT_PROFILE,
@@ -972,8 +972,6 @@ function toolImageMessages(
   event: DshSessionEvent,
   images: readonly ToolImageOutcome[],
 ): ProviderEvent[] {
-  // The bridge may hand this a promise while it materializes an event's images;
-  // anything else is not iterable.
   if (!Array.isArray(images) || images.length === 0) return [];
   const events: ProviderEvent[] = [];
   for (const image of images) {
@@ -994,7 +992,7 @@ function toolImageMessages(
     }
     const label = image.name ?? "Image";
     const alt = label.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
-    const href = toFileUrl(image.path).replace(/\\/g, "\\\\").replace(/\)/g, "\\)");
+    const href = pathToFileURL(image.path).href.replace(/\\/g, "\\\\").replace(/\)/g, "\\)");
     events.push({
       type: "timeline.item",
       sessionId: session.paseoId,
@@ -1009,13 +1007,6 @@ function toolImageMessages(
     });
   }
   return events;
-}
-
-/** `file://` URL for an absolute path, with segments encoded. */
-function toFileUrl(path: string): string {
-  const normalized = path.split(sep).map((segment) => encodeURIComponent(segment)).join("/");
-  const prefix = normalized.startsWith("/") ? "file://" : "file:///";
-  return `${prefix}${normalized}`;
 }
 
 function emitConfig(session: SessionState, emit: (event: ProviderEvent) => void): void {

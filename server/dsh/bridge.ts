@@ -132,15 +132,14 @@ export async function apply(
   };
   const service = new BridgeService(
     ctx,
-    // Fields the service marks as promises are awaited here, on the same ordered
-    // chain as the write. Serializing a promise directly would put `{}` on the
-    // wire, which the provider cannot read as a list.
+    // Reserve output order immediately, then resolve the complete params before
+    // serializing. No notification field crosses the wire as a promise.
     (method, params) =>
       enqueue(
         (async () => ({
           jsonrpc: "2.0",
           method,
-          params: await resolveParams(params as Record<string, unknown>),
+          params: await params,
         }))(),
       ),
     config.imagesDir ?? defaultImagesDir(),
@@ -224,15 +223,4 @@ export async function apply(
 function defaultImagesDir(): string {
   const base = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
   return join(base, "paseo-dsh-direct", "images");
-}
-
-/** Await every promise-valued field so the payload is plain JSON. */
-async function resolveParams(params: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const entries = await Promise.all(
-    Object.entries(params).map(async ([key, value]) => {
-      const resolved = await Promise.resolve(value).catch(() => undefined);
-      return [key, resolved] as const;
-    }),
-  );
-  return Object.fromEntries(entries.filter(([, value]) => value !== undefined));
 }

@@ -35,18 +35,10 @@ import type {
   ModelSelectionRef,
 } from "./host.js";
 
-/**
- * Fields may be promises: the bridge resolves them on its ordered output before
- * writing, which lets an event wait for image materialization without letting a
- * later RPC response overtake it.
- */
+/** Queue complete params immediately, resolving deferred payloads before writing. */
 type Notify = <K extends keyof BridgeNotifications>(
   method: K,
-  params: {
-    [F in keyof BridgeNotifications[K]]:
-      | BridgeNotifications[K][F]
-      | Promise<BridgeNotifications[K][F]>;
-  },
+  params: BridgeNotifications[K] | Promise<BridgeNotifications[K]>,
 ) => void;
 interface PendingInteraction {
   request: InteractionRequest;
@@ -184,10 +176,8 @@ export class BridgeService {
       ctx.on("session/event", (session, event) => {
         if (!this.tracked.has(String(session.id))) return;
         const sessionId = String(session.id);
-        // Tool results may carry images. Materializing them needs async work, so
-        // the notification is queued rather than sent inline: `notify` returns a
-        // promise on the bridge's single ordered output, which keeps a later RPC
-        // response from overtaking this event.
+        // Queue the complete pending payload now so a later RPC response cannot
+        // overtake this event while its images are being materialized.
         if (event.type !== "tool/result") {
           notify("session.event", { sessionId, event, images: [] });
           return;
@@ -197,11 +187,11 @@ export class BridgeService {
           notify("session.event", { sessionId, event, images: [] });
           return;
         }
-        notify("session.event", {
+        notify("session.event", this.materializeImages(message).then((images) => ({
           sessionId,
           event,
-          images: this.materializeImages(message),
-        });
+          images,
+        })));
       }),
     );
     this.subscriptions.push(

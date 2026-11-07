@@ -1315,7 +1315,13 @@ describe("dsh provider status", () => {
   });
 });
 
-test("a tool result image becomes an assistant message with a file link", async () => {
+test("a tool result image becomes an assistant message with an encoded file link", async () => {
+  const imagePath = process.platform === "win32"
+    ? "\\\\server\\share\\shot #1.png"
+    : "/cache/images/shot #1.png";
+  const imageUrl = process.platform === "win32"
+    ? "file://server/share/shot%20%231.png"
+    : "file:///cache/images/shot%20%231.png";
   const bridge = new FakeBridge();
   const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
   const connection = await provider.connect({
@@ -1336,7 +1342,7 @@ test("a tool result image becomes an assistant message with a file link", async 
   bridge.notify("session.event", {
     sessionId: "native-new",
     event: { type: "tool/result", seq: 30, time: 4, data: { turn: 1, step: 1, message: { role: "tool", content: [] } } },
-    images: [{ index: 2, status: "ready", path: "/cache/images/abc.png", name: "shot.png" }],
+    images: [{ index: 2, status: "ready", path: imagePath, name: "shot.png" }],
   });
   await tick();
 
@@ -1350,7 +1356,7 @@ test("a tool result image becomes an assistant message with a file link", async 
   if (item.type !== "assistant_message") return;
   assert.equal(item.messageId, "tool-image:30:2");
   // The text is a standalone paragraph, so it has leading newlines.
-  assert.ok(item.text.includes("![shot.png](file:///cache/images/abc.png)"));
+  assert.ok(item.text.includes(`![shot.png](${imageUrl})`));
   await connection.close();
 });
 

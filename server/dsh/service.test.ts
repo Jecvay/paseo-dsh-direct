@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
-import { parseRequest } from "./bridge.js";
+import { apply, parseRequest } from "./bridge.js";
 import { BridgeService, missingHostSurface, savedModel, validateAnswers } from "./service.js";
 import type {
   HostAgent,
@@ -147,6 +148,7 @@ function fixture(
     "/tmp/paseo-dsh-test-images",
   );
   return {
+    ctx,
     bridge,
     notifications,
     followups,
@@ -791,11 +793,7 @@ test("session.can_stop_runtime observes subagent admission while schedule lookup
   );
 });
 
-test("a tool result's images reach the plugin as a list, not a promise", async () => {
-  // The bridge writes JSON to the plugin, and Paseo reads `images` as a list.
-  // A promise left in the payload serializes to `{}`, so the pictures vanish
-  // with no error anywhere. This drives the real notification path and then
-  // serializes what it produced, which is exactly what the bridge writes.
+test("tool images defer complete notification params while ordinary events stay plain", async () => {
   const f = fixture({
     attachments: {
       saveImage: async () => ({}),
@@ -806,6 +804,12 @@ test("a tool result's images reach the plugin as a list, not a promise", async (
   await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "images" });
 
   const listener = f.listener("session/event");
+  const ordinary = { type: "turn/start", seq: 8, time: 999, data: { turn: 1 } };
+  listener(f.agent.session, ordinary);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.event",
+    params: { sessionId: "images", event: ordinary, images: [] },
+  });
   listener(f.agent.session, {
     type: "tool/result",
     seq: 9,
@@ -834,20 +838,110 @@ test("a tool result's images reach the plugin as a list, not a promise", async (
     },
   });
 
-  const notification = f.notifications.find(
-    (entry) =>
-      entry.method === "session.event" &&
-      (entry.params as { event?: { seq?: number } }).event?.seq === 9,
-  );
-  assert.ok(notification, "the event must reach the bridge");
-  const images = (notification.params as { images?: unknown }).images;
-  // The service hands over a promise; await it here the way the bridge does,
-  // then check the value survives JSON.
-  const resolved = await Promise.resolve(images);
-  assert.ok(Array.isArray(resolved));
-  assert.equal((resolved as unknown[]).length, 1);
-  assert.ok(Array.isArray(JSON.parse(JSON.stringify(resolved))));
+  const notification = f.notifications.at(-1)!;
+  assert.equal(notification.method, "session.event");
+  assert.ok(notification.params instanceof Promise);
+  const params = await notification.params as BridgeNotifications["session.event"];
+  assert.equal(params.sessionId, "images");
+  assert.equal(params.event.seq, 9);
+  assert.ok(Array.isArray(params.images));
+  assert.equal(params.images.length, 1);
   await f.bridge.shutdown();
+});
+
+test("bridge output resolves image params before serializing and before a later RPC response", { timeout: 5_000 }, async (t) => {
+  let releaseImage!: () => void;
+  const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
+  let listCalled!: () => void;
+  const listing = new Promise<void>((resolve) => { listCalled = resolve; });
+  const f = fixture({
+    attachments: {
+      saveImage: async () => ({}),
+      saveFile: async () => ({}),
+      readImage: async () => { await imageGate; return { ref: {}, data: new Uint8Array([1]) }; },
+    },
+    sessionQuery: {
+      listSessions: async () => { listCalled(); return []; },
+      readSession: async () => { throw new Error("Unexpected read"); },
+      observeSession: async () => { throw new Error("Unexpected observation"); },
+    },
+  });
+  // Reuse the host fixture with apply's own BridgeService and output path.
+  await f.bridge.shutdown();
+  const imagesDir = await mkdtemp(join(tmpdir(), "paseo-bridge-output-"));
+  const input = new PassThrough();
+  const records: Array<{ id?: number; method?: string; params?: BridgeNotifications["session.event"] }> = [];
+  let opened!: () => void;
+  const openResponse = new Promise<void>((resolve) => { opened = resolve; });
+  let listed!: () => void;
+  const listResponse = new Promise<void>((resolve) => { listed = resolve; });
+  const output = new Writable({
+    write(chunk, _encoding, done) {
+      const record = JSON.parse(chunk.toString());
+      records.push(record);
+      if (record.id === 1) opened();
+      if (record.id === 2) listed();
+      done();
+    },
+  });
+  const stdin = Object.getOwnPropertyDescriptor(process, "stdin")!;
+  const stdout = Object.getOwnPropertyDescriptor(process, "stdout")!;
+  const argv = process.argv;
+  let ready!: () => void;
+  let dispose: (() => void | Promise<void>) | undefined;
+  t.after(async () => {
+    releaseImage();
+    try {
+      await dispose?.();
+    } finally {
+      Object.defineProperty(process, "stdin", stdin);
+      Object.defineProperty(process, "stdout", stdout);
+      process.argv = argv;
+      input.destroy();
+      output.destroy();
+      await rm(imagesDir, { recursive: true, force: true });
+    }
+  });
+  Object.defineProperty(process, "stdin", { configurable: true, value: input });
+  Object.defineProperty(process, "stdout", { configurable: true, value: output });
+  // The synthetic host has no installed DSH module closure to resolve.
+  process.argv = [];
+  await apply({
+    ...f.ctx,
+    get: ((name: keyof HostServices) => {
+      if (name === "appReady") return { onReady: (listener: () => void) => { ready = listener; return () => undefined; } };
+      if (name === "appExit") return () => undefined;
+      return f.ctx.get(name);
+    }) as HostContext["get"],
+    effect: (callback) => { dispose = callback(); },
+  }, { imagesDir });
+  process.argv = argv;
+  ready();
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session.open", params: { sessionId: "images", cwd: "/tmp" } })}\n`);
+  await openResponse;
+
+  f.listener("session/event")(f.agent.session, {
+    type: "tool/result", seq: 9, time: 1_000,
+    data: { message: { role: "tool", content: [{
+      type: "image",
+      attachment: { attachmentId: `sha256:${"e".repeat(64)}`, mediaType: "image/png", bytes: 1, width: 1, height: 1 },
+    }] } },
+  });
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session.list", params: {} })}\n`);
+  await listing;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(records.some((record) => record.id === 2), false);
+  assert.equal(records.some((record) => record.method === "session.event"), false);
+
+  releaseImage();
+  await listResponse;
+  const event = records.at(-2)!;
+  assert.equal(event.method, "session.event");
+  assert.equal(event.params?.sessionId, "images");
+  assert.equal(event.params?.event.seq, 9);
+  assert.ok(Array.isArray(event.params?.images));
+  assert.deepEqual(event.params.images, [{ index: 0, status: "ready", path: join(imagesDir, `${"e".repeat(64)}.png`) }]);
+  assert.equal(records.at(-1)?.id, 2);
 });
 
 test("session.read materializes tool-result images onto historical events", async () => {
