@@ -133,8 +133,8 @@ export class TimelineProjector {
       attemptText.set(blockId, (attemptText.get(blockId) ?? "") + delta);
       this.streamedText.set(frame.attemptId, attemptText);
       // Paseo treats same-id assistant text as a cumulative snapshot and slices
-      // off the previous text prefix. To avoid sending and retaining O(n^2)
-      // cumulative snapshots across chunks, we send only each delta under its
+      // off the previous text prefix. To avoid sending O(n^2) text across
+      // chunks, we send only each delta under its
       // own id (reusing one id for non-cumulative deltas would drop repeated
       // indentation or deltas starting with the previous delta) and share
       // `messageId: blockId` on assistant messages so Paseo merges adjacent

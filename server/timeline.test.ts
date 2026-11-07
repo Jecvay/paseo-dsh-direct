@@ -650,62 +650,6 @@ describe("TimelineProjector stream payloads", () => {
     return item.type === "assistant_message" ? item.text : "";
   };
 
-  /**
-   * Mirrors Paseo's `mapTimelineItem` (`plugin-provider.ts`) and adjacent chunk
-   * merging (`mergeAssistantChunks` / `mergeReasoningChunks` in
-   * `timeline-projection.ts`) for a single turn.
-   */
-  const projectThroughPaseo = (events: readonly ProviderEvent[]) => {
-    const snapshots = new Map<string, { type: string; text: string }>();
-    const mapped: Array<
-      | { type: "assistant_message"; text: string; messageId: string }
-      | { type: "reasoning"; text: string }
-    > = [];
-
-    for (const event of events) {
-      const item = timelineItem(event);
-      if (item.type !== "assistant_message" && item.type !== "reasoning") continue;
-      const previous = snapshots.get(item.id);
-      snapshots.set(item.id, { type: item.type, text: item.text });
-      const previousText = previous?.type === item.type ? previous.text : "";
-      const suffix = item.text.startsWith(previousText)
-        ? item.text.slice(previousText.length)
-        : item.text;
-      if (suffix.length === 0) continue;
-      if (item.type === "assistant_message") {
-        mapped.push({ type: "assistant_message", text: suffix, messageId: item.messageId ?? item.id });
-      } else {
-        mapped.push({ type: "reasoning", text: suffix });
-      }
-    }
-
-    const merged: typeof mapped = [];
-    for (const entry of mapped) {
-      const previous = merged.at(-1);
-      if (
-        previous?.type === "assistant_message" &&
-        entry.type === "assistant_message" &&
-        previous.messageId === entry.messageId
-      ) {
-        merged[merged.length - 1] = {
-          type: "assistant_message",
-          text: `${previous.text}${entry.text}`,
-          messageId: previous.messageId,
-        };
-        continue;
-      }
-      if (previous?.type === "reasoning" && entry.type === "reasoning") {
-        merged[merged.length - 1] = {
-          type: "reasoning",
-          text: `${previous.text}${entry.text}`,
-        };
-        continue;
-      }
-      merged.push(entry);
-    }
-    return merged;
-  };
-
   it("sends each delta once instead of resending the accumulated text", () => {
     const projector = new TimelineProjector("paseo-session");
     projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
@@ -757,7 +701,7 @@ describe("TimelineProjector stream payloads", () => {
     assert.equal(sent.join(""), deltas.join(""));
   });
 
-  it("reconstructs exact assistant and reasoning text through Paseo's snapshot diffing and chunk merge", () => {
+  it("preserves reasoning, whitespace and the final suffix in the provider contract", () => {
     const projector = new TimelineProjector("paseo-session");
     projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
 
@@ -808,14 +752,20 @@ describe("TimelineProjector stream payloads", () => {
       }),
     );
 
-    assert.deepEqual(projectThroughPaseo(emitted), [
-      { type: "reasoning", text: "    plan  plan more" },
-      {
-        type: "assistant_message",
-        text: "def f():\n        return  1\nprint(f())",
-        messageId: "assistant_message:turn:1:step:1:attempt:0:1",
-      },
+    const items = emitted.map(timelineItem);
+    assert.equal(new Set(items.map((item) => item.id)).size, items.length);
+    assert.deepEqual(items.map((item) => item.type), [
+      ...reasoningDeltas.map(() => "reasoning"),
+      ...[...textDeltas, "print(f())"].map(() => "assistant_message"),
     ]);
+    const reasoning = items.filter((item) => item.type === "reasoning");
+    assert.deepEqual(reasoning.map((item) => item.text), reasoningDeltas);
+    const messages = items.filter((item) => item.type === "assistant_message");
+    assert.deepEqual(messages.map((item) => item.text), [...textDeltas, "print(f())"]);
+    assert.deepEqual(
+      [...new Set(messages.map((item) => item.messageId))],
+      ["assistant_message:turn:1:step:1:attempt:0:1"],
+    );
   });
 
   it("does not emit an item for an empty delta", () => {

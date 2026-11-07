@@ -30,7 +30,7 @@ Paseo 编译器检查客户端、服务端和共享模块边界。分层 TypeScr
 1. `send()` 接收请求，结果通过 `onEvent()` 发出；响应携带对应的 request id。
 2. `catalog` 描述创建会话前的模型与模式选择；`session.config` 表示该会话实际提交的配置。
 3. 用户消息回填 `clientMessageId`，与 `session.prompt_result` 对应。
-4. 正文与思考使用稳定 item id 和累计文本快照。Paseo 根据前后快照切片，不应向同一个 item 发互不关联的 token。
+4. 正文与思考逐片发送新增文本，每片使用独立 item id；正文分片共用块级 `messageId`，由 Paseo 合并相邻分片。定稿只补发尚未流出的尾部；没有流式记录的历史消息发送全文。
 5. 每个 started turn 恰好有一个终态；进程崩溃也必须终结活动回合、工具和交互。
 6. Provider 只声明实际实现的能力；不支持的输入明确失败，不静默丢弃图片、配置或交互。
 7. `session.can_stop_runtime` 仅在协商出该能力时处理。成功回复同名事件，带原 `requestId`、`sessionId` 与布尔值 `canStop`；失败回复 `request.failed`，不回复 `request.completed`。查询不停止进程、不取消任务、不修改会话。
