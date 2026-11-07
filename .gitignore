@@ -10,9 +10,5 @@ coverage/
 *.jsonl
 *.secret
 *.token
-.agent-out/
 # Local operations notes; only distilled knowledge belongs in Git.
 /.agents/ops-log.md
-# Real dsh run logs kept as test fixtures (scripts/agent-loop/core.test.ts).
-!scripts/agent-loop/fixtures/*.log
-!scripts/agent-loop/fixtures/*.jsonl
