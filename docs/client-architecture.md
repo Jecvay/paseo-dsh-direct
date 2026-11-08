@@ -8,7 +8,7 @@ Provider 在 Paseo 中显示为 `DeepSeek Harness`，标识为 `dsh-pi`。手机
 
 会话历史从 Paseo 的 Import session 入口导入；已有会话继续使用原生 DSH 标识。手机端使用同一个 Daemon 安装的插件，不需要另外安装 DSH 或 npm 包。
 
-DSH 原生子代理的内部消息不直接投影成独立聊天气泡，插件也不据此创建 Paseo 子会话面板。
+DSH 原生子代理在父会话时间线里呈现为 `sub_agent` 启动卡片；协商出 `session.subsession` 时，子会话通过 Paseo 原生 Subagents 轨道与子代理面板展示自身时间线和回合状态，子代理与父会话之间的内部回传指引及跨 agent 中继前缀不会直接暴露为父会话聊天气泡。
 
 ## 设置页
 

@@ -119,6 +119,15 @@ export interface SessionOpenParams {
   /** Tool names approved without asking, e.g. `mcp__paseo__create_agent`. */
   preapprovedTools?: string[];
 }
+export interface SubagentSessionSnapshot {
+  sessionId: string;
+  parentSessionId: string;
+  cwd: string;
+  agentPreset?: string;
+  label?: string;
+  provider?: string;
+  events: DshSessionEvent[];
+}
 export interface SessionOpenResult {
   sessionId: string;
   cwd: string;
@@ -126,6 +135,7 @@ export interface SessionOpenResult {
   preset?: string;
   permissionPreset?: string;
   events: DshSessionEvent[];
+  subagents?: SubagentSessionSnapshot[];
 }
 export interface QuestionItem {
   id: string;
@@ -264,6 +274,14 @@ export interface BridgeNotifications {
   "session.stream": { sessionId: string; frame: DshStreamFrame };
   "session.status": { sessionId: string; status: "idle" | "running" };
   "session.usage": { sessionId: string; usage: BridgeUsage };
+  "session.child": {
+    sessionId: string;
+    parentSessionId: string;
+    cwd: string;
+    agentPreset?: string;
+    label?: string;
+    provider?: string;
+  };
   "interaction.request": InteractionRequest;
   "interaction.closed": { requestId: string; sessionId: string };
 }

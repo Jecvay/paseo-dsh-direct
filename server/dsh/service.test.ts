@@ -11,6 +11,7 @@ import type {
   HostContext,
   HostEvents,
   HostServices,
+  HostSession,
 } from "./host.js";
 import type {
   BridgeNotifications,
@@ -1000,5 +1001,175 @@ test("session.read materializes tool-result images onto historical events", asyn
   if (snapshot.events[0]?.images?.[0]?.status === "ready") {
     assert.equal(snapshot.events[0].images[0].name, "history.png");
   }
+  await f.bridge.shutdown();
+});
+
+test("tracks subagent child sessions, filters inherited fork events and collects subagent snapshots on resume", async () => {
+  const childEvents: DshSessionEvent[] = [
+    {
+      type: "user/message",
+      seq: 0,
+      time: 1,
+      data: { id: "inherited-parent-msg", source: { kind: "user" }, content: [{ type: "text", text: "parent seed" }] },
+    },
+    {
+      type: "session/end-seed",
+      seq: 1,
+      time: 2,
+      data: { inherited: true },
+    },
+    {
+      type: "agent-preset/selected",
+      seq: 2,
+      time: 3,
+      data: { agentPreset: "explore" },
+    },
+    {
+      type: "subagent/descriptor",
+      seq: 3,
+      time: 4,
+      data: { version: 3, mode: "continuable", provider: "fork", label: "Inspect auth" },
+    },
+    {
+      type: "user/message",
+      seq: 4,
+      time: 5,
+      data: { id: "child-msg", source: { kind: "user" }, content: [{ type: "text", text: "Check auth.ts" }] },
+    },
+  ];
+  const rootHistory: DshSessionEvent[] = [
+    {
+      type: "subagent/catalog",
+      seq: 0,
+      time: 10,
+      data: { version: 0, childId: "child-persisted", childCreatedAt: 10, mode: "continuable", label: "Inspect auth" },
+    },
+  ];
+  let projectionHook: ((session: HostSession, key: string) => void) | undefined;
+  const f = fixture({
+    sessionProjections: {
+      snapshot: () => ({ values: { tokenUsage: { uncachedInputTokens: 120, outputTokens: 30 } } }),
+      onChanged: (listener) => {
+        projectionHook = (session, key) => listener(session, key, undefined, 1);
+        return () => undefined;
+      },
+    },
+    sessionQuery: {
+      listSessions: async () => [],
+      readSession: async (sessionId) => {
+        if (sessionId === "root-resume") {
+          return {
+            session: { id: "root-resume", createdAt: 1, cwd: "/tmp" },
+            events: rootHistory,
+            inheritedEventCount: 0,
+          };
+        }
+        if (sessionId === "child-persisted") {
+          return {
+            session: {
+              id: "child-persisted",
+              createdAt: 2,
+              cwd: "/tmp/sub",
+              parentSession: "root-resume",
+              agentPreset: "standard",
+            },
+            events: childEvents,
+            inheritedEventCount: 1,
+          };
+        }
+        throw new Error(`Unexpected session read: ${sessionId}`);
+      },
+      observeSession: async () => ({
+        projections: { values: { agentPreset: "standard" } },
+        [Symbol.dispose]: () => undefined,
+      }),
+    },
+  });
+  f.ctx.get("agents").resume = async (options) => {
+    const handle = await f.ctx.get("agents").create({
+      ...options,
+      sessionId: options.resumeSessionId,
+    });
+    handle.agent.session.snapshotEvents = () => rootHistory;
+    return handle;
+  };
+
+  const opened = await f.bridge.handle("session.open", {
+    sessionId: "root-resume",
+    resume: true,
+    cwd: "/tmp",
+  });
+  assert.equal(opened.subagents?.length, 1);
+  assert.deepEqual(opened.subagents?.[0], {
+    sessionId: "child-persisted",
+    parentSessionId: "root-resume",
+    cwd: "/tmp/sub",
+    agentPreset: "explore",
+    label: "Inspect auth",
+    provider: "fork",
+    events: childEvents.slice(1),
+  });
+
+  const liveChildSession: HostSession = {
+    id: "child-live",
+    header: {
+      id: "child-live",
+      createdAt: 20,
+      cwd: "/tmp",
+      parentSession: "root-resume",
+      agentPreset: "coder",
+    },
+    inheritedEventCount: 2,
+    snapshotEvents: () => [],
+    requestHeader: () => undefined,
+    append: () => undefined,
+  };
+  f.listener("session/created")(liveChildSession);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.child",
+    params: {
+      sessionId: "child-live",
+      parentSessionId: "root-resume",
+      cwd: "/tmp",
+      agentPreset: "coder",
+    },
+  });
+
+  // Inherited seed events (seq < inheritedEventCount) are suppressed; child-owned events forward.
+  f.listener("session/event")(liveChildSession, {
+    type: "user/message",
+    seq: 1,
+    time: 21,
+    data: { id: "seed", source: { kind: "user" }, content: [] },
+  });
+  assert.notEqual(f.notifications.at(-1)?.method, "session.event");
+
+  const childOwnEvent: DshSessionEvent = {
+    type: "subagent/descriptor",
+    seq: 2,
+    time: 22,
+    data: { version: 3, mode: "continuable", provider: "fork", label: "Write tests" },
+  };
+  f.listener("session/event")(liveChildSession, childOwnEvent);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.event",
+    params: { sessionId: "child-live", event: childOwnEvent, images: [] },
+  });
+
+  // Child token usage must not publish as root usage.
+  const countBeforeUsage = f.notifications.length;
+  projectionHook?.(liveChildSession, "tokenUsage");
+  assert.equal(f.notifications.length, countBeforeUsage);
+
+  // Closing the root session stops forwarding child events.
+  await f.bridge.handle("session.close", { sessionId: "root-resume" });
+  const countAfterClose = f.notifications.length;
+  f.listener("session/event")(liveChildSession, {
+    type: "turn/start",
+    seq: 3,
+    time: 23,
+    data: { turn: 1 },
+  });
+  assert.equal(f.notifications.length, countAfterClose);
   await f.bridge.shutdown();
 });

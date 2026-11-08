@@ -631,6 +631,131 @@ describe("tool detail arguments", () => {
     assert.equal(fetched.type, "fetch");
     assert.equal(fetched.url, "https://example.com");
   });
+
+  it("maps subagent and subagent_fork tools to sub_agent cards and extracts childSessionId", () => {
+    const projector = new TimelineProjector("paseo-session");
+    const [started] = projector.projectEvent({
+      type: "tool/call",
+      seq: 1,
+      time: 100,
+      data: {
+        callId: "call-sub-1",
+        name: "subagent",
+        arguments: JSON.stringify({
+          description: "Audit auth module",
+          prompt: "Inspect server/auth.ts and summarize findings",
+          agent_preset: "explore",
+        }),
+      },
+    });
+    assert.ok(started);
+    const startItem = timelineItem(started);
+    assert.equal(startItem.type, "tool_call");
+    assert.deepEqual(startItem.type === "tool_call" ? startItem.detail : undefined, {
+      type: "sub_agent",
+      subAgentType: "explore",
+      description: "Audit auth module",
+      log: "Inspect server/auth.ts and summarize findings",
+    });
+
+    const [settled] = projector.projectEvent({
+      type: "tool/result",
+      seq: 2,
+      time: 101,
+      data: {
+        message: {
+          role: "tool",
+          toolCallId: "call-sub-1",
+          content: [{ type: "text", text: "started subagent session-child-42" }],
+        },
+      },
+    });
+    assert.ok(settled);
+    const settledItem = timelineItem(settled);
+    assert.equal(settledItem.type, "tool_call");
+    if (settledItem.type === "tool_call") {
+      assert.equal(settledItem.status, "completed");
+      assert.deepEqual(settledItem.detail, {
+        type: "sub_agent",
+        subAgentType: "explore",
+        description: "Audit auth module",
+        childSessionId: "session-child-42",
+        log: "started subagent session-child-42",
+      });
+    }
+
+    const forkDetail = call("subagent_fork", {
+      description: "Fork verification",
+      prompt: "Run unit tests",
+    });
+    assert.deepEqual(forkDetail, {
+      type: "sub_agent",
+      subAgentType: "Fork",
+      description: "Fork verification",
+      log: "Run unit tests",
+    });
+  });
+
+  it("strips subagent return guidance and projects parent agent-message relays in child sessions", () => {
+    const childProjector = new TimelineProjector("child-1", false, "parent-1");
+    const [initial] = childProjector.projectEvent({
+      type: "user/message",
+      seq: 1,
+      time: 100,
+      data: {
+        id: "msg-1",
+        source: { kind: "user" },
+        content: [
+          { type: "text", text: "Audit the auth module" },
+          {
+            type: "text",
+            text: 'Your parent agent id is "parent-1". Before you finish, send your result to that agent with send_message({ agent_id: "parent-1", message: "<final summary>" }).',
+          },
+        ],
+      },
+    });
+    assert.ok(initial);
+    const initialItem = timelineItem(initial);
+    assert.equal(initialItem.type, "user_message");
+    assert.equal(initialItem.type === "user_message" ? initialItem.text : "", "Audit the auth module");
+
+    const [followup] = childProjector.projectEvent({
+      type: "user/message",
+      seq: 2,
+      time: 101,
+      data: {
+        id: "msg-2",
+        source: { kind: "agent-message", form: "relay", senderSessionId: "parent-1" },
+        content: [
+          { type: "text", text: "Agent parent-1 sent a message: " },
+          { type: "text", text: "Now check token expiration too." },
+        ],
+      },
+    });
+    assert.ok(followup);
+    const followupItem = timelineItem(followup);
+    assert.equal(followupItem.type, "user_message");
+    assert.equal(
+      followupItem.type === "user_message" ? followupItem.text : "",
+      "Now check token expiration too.",
+    );
+
+    const rootProjector = new TimelineProjector("parent-1");
+    const rootRelay = rootProjector.projectEvent({
+      type: "user/message",
+      seq: 3,
+      time: 102,
+      data: {
+        id: "msg-3",
+        source: { kind: "agent-message", form: "relay", senderSessionId: "child-1" },
+        content: [
+          { type: "text", text: "Agent child-1 sent a message: " },
+          { type: "text", text: "Summary from child." },
+        ],
+      },
+    });
+    assert.deepEqual(rootRelay, []);
+  });
 });
 
 describe("TimelineProjector stream payloads", () => {
