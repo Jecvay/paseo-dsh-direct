@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { DEFAULT_STARTUP_TIMEOUT_SECONDS } from "../shared/startup-timeout.js";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -77,6 +78,8 @@ export interface LaunchBridgeOptions extends SessionLaunch {
   profile?: string;
   bridgeSource: string;
   startupTimeoutMs?: number;
+  /** Cancels startup only; a successfully initialized bridge has its own lifecycle. */
+  signal?: AbortSignal;
 }
 
 interface PendingRequest {
@@ -145,9 +148,13 @@ export async function ensureDshProfile(options: {
   profile: string;
   env: Readonly<Record<string, string | undefined>>;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<void> {
+  options.signal?.throwIfAborted();
   const directory = path.join(resolveDshHome(options.env), "profiles", options.profile);
-  if (await isDirectory(directory)) return;
+  const exists = await isDirectory(directory);
+  options.signal?.throwIfAborted();
+  if (exists) return;
   if (options.profile !== DEFAULT_PROFILE) {
     throw new Error(
       `DSH profile "${options.profile}" does not exist at ${directory}. ` +
@@ -155,27 +162,38 @@ export async function ensureDshProfile(options: {
         `or clear the profile in the DeepSeek Harness plugin settings and unset PASEO_DSH_PROFILE to use the "${DEFAULT_PROFILE}" profile.`,
     );
   }
-  // Concurrent first launches share one creation run.
-  let creation = profileCreations.get(directory);
+  // Share creation only within the same cancellation scope.
+  let creations = profileCreations.get(directory);
+  if (!creations) {
+    creations = new Map();
+    profileCreations.set(directory, creations);
+  }
+  let creation = creations.get(options.signal);
   if (!creation) {
+    const scope = creations;
     creation = runProfileInit(
       options.executable,
       options.args ?? [],
       options.profile,
       options.env,
       options.timeoutMs ?? 60_000,
-    ).finally(
-      () => profileCreations.delete(directory),
-    );
-    profileCreations.set(directory, creation);
+      options.signal,
+    ).finally(() => {
+      scope.delete(options.signal);
+      if (scope.size === 0) profileCreations.delete(directory);
+    });
+    creations.set(options.signal, creation);
   }
   await creation;
-  if (!(await isDirectory(directory))) {
+  options.signal?.throwIfAborted();
+  const created = await isDirectory(directory);
+  options.signal?.throwIfAborted();
+  if (!created) {
     throw new Error(`DSH did not create the "${options.profile}" profile at ${directory}`);
   }
 }
 
-const profileCreations = new Map<string, Promise<void>>();
+const profileCreations = new Map<string, Map<AbortSignal | undefined, Promise<void>>>();
 
 async function isDirectory(directory: string): Promise<boolean> {
   try {
@@ -191,29 +209,33 @@ function runProfileInit(
   profile: string,
   env: Readonly<Record<string, string | undefined>>,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawnDsh(
       executable,
       [...leadingArgs, "--profile", profile, "--from-default-profile", DEFAULT_PROFILE_TEMPLATE, "--dump-config"],
-      { env, stdio: ["ignore", "ignore", "pipe"] },
+      { env, stdio: ["ignore", "ignore", "pipe"], signal, killSignal: "SIGKILL" },
     );
     let stderr = "";
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       stderr = (stderr + chunk).slice(-MAX_STDERR);
     });
+    let failure: Error | undefined;
     const timeout = setTimeout(() => {
+      failure = new Error(`Creating the DSH "${profile}" profile timed out after ${timeoutMs}ms`);
       child.kill("SIGKILL");
-      reject(new Error(`Creating the DSH "${profile}" profile timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
+      failure = error;
     });
-    child.once("exit", (code, signal) => {
+    // Abort emits error before the killed process has exited; wait for close.
+    child.once("close", (code, signal) => {
       clearTimeout(timeout);
-      if (code === 0) resolve();
+      if (failure) reject(failure);
+      else if (code === 0) resolve();
       else
         reject(
           new Error(
@@ -282,13 +304,17 @@ export async function assertSurfaceRowsPresent(options: {
   profile: string;
   env: Readonly<Record<string, string | undefined>>;
   dshVersionOf: (launch: DshLaunch) => Promise<string>;
-  dump?: (launch: DshLaunch, profile: string, env: Readonly<Record<string, string | undefined>>) => Promise<string>;
+  dump?: (launch: DshLaunch, profile: string, env: Readonly<Record<string, string | undefined>>, signal?: AbortSignal) => Promise<string>;
+  signal?: AbortSignal;
 }): Promise<void> {
-  const dump = await (options.dump ?? dumpProfileConfig)(options.launch, options.profile, options.env).catch(() => "");
+  options.signal?.throwIfAborted();
+  const dump = await (options.dump ?? dumpProfileConfig)(options.launch, options.profile, options.env, options.signal).catch(() => "");
+  options.signal?.throwIfAborted();
   if (!dump.trim()) return;
   const missing = missingSurfaceRows(dump);
   if (missing.length === 0) return;
   const version = (await options.dshVersionOf(options.launch).catch(() => "")) || "unknown";
+  options.signal?.throwIfAborted();
   throw new Error(
     `DSH ${version} profile "${options.profile}" has no ${missing.map((row) => `"${row}"`).join(", ")} row. ` +
       `The plugin disables ${DISABLED_SURFACE_ROWS.join(", ")} to keep the web surface from running beside the bridge, ` +
@@ -302,28 +328,33 @@ function dumpProfileConfig(
   launch: DshLaunch,
   profile: string,
   env: Readonly<Record<string, string | undefined>>,
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawnDsh(launch.command, [...launch.args, "--profile", profile, "--dump-config"], {
       env,
       stdio: ["ignore", "pipe", "ignore"],
+      signal,
+      killSignal: "SIGKILL",
     });
     let stdout = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
       stdout = (stdout + chunk).slice(-1_048_576);
     });
+    let failure: Error | undefined;
     const timeout = setTimeout(() => {
+      failure = new Error("dsh --dump-config timed out");
       child.kill("SIGKILL");
-      reject(new Error("dsh --dump-config timed out"));
     }, 20_000);
     child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
+      failure = error;
     });
-    child.once("exit", (code) => {
+    child.once("close", (code) => {
       clearTimeout(timeout);
-      if (code === 0) resolve(stdout);
+      if (failure) reject(failure);
+      else if (code === 0) resolve(stdout);
       else reject(new Error(`dsh --dump-config exited with code ${String(code)}`));
     });
   });
@@ -343,49 +374,71 @@ export function assertBridgeHandshake(initialized: BridgeInitializeResult, dshVe
 }
 
 export async function launchDshBridge(options: LaunchBridgeOptions): Promise<DshBridge> {
+  const { signal } = options;
+  signal?.throwIfAborted();
   const profile = options.profile?.trim() || DEFAULT_PROFILE;
   const launch = resolveDshLaunch(options.executable, options.providerLaunch);
   const env = { ...(options.providerLaunch?.env ?? process.env), ...options.env };
-  await ensureDshProfile({ executable: launch.command, args: launch.args, profile, env });
+  await ensureDshProfile({ executable: launch.command, args: launch.args, profile, env, signal });
+  signal?.throwIfAborted();
   await assertSurfaceRowsPresent({
     launch,
     profile,
     env,
-    dshVersionOf: (target) => detectDshVersion(target.command, { args: target.args, env }),
+    signal,
+    dshVersionOf: (target) => detectDshVersion(target.command, { args: target.args, env, signal }),
   });
+  signal?.throwIfAborted();
   const directory = await mkdtemp(path.join(tmpdir(), "paseo-dsh-direct-"));
-  const bridgePath = path.join(directory, "dsh-bridge.mjs");
-  const patchPath = path.join(directory, "patch.json");
-  await writeFile(bridgePath, options.bridgeSource, { mode: 0o600 });
-  await writeFile(
-    patchPath,
-    JSON.stringify(
-      createBridgePatch({
-        profile,
-        bridgePath,
-        sessionsRoot: options.ephemeral ? path.join(directory, "sessions") : undefined,
-        mcpServers: options.mcpServers,
-      }),
-    ),
-    { mode: 0o600 },
-  );
-
-  const child = spawnDsh(launch.command, [...launch.args, "--profile", profile, "--patch", patchPath], {
-    env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-  const client = new JsonlBridgeClient(child, directory, launch);
+  let client: JsonlBridgeClient | undefined;
+  let abortStartup: (() => void) | undefined;
   try {
-    await client.waitUntilReady(options.startupTimeoutMs ?? 15_000);
+    signal?.throwIfAborted();
+    const bridgePath = path.join(directory, "dsh-bridge.mjs");
+    const patchPath = path.join(directory, "patch.json");
+    await writeFile(bridgePath, options.bridgeSource, { mode: 0o600 });
+    signal?.throwIfAborted();
+    await writeFile(
+      patchPath,
+      JSON.stringify(
+        createBridgePatch({
+          profile,
+          bridgePath,
+          sessionsRoot: options.ephemeral ? path.join(directory, "sessions") : undefined,
+          mcpServers: options.mcpServers,
+        }),
+      ),
+      { mode: 0o600 },
+    );
+    signal?.throwIfAborted();
+    const child = spawnDsh(launch.command, [...launch.args, "--profile", profile, "--patch", patchPath], {
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    client = new JsonlBridgeClient(child, directory, launch);
+    // Startup owns no session yet. Kill immediately within the host's unload grace period.
+    abortStartup = () => { child.kill("SIGKILL"); };
+    signal?.addEventListener("abort", abortStartup, { once: true });
+    if (signal?.aborted) abortStartup();
+    await client.waitUntilReady(options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_SECONDS * 1000);
+    signal?.throwIfAborted();
     client.initialized = await client.request("bridge.initialize", {});
+    signal?.throwIfAborted();
     if (client.initialized.protocolVersion !== 1 || (client.initialized.missing?.length ?? 0) > 0) {
-      const version = await detectDshVersion(launch.command, { args: launch.args, env }).catch(() => "");
+      const version = await detectDshVersion(launch.command, { args: launch.args, env, signal }).catch(() => "");
+      signal?.throwIfAborted();
       assertBridgeHandshake(client.initialized, version);
     }
     return client;
   } catch (error) {
-    await client.close();
+    if (client) {
+      if (signal?.aborted) await client.abortStartup();
+      else await client.close();
+    } else await rm(directory, { recursive: true, force: true });
+    signal?.throwIfAborted();
     throw error;
+  } finally {
+    if (abortStartup) signal?.removeEventListener("abort", abortStartup);
   }
 }
 
@@ -440,7 +493,6 @@ class JsonlBridgeClient implements DshBridge {
     });
     child.once("error", (error) => {
       this.fail(error);
-      this.resolveExited();
     });
     child.once("exit", (code, signal) => {
       const suffix = this.stderr.trim() ? `: ${this.stderr.trim()}` : "";
@@ -519,6 +571,17 @@ class JsonlBridgeClient implements DshBridge {
     this.failures.add(listener);
     if (this.terminalError) queueMicrotask(() => listener(this.terminalError!));
     return () => this.failures.delete(listener);
+  }
+
+  abortStartup(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closing = true;
+    this.closePromise = (async () => {
+      if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGKILL");
+      await this.exited;
+      await rm(this.temporaryDirectory, { recursive: true, force: true });
+    })();
+    return this.closePromise;
   }
 
   close(): Promise<void> {

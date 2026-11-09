@@ -45,6 +45,31 @@ profile 的顺序是非空的 `PASEO_DSH_PROFILE`、设置页里非空的 `profi
 
 `getCatalogCacheKey` 的键由范围（全局或工作区 `cwd`）、生效的启动命令加参数、生效的 profile 组成，因此改动 profile 或可执行文件后，新的目录发现不会复用旧结果。
 
+### 桥接就绪等待与宿主时限
+
+`server/dsh-config.ts` 的 `parseStartupTimeoutSeconds` 解析设置页字段 `startupTimeoutSeconds`，接受 1–600 整数秒，留空或纯空白使用共享常量 `DEFAULT_STARTUP_TIMEOUT_SECONDS` 的 15 秒默认；没有对应环境变量。非法文本只忽略这一项，其余字段照常生效，stderr 只记录固定错误原因，不回显输入。600 秒是策略上限。
+
+`index.server.ts` 的 Provider `createBridge` 和子代理设置 `open` 两处起桥入口都重新读取设置并传给 `launchDshBridge`。因此设置作用于所有新桥接：会话创建/恢复、目录/历史发现、子代理设置读写。已运行的桥接不变；启动超时不参与目录缓存键。
+
+| 阶段 | 时限 | 与设置的关系 |
+|---|---|---|
+| 缺失的默认 profile 创建 | 60 秒 | 位于起桥前，独立计时 |
+| `--dump-config` 行检查 | 20 秒 | 位于起桥前，独立计时 |
+| 桥接进程 spawn → 收到 `bridge.ready` | 默认 15 秒，显式 1–600 秒 | `startupTimeoutMs` 传给 `waitUntilReady` |
+| `bridge.initialize` 请求 | 30 秒 | 位于 ready 后，独立计时 |
+
+超过就绪窗口时报 `DSH bridge did not become ready within <n>ms`，并走桥接清理路径。收到 ready 仅结束就绪等待，后续初始化和会话打开仍须完成。连接关闭会等待已接收的启动完成并清理取得的桥接，因此较长就绪等待也可能延长连接关闭。插件卸载会先取消尚未完成的启动，终止自己创建的启动进程并等待临时目录清理；已完成启动的桥接仍由 Provider 的既有关闭路径释放。
+
+Paseo 的以下固定版本在 `packages/server/src/server/plugins/runtime.ts` 中为 `provider.connect` 与普通插件 RPC 设置 30 秒外层时限：
+
+| Paseo 版本 | 固定源码 |
+|---|---|
+| 0.11（最低支持版本） | [runtime.ts @ 22488d4](https://github.com/getpaseo/paseo/blob/22488d4502cd0c8a4ee4619af991762f071b60a7/packages/server/src/server/plugins/runtime.ts) |
+| 0.14（开发 SDK 版本） | [runtime.ts @ 8c6de84](https://github.com/getpaseo/paseo/blob/8c6de842a3157530c26a7a94c78a3d647fb96ce9/packages/server/src/server/plugins/runtime.ts) |
+| 0.15.3 | [runtime.ts @ d91ae13](https://github.com/getpaseo/paseo/blob/d91ae138cb931447635e94296023414a58bedcc5/packages/server/src/server/plugins/runtime.ts) |
+
+这些版本中，已连接的 `session.open` 事件路径没有同类外层计时器。目录发现经 Provider connect，子代理设置读写经普通插件 RPC；它们可能先触及宿主的 30 秒时限，不能用 600 秒设置承诺端到端等待。RPC 超时不保证取消底层 task，子代理设置保存可能稍后提交，重试前应重新读取并核对当前状态。
+
 插件启动的每个 dsh 进程（建 profile、`--dump-config` 行检查、起桥、`--version` 探测）都经 `spawnDsh`（`server/dsh-spawn.ts`）启动，它用 `resolveDshSpawn` 定出最终的 `command` / `args` / `env`。非 Windows 平台原样透传。Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本：Node 不经 shell 不按 PATHEXT 找 `.cmd`、也拒绝直接 spawn `.cmd`，`.ps1` 包装脚本在 stdin 为管道时等 EOF 才启动。命令解析到这类包装脚本（显式路径，或按大小写不敏感的 `PATH` 查找、同目录无 `dsh.exe`/`dsh.com`）时，按包装脚本所在布局改为执行它内部执行的命令：
 
 - npm：包装脚本目录下有 `node_modules/@deepseek-ai/dsh/lib/bin.js` 时执行 `node <bin.js> <args...>`，包装脚本旁有 `node.exe` 时用它。

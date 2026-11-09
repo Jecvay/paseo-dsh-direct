@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { resolveDshLaunch } from "./bridge-client.js";
-import { currentDshConfigured, mergeDshConfigured, readDshSettings, type DshSettingsSource } from "./dsh-config.js";
+import {
+  currentDshConfigured,
+  mergeDshConfigured,
+  parseStartupTimeoutSeconds,
+  readDshSettings,
+  type DshSettingsSource,
+} from "./dsh-config.js";
+import type { DshSettingsValues } from "../shared/settings.js";
 
 const launch = { command: "/paseo/dsh", args: ["--flag"] };
 
@@ -82,5 +89,47 @@ describe("reading the settings", () => {
     assert.equal((await currentDshConfigured({}, live)).profile, "one");
     values = { profile: "two" };
     assert.equal((await currentDshConfigured({}, live)).profile, "two");
+  });
+});
+
+describe("startup timeout", () => {
+  it("parses whole seconds into milliseconds and treats blank as unset", () => {
+    assert.deepEqual(parseStartupTimeoutSeconds(undefined), {});
+    assert.deepEqual(parseStartupTimeoutSeconds(""), {});
+    assert.deepEqual(parseStartupTimeoutSeconds("  "), {});
+    assert.deepEqual(parseStartupTimeoutSeconds("1"), { milliseconds: 1_000 });
+    assert.deepEqual(parseStartupTimeoutSeconds(" 45 "), { milliseconds: 45_000 });
+    assert.deepEqual(parseStartupTimeoutSeconds("600"), { milliseconds: 600_000 });
+  });
+
+  it("rejects non-numeric and out-of-range values with a reason", () => {
+    for (const text of ["45s", "4.5", "-3", "0", "601", "abc"]) {
+      const parsed = parseStartupTimeoutSeconds(text);
+      assert.equal(parsed.milliseconds, undefined, text);
+      assert.match(parsed.problem!, /startup timeout/, text);
+    }
+  });
+
+  it("merges the setting into the configured timeout and leaves it unset when invalid", () => {
+    assert.equal(mergeDshConfigured({}, { startupTimeoutSeconds: "30" }).startupTimeoutMs, 30_000);
+    assert.equal(mergeDshConfigured({}, { startupTimeoutSeconds: "0" }).startupTimeoutMs, undefined);
+    assert.equal(mergeDshConfigured({}, { startupTimeoutSeconds: "x" }).startupTimeoutMs, undefined);
+    assert.equal(mergeDshConfigured({}, undefined).startupTimeoutMs, undefined);
+    assert.equal(mergeDshConfigured({}, { startupTimeoutSeconds: "30" }).profile, undefined);
+  });
+
+  it("keeps the other values and warns once for a rejected timeout", async () => {
+    const lines: string[] = [];
+    const source = (values: DshSettingsValues): DshSettingsSource => ({ read: async () => ({ status: "ready", values }) });
+    const configured = await currentDshConfigured(
+      {},
+      source({ profile: "p", startupTimeoutSeconds: "nope" }),
+      (line) => lines.push(line),
+    );
+    assert.equal(configured.profile, "p");
+    assert.equal(configured.startupTimeoutMs, undefined);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]!, /startup timeout/i);
+    assert.ok(!lines[0]!.includes("nope"), "diagnostics must not echo invalid setting text");
   });
 });
