@@ -2055,3 +2055,139 @@ test("disambiguates parallel same-description subagents, ignores pre-admission r
 
   await connection.close();
 });
+
+test("waits for exact parent call identity when an ambiguous child finishes before its launch result", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({
+    createBridge: async () => bridge,
+    detectDshVersion: noVersionWarning,
+  });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  try {
+    await connection.send({
+      type: "session.open",
+      requestId: "open-early-child",
+      sessionId: "paseo-root",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+    let seq = 0;
+    const durable = (sessionId: string, type: string, data: Record<string, unknown>) => {
+      bridge.notify("session.event", {
+        sessionId,
+        event: { type, seq: seq++, time: 1, data },
+        images: [],
+      });
+    };
+    for (const callId of ["call-a", "call-b"]) {
+      durable("native-new", "tool/call", {
+        callId,
+        name: "subagent",
+        arguments: JSON.stringify({ description: "Same task", prompt: "Inspect" }),
+      });
+    }
+    bridge.notify("session.child", {
+      sessionId: "child-b",
+      parentSessionId: "native-new",
+      cwd: "/repo",
+    });
+    durable("child-b", "subagent/descriptor", { mode: "continuable", label: "Same task" });
+    durable("native-new", "subagent/catalog", {
+      childId: "child-b", mode: "continuable", label: "Same task",
+    });
+    durable("child-b", "turn/start", { turn: 1 });
+    durable("child-b", "assistant/message", {
+      turn: 1, step: 1,
+      message: { id: "early-report", content: [{ type: "text", text: "Finished early" }] },
+    });
+    durable("child-b", "turn/end", { turn: 1 });
+    assert.equal(events.some((event) => event.type === "session.opened" && event.sessionId === "child-b"), false);
+
+    durable("native-new", "tool/result", {
+      message: { toolCallId: "call-b", content: [{ type: "text", text: "started subagent child-b" }] },
+    });
+    const childOpened = events.filter(
+      (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+        event.type === "session.opened" && event.sessionId === "child-b",
+    );
+    assert.equal(childOpened.length, 1);
+    assert.equal(childOpened[0]?.toolCallId, "call-b");
+    const childEvents = events.filter((event) => "sessionId" in event && event.sessionId === "child-b");
+    assert.deepEqual(childEvents.map((event) => event.type), [
+      "session.opened", "session.turn", "timeline.item", "session.turn",
+    ]);
+    assert.deepEqual(childEvents.filter((event) => event.type === "session.turn").map((event) => event.state), ["started", "completed"]);
+    assert.equal(events.some((event) => event.type === "timeline.item" && event.item.type === "tool_call" && event.item.callId === "call-a" && event.item.detail.type === "sub_agent" && event.item.detail.childSessionId === "child-b"), false);
+  } finally {
+    await connection.close();
+  }
+});
+
+test("opens a buffered parent before its already-finished nested subagent", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+  const connection = await provider.connect({
+    versions: [1], capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  try {
+    await connection.send({
+      type: "session.open", requestId: "open-nested", sessionId: "paseo-root",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true }, history: "skip",
+    });
+    await tick();
+    await tick();
+    let seq = 0;
+    const durable = (sessionId: string, type: string, data: Record<string, unknown>) => {
+      bridge.notify("session.event", { sessionId, event: { type, seq: seq++, time: 1, data }, images: [] });
+    };
+    for (const callId of ["call-a", "call-b"]) {
+      durable("native-new", "tool/call", {
+        callId, name: "subagent", arguments: JSON.stringify({ description: "Same task", prompt: "Inspect" }),
+      });
+    }
+    bridge.notify("session.child", { sessionId: "child-b", parentSessionId: "native-new", cwd: "/repo" });
+    durable("child-b", "subagent/descriptor", { mode: "continuable", label: "Same task" });
+    durable("native-new", "subagent/catalog", { childId: "child-b", mode: "continuable", label: "Same task" });
+    durable("child-b", "turn/start", { turn: 1 });
+    durable("child-b", "tool/call", {
+      callId: "grand-call", name: "subagent", arguments: JSON.stringify({ description: "Nested task" }),
+    });
+    bridge.notify("session.child", { sessionId: "grandchild", parentSessionId: "child-b", cwd: "/repo" });
+    durable("child-b", "subagent/catalog", { childId: "grandchild", mode: "continuable", label: "Nested task" });
+    durable("grandchild", "turn/start", { turn: 1 });
+    durable("grandchild", "assistant/message", {
+      turn: 1, step: 1, message: { id: "nested-report", content: [{ type: "text", text: "Nested report" }] },
+    });
+    durable("grandchild", "turn/end", { turn: 1 });
+    durable("child-b", "tool/result", {
+      message: { toolCallId: "grand-call", content: [{ type: "text", text: "started subagent grandchild" }] },
+    });
+    durable("child-b", "turn/end", { turn: 1 });
+    assert.equal(events.some((event) => "sessionId" in event && ["child-b", "grandchild"].includes(event.sessionId)), false);
+
+    durable("native-new", "tool/result", {
+      message: { toolCallId: "call-b", content: [{ type: "text", text: "started subagent child-b" }] },
+    });
+    const opened = events.filter(
+      (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+        event.type === "session.opened" && ["child-b", "grandchild"].includes(event.sessionId),
+    );
+    assert.deepEqual(opened.map((event) => [event.sessionId, event.parentSessionId, event.toolCallId]), [
+      ["child-b", "paseo-root", "call-b"], ["grandchild", "child-b", "grand-call"],
+    ]);
+    const grandchildEvents = events.filter((event) => "sessionId" in event && event.sessionId === "grandchild");
+    assert.deepEqual(grandchildEvents.map((event) => event.type), ["session.opened", "session.turn", "timeline.item", "session.turn"]);
+    assert.deepEqual(grandchildEvents.filter((event) => event.type === "session.turn").map((event) => event.state), ["started", "completed"]);
+  } finally {
+    await connection.close();
+  }
+});

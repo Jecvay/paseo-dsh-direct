@@ -101,7 +101,6 @@ interface PendingSubagentCall {
   subAgentType?: string;
   description?: string;
   childSessionId?: string;
-  matched: boolean;
 }
 
 interface ChildSessionState {
@@ -352,7 +351,7 @@ function listenToSessionBridge(
               emit(projected);
             }
           }
-          flushWaitingChildren(session, session.nativeId, emit, true);
+          flushWaitingChildren(session, session.nativeId, emit);
           // DSH can finish before the prompt or command RPC returns.
           if (!session.activeTurnId && session.dispatch) session.dispatch.deferred = terminal;
           else finishTurn(session, terminal, emit);
@@ -426,7 +425,7 @@ function listenToSessionBridge(
         return;
       }
       if (event.type === "turn/end") {
-        ensureChildOpened(session, child, emit, true);
+        ensureChildOpened(session, child, emit);
         const terminal = classifyTurnEnd(event.data);
         const projected =
           terminal.state === "failed"
@@ -436,7 +435,7 @@ function listenToSessionBridge(
           observeProjectedSubagentCalls(session, child.nativeId, item, emit);
           emitChildEvent(session, child, item, emit);
         }
-        flushWaitingChildren(session, child.nativeId, emit, true);
+        flushWaitingChildren(session, child.nativeId, emit);
         finishChildTurn(session, child, terminal, emit, `turn:${child.nativeId}:${event.seq}`);
         return;
       }
@@ -1201,8 +1200,8 @@ function observeProjectedSubagentCalls(
   }
   const { callId, detail, status } = event.item;
   const calls = getPendingSubagentCalls(session, parentNativeId);
-  if (status === "failed" && !detail.childSessionId) {
-    const idx = calls.findIndex((candidate) => candidate.callId === callId && !candidate.matched);
+  if (status !== "running" && !detail.childSessionId) {
+    const idx = calls.findIndex((candidate) => candidate.callId === callId && !candidate.childSessionId);
     if (idx >= 0) {
       calls.splice(idx, 1);
       if (emit) flushWaitingChildren(session, parentNativeId, emit);
@@ -1216,7 +1215,6 @@ function observeProjectedSubagentCalls(
       ...(detail.subAgentType ? { subAgentType: detail.subAgentType } : {}),
       ...(detail.description ? { description: detail.description } : {}),
       ...(detail.childSessionId ? { childSessionId: detail.childSessionId } : {}),
-      matched: false,
     };
     calls.push(pending);
   } else {
@@ -1228,15 +1226,15 @@ function observeProjectedSubagentCalls(
     for (const other of calls) {
       if (other !== pending && other.childSessionId === pending.childSessionId) {
         other.childSessionId = undefined;
-        other.matched = false;
       }
     }
     const child = session.children.get(pending.childSessionId);
     if (child) {
-      pending.matched = true;
       child.toolCallId = pending.callId;
       child.description ??= pending.description;
       child.subAgentType ??= pending.subAgentType;
+      const pendingIndex = calls.indexOf(pending);
+      if (pendingIndex >= 0) calls.splice(pendingIndex, 1);
       if (emit) {
         ensureChildOpened(session, child, emit);
         flushWaitingChildren(session, parentNativeId, emit);
@@ -1284,7 +1282,7 @@ function hasAmbiguousPendingSubagentCall(
   if (child.toolCallId) return false;
   const calls = session.pendingSubagentCalls.get(child.parentNativeId) ?? [];
   if (calls.some((candidate) => candidate.childSessionId === child.nativeId)) return false;
-  const unassigned = calls.filter((candidate) => !candidate.matched && !candidate.childSessionId);
+  const unassigned = calls.filter((candidate) => !candidate.childSessionId);
   if (child.label) {
     const byLabel = unassigned.filter((candidate) => candidate.description === child.label);
     if (byLabel.length > 1) return true;
@@ -1297,21 +1295,19 @@ function correlateChildWithParentCall(
   session: SessionState,
   child: ChildSessionState,
   emit?: (event: ProviderEvent) => void,
-  allowAmbiguous = false,
 ): void {
   if (!child.toolCallId) {
     const calls = session.pendingSubagentCalls.get(child.parentNativeId) ?? [];
     const exact = calls.find((candidate) => candidate.childSessionId === child.nativeId);
     let pending = exact;
-    if (!pending && (allowAmbiguous || !hasAmbiguousPendingSubagentCall(session, child))) {
-      const unassigned = calls.filter((candidate) => !candidate.matched && !candidate.childSessionId);
+    if (!pending && !hasAmbiguousPendingSubagentCall(session, child)) {
+      const unassigned = calls.filter((candidate) => !candidate.childSessionId);
       pending =
         (child.label
           ? unassigned.find((candidate) => candidate.description === child.label)
           : undefined) ?? unassigned[0];
     }
     if (pending) {
-      pending.matched = true;
       pending.childSessionId ??= child.nativeId;
       child.toolCallId = pending.callId;
       child.description ??= pending.description;
@@ -1342,12 +1338,14 @@ function ensureChildOpened(
   force = false,
 ): void {
   child.admitted = true;
-  correlateChildWithParentCall(session, child, emit, force);
+  correlateChildWithParentCall(session, child, emit);
   if (child.opened || !session.subsessionsEnabled) return;
   if (!force && hasAmbiguousPendingSubagentCall(session, child)) return;
   if (child.parentNativeId !== session.nativeId) {
     const parentChild = session.children.get(child.parentNativeId);
-    if (parentChild) ensureChildOpened(session, parentChild, emit, force);
+    if (!parentChild) return;
+    ensureChildOpened(session, parentChild, emit, force);
+    if (!parentChild.opened || child.opened) return;
   }
   child.opened = true;
   const title =
@@ -1369,6 +1367,7 @@ function ensureChildOpened(
   for (const buffered of child.pendingEvents.splice(0)) {
     emit(buffered);
   }
+  flushWaitingChildren(session, child.nativeId, emit);
 }
 
 function emitChildEvent(
@@ -1389,11 +1388,10 @@ function flushWaitingChildren(
   session: SessionState,
   parentNativeId: string,
   emit: (event: ProviderEvent) => void,
-  force = false,
 ): void {
   for (const child of session.children.values()) {
     if (child.parentNativeId === parentNativeId && child.admitted && !child.opened) {
-      ensureChildOpened(session, child, emit, force);
+      ensureChildOpened(session, child, emit);
     }
   }
 }
@@ -1448,7 +1446,7 @@ function replayOrSeedSubagent(
     }
   }
   if (!replay) {
-    correlateChildWithParentCall(session, child, undefined, true);
+    correlateChildWithParentCall(session, child);
     child.projector.seed(subagent.events);
     for (const event of subagent.events) {
       if (event.type === "subagent/catalog") {

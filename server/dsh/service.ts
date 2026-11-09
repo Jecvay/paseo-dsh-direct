@@ -1069,6 +1069,12 @@ export class BridgeService {
         } catch {
           continue;
         }
+        if (
+          snapshot.session.id !== ref.childId ||
+          snapshot.session.parentSession !== parentSessionId
+        ) {
+          continue;
+        }
         const ownEvents = snapshot.events.slice(
           snapshot.inheritedEventCount ?? 0,
         );

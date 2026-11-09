@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.17
+
+- Display DSH subagents in Paseo's native subsession track, panels, and parent timeline cards. Correlate live and restored child sessions, exclude inherited fork events, and retain root-only usage reporting. Hosts without `session.subsession` keep the parent launch card.
+- Validate persisted child-session identity and parent ownership before restoring its history. Release matched child-call records after correlation.
+- Verified with build, all four typecheck targets, 321 passing tests (two environment-gated skips), notes and documentation gates, and `git diff --check`. The isolated real Paseo/DSH E2E remained skipped because its pinned Paseo 0.14 runtime dependencies were unavailable.
+
 ## 0.2.16
 
 - Send streamed text and reasoning as individual deltas instead of repeatedly transferring the accumulated reply. Preserve repeated whitespace and indentation, and append only the unstreamed suffix when a reply settles (#83, contributed by @frederick-wang).

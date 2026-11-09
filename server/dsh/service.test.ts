@@ -1173,3 +1173,47 @@ test("tracks subagent child sessions, filters inherited fork events and collects
   assert.equal(f.notifications.length, countAfterClose);
   await f.bridge.shutdown();
 });
+
+test("rejects restored child snapshots with a different persisted parent", async () => {
+  const rootHistory: DshSessionEvent[] = [{
+    type: "subagent/catalog",
+    seq: 0,
+    time: 1,
+    data: { version: 0, childId: "unrelated-child", childCreatedAt: 1, mode: "continuable" },
+  }];
+  const f = fixture({
+    sessionQuery: {
+      listSessions: async () => [],
+      readSession: async (sessionId) => ({
+        session: {
+          id: sessionId,
+          createdAt: 1,
+          cwd: "/tmp",
+          ...(sessionId === "unrelated-child" ? { parentSession: "different-root" } : {}),
+        },
+        events: sessionId === "root-resume" ? rootHistory : [],
+        inheritedEventCount: 0,
+      }),
+      observeSession: async () => ({
+        projections: { values: { agentPreset: "standard" } },
+        [Symbol.dispose]: () => undefined,
+      }),
+    },
+  });
+  f.ctx.get("agents").resume = async (options) => {
+    const handle = await f.ctx.get("agents").create({
+      ...options,
+      sessionId: options.resumeSessionId,
+    });
+    handle.agent.session.snapshotEvents = () => rootHistory;
+    return handle;
+  };
+
+  const opened = await f.bridge.handle("session.open", {
+    sessionId: "root-resume",
+    resume: true,
+    cwd: "/tmp",
+  });
+  assert.deepEqual(opened.subagents, undefined);
+  await f.bridge.shutdown();
+});
