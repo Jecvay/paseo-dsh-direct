@@ -27,4 +27,4 @@ Paseo 桌面、Web 与移动端在 DSH 启动子代理（含 `spawn`、`fork`、
 
 ## 怎么验证的
 
-单元测试覆盖 `TimelineProjector` 的 `sub_agent` 映射与提示词净化、`BridgeService` 的子会话跟踪、`fork` 继承事件过滤、根会话用量隔离、历史快照提取，以及 `provider` 的实时子会话流、历史回放和未协商 `session.subsession` 时的降级行为；另通过 Docker 容器内真实 Paseo Web UI + DSH + Playwright 端到端验证子代理轨道与面板渲染。
+单元测试覆盖 `TimelineProjector` 的 `sub_agent` 映射与提示词净化、`BridgeService` 的子会话跟踪、`fork` 继承事件过滤、根会话用量隔离、历史快照提取，以及 `provider` 的实时子会话流、历史回放、未协商 `session.subsession` 时的降级、错序同名并发关联、嵌套子会话父先于子的通知顺序和持久快照父 ID 校验。隔离探针使用 DSH `0.2.2-rc.1` 与 loopback 脚本模型，实测 spawn/fork 子会话事件、fork 前缀裁剪及恢复快照与原生事件切片一致；该探针不验证 Paseo Web UI。PR 作者另提供 Paseo 0.15.3 Web UI + DSH + Playwright 的轨道与面板截图和测试说明，本轮未重跑 UI、原生移动端或取消级联验收。

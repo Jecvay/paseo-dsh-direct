@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
 <title id="title">在 Paseo 查看 DSH 子代理：候选实现与验收状态</title>
-<desc id="desc">父会话原本只显示通用工具卡。候选按原生父子会话关系拆分子代理时间线，校验恢复归属并等待明确并发关联。本地检查通过，集成验收和合并发布尚待完成。</desc>
+<desc id="desc">父会话原本只显示通用工具卡。候选按原生父子会话关系拆分子代理时间线，校验恢复归属并等待明确并发关联。本地检查和真实 DSH 桥接验证通过，宿主与设备验收状态见 PR，总结对应候选尚未发布。</desc>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#38556d"/></marker></defs>
 <rect width="1600" height="1000" fill="#f6f8fa"/>
 <g font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" fill="#183247">
@@ -16,6 +16,6 @@
 <g fill="none" stroke="#38556d" stroke-width="4" marker-end="url(#arrow)"><path d="M450 552H602"/><path d="M990 552H1142"/></g>
 <rect x="80" y="700" width="700" height="220" rx="14" fill="#fff" stroke="#33765a" stroke-width="3"/>
 <rect x="820" y="700" width="700" height="220" rx="14" fill="#fff6df" stroke="#9b7621" stroke-width="3"/>
-<text x="115" y="748" font-size="30" font-weight="700">本地检查</text><text x="115" y="795" font-size="27">构建、类型检查与单元回归通过</text><text x="115" y="840" font-size="27">文档与笔记门禁通过</text><text x="115" y="885" font-size="27">具体测试数与最终提交见 PR 总结</text>
-<text x="855" y="748" font-size="30" font-weight="700">仍待完成</text><text x="855" y="795" font-size="27">最终候选 CI 与真实链路验收</text><text x="855" y="840" font-size="27">原生移动端及压力场景尚未验收</text><text x="855" y="885" font-size="27">合并与发布须本人明确批准</text>
+<text x="115" y="748" font-size="30" font-weight="700">本地检查</text><text x="115" y="795" font-size="27">构建、四个类型检查通过</text><text x="115" y="840" font-size="27">261 项测试：259 通过、2 项跳过</text><text x="115" y="885" font-size="27">笔记、文档门禁与差异检查通过</text>
+<text x="855" y="748" font-size="30" font-weight="700">仍待完成</text><text x="855" y="795" font-size="27">最终候选 CI 与宿主路由验证</text><text x="855" y="840" font-size="27">原生移动端及压力场景尚未验收</text><text x="855" y="885" font-size="27">合并与发布须本人明确批准</text>
 </g></svg>
