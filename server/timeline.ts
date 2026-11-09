@@ -48,10 +48,12 @@ export class TimelineProjector {
   /**
    * @param paseoSessionId Paseo session id stamped on every projected event.
    * @param pluginCards Whether the host negotiated `timeline.plugin`; when false no cards are emitted.
+   * @param parentSessionId Native parent session id when projecting a subagent child session.
    */
   constructor(
     private readonly paseoSessionId: string,
     private readonly pluginCards = false,
+    private readonly parentSessionId?: string,
   ) {}
 
   /**
@@ -174,6 +176,18 @@ export class TimelineProjector {
 
   failRunningTools(message: string): SessionEvent[] {
     return this.settleRunningTools(message);
+  }
+
+  attachSubagentChild(callId: string, childSessionId: string): SessionEvent | undefined {
+    const existing = this.tools.get(callId);
+    if (!existing || existing.detail.type !== "sub_agent") return undefined;
+    if (existing.detail.childSessionId === childSessionId) return undefined;
+    const updated: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
+      ...existing,
+      detail: { ...existing.detail, childSessionId },
+    };
+    this.tools.set(callId, updated);
+    return timeline(this.paseoSessionId, updated);
   }
 
   private projectCommandRun(
@@ -352,9 +366,18 @@ export class TimelineProjector {
   private projectUserMessage(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
     const data = event.data;
     const source = objectValue(data.source);
-    if (source?.kind !== "user") return [];
+    const isUser = source?.kind === "user";
+    const isParentRelay =
+      this.parentSessionId !== undefined &&
+      source?.kind === "agent-message" &&
+      stringValue(source.senderSessionId) === this.parentSessionId;
+    if (!isUser && !isParentRelay) return [];
     const id = stringValue(data.id) ?? `event:${event.seq}`;
-    const text = userContentText(data.content);
+    const rawContent =
+      this.parentSessionId !== undefined
+        ? stripSubagentBoilerplate(data.content, isParentRelay)
+        : data.content;
+    const text = userContentText(rawContent);
     if (!text) return [];
     return [timeline(this.paseoSessionId, { type: "user_message", id, messageId: id, text }, timestamp)];
   }
@@ -582,6 +605,23 @@ function toolDetail(name: string, args: JsonObject): ProviderToolCallDetail {
   if (normalized === "web_fetch") {
     return { type: "fetch", url: stringValue(args.url) ?? "" };
   }
+  if (normalized === "subagent" || normalized === "subagent_fork") {
+    const subAgentType =
+      stringValue(args.agent_preset) ??
+      (normalized === "subagent_fork" ? "Fork" : "Subagent");
+    const description =
+      stringValue(args.description) ?? stringValue(args.prompt);
+    const childSessionId =
+      stringValue(args.subagentId) ?? stringValue(args.childSessionId);
+    const log = stringValue(args.prompt) ?? "";
+    return {
+      type: "sub_agent",
+      subAgentType,
+      ...(description ? { description } : {}),
+      ...(childSessionId ? { childSessionId } : {}),
+      log,
+    };
+  }
 
   // Everything else, including MCP tools, keeps a generic detail carrying the
   // raw arguments. Guessing a card type from the name would render MCP tools as
@@ -599,6 +639,14 @@ function withOutput(detail: ProviderToolCallDetail, output: string): ProviderToo
       return { ...detail, content: output };
     case "fetch":
       return { ...detail, result: output };
+    case "sub_agent": {
+      const childSessionId = extractSubagentId(output) ?? detail.childSessionId;
+      return {
+        ...detail,
+        ...(childSessionId ? { childSessionId } : {}),
+        log: output || detail.log,
+      };
+    }
     case "plain_text":
       return { ...detail, text: output };
     case "unknown":
@@ -606,6 +654,51 @@ function withOutput(detail: ProviderToolCallDetail, output: string): ProviderToo
     default:
       return detail;
   }
+}
+
+export function extractSubagentId(output: string): string | undefined {
+  const match = /^started subagent\s+([^\s"]+)/i.exec(output.trim());
+  if (match?.[1]) return match[1];
+  const parsed = objectValue(parseArguments(output));
+  return (
+    stringValue(parsed?.subagentId) ??
+    stringValue(parsed?.childSessionId) ??
+    stringValue(parsed?.agent_id)
+  );
+}
+
+const RETURN_GUIDANCE_PATTERN =
+  /^Your parent agent id is ".+"\. Before you finish, send your result to that agent with send_message\(/s;
+const AGENT_RELAY_PREFIX_PATTERN = /^Agent\s+\S+\s+sent a message:\s*/;
+
+function stripSubagentBoilerplate(value: unknown, isParentRelay: boolean): unknown {
+  if (typeof value === "string") {
+    return isParentRelay
+      ? value.replace(AGENT_RELAY_PREFIX_PATTERN, "")
+      : value.replace(
+          /\n+Your parent agent id is "[^"]+"\. Before you finish, send your result to that agent with send_message\([\s\S]*$/,
+          "",
+        );
+  }
+  if (!Array.isArray(value) || value.length === 0) return value;
+  let blocks = [...value];
+  if (isParentRelay) {
+    const first = objectValue(blocks[0]);
+    const firstText = first?.type === "text" ? stringValue(first.text) : undefined;
+    if (firstText !== undefined && AGENT_RELAY_PREFIX_PATTERN.test(firstText)) {
+      const rest = firstText.replace(AGENT_RELAY_PREFIX_PATTERN, "");
+      if (rest) blocks[0] = { ...first, text: rest };
+      else if (blocks.length > 1) blocks = blocks.slice(1);
+    }
+  }
+  if (blocks.length > 1) {
+    const last = objectValue(blocks.at(-1));
+    const lastText = last?.type === "text" ? stringValue(last.text)?.trim() : undefined;
+    if (lastText && RETURN_GUIDANCE_PATTERN.test(lastText)) {
+      blocks = blocks.slice(0, -1);
+    }
+  }
+  return blocks;
 }
 
 function parseArguments(value: unknown): JsonObject {

@@ -17,6 +17,7 @@ export interface HostContext {
 export interface HostSession {
   id: string;
   header: SessionSummary;
+  inheritedEventCount?: number;
   snapshotEvents(): DshSessionEvent[];
   requestHeader():
     | {

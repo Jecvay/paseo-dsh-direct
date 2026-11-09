@@ -21,6 +21,7 @@ import type {
   QuestionAnswer,
   QuestionItem,
   SessionOpenResult,
+  SubagentSessionSnapshot,
   PromptPart,
   SlashCommand,
   ToolImageOutcome,
@@ -55,6 +56,7 @@ const CAPABILITIES = [
   "session.configure",
   "session.list",
   "session.persistence",
+  "session.subsession",
   "permission",
   "permission.tool_policy",
   "timeline.plugin",
@@ -94,6 +96,31 @@ interface Dispatch {
   deferred: TurnTerminal | null;
 }
 
+interface PendingSubagentCall {
+  callId: string;
+  subAgentType?: string;
+  description?: string;
+  childSessionId?: string;
+}
+
+interface ChildSessionState {
+  nativeId: string;
+  parentNativeId: string;
+  parentPaseoId: string;
+  cwd: string;
+  agentPreset?: string;
+  subAgentType?: string;
+  label?: string;
+  description?: string;
+  provider?: string;
+  toolCallId?: string;
+  projector: TimelineProjector;
+  activeTurnId: string | null;
+  admitted: boolean;
+  opened: boolean;
+  pendingEvents: ProviderEvent[];
+}
+
 interface SessionState {
   paseoId: string;
   nativeId: string;
@@ -102,6 +129,10 @@ interface SessionState {
   bridge: DshBridge;
   releaseBridgeListeners: Array<() => void>;
   projector: TimelineProjector;
+  subsessionsEnabled: boolean;
+  pluginCardsEnabled: boolean;
+  children: Map<string, ChildSessionState>;
+  pendingSubagentCalls: Map<string, PendingSubagentCall[]>;
   activeTurnId: string | null;
   cancelRequested: boolean;
   dispatch: Dispatch | null;
@@ -283,68 +314,186 @@ function listenToSessionBridge(
     !session.closed && nativeId === session.nativeId;
 
   return [
-    session.bridge.on("session.event", ({ sessionId, event, images }) => {
-      if (!isCurrentSession(sessionId)) return;
+    session.bridge.on("session.child", (info) => {
+      if (session.closed) return;
+      if (
+        info.parentSessionId !== session.nativeId &&
+        !session.children.has(info.parentSessionId)
+      ) {
+        return;
+      }
       session.activityRevision += 1;
-      // The prompt path emits its own bubble with the clientMessageId.
-      if (event.type === "user/message" && session.dispatch?.kind === "prompt") return;
+      ensureChildSession(session, info);
+    }),
+    session.bridge.on("session.event", ({ sessionId, event, images }) => {
+      if (isCurrentSession(sessionId)) {
+        session.activityRevision += 1;
+        if (event.type === "subagent/catalog") {
+          handleSubagentCatalogEvent(session, session.nativeId, event, emit);
+          return;
+        }
+        // The prompt path emits its own bubble with the clientMessageId.
+        if (event.type === "user/message" && session.dispatch?.kind === "prompt") return;
+        if (event.type === "turn/start") {
+          // A turn nobody dispatched from Paseo: a /goal continuation or a queued
+          // follow-up that DSH drains without going idle.
+          if (!session.activeTurnId && !session.dispatch) {
+            startTurn(session, `dsh-auto-${randomUUID()}`, emit);
+          }
+          return;
+        }
+        if (event.type === "turn/end") {
+          const terminal = classifyTurnEnd(event.data);
+          // Failures reach Paseo through session.turn; other abnormal ends become notices.
+          if (terminal.state !== "failed") {
+            for (const projected of session.projector.projectEvent(event)) {
+              observeProjectedSubagentCalls(session, session.nativeId, projected, emit);
+              emit(projected);
+            }
+          }
+          flushWaitingChildren(session, session.nativeId, emit);
+          // DSH can finish before the prompt or command RPC returns.
+          if (!session.activeTurnId && session.dispatch) session.dispatch.deferred = terminal;
+          else finishTurn(session, terminal, emit);
+          return;
+        }
+        if (event.type === "plan/mode" && typeof event.data.active === "boolean") {
+          if (session.planMode !== event.data.active) {
+            session.planMode = event.data.active;
+            emitConfig(session, emit);
+          }
+        }
+        if (event.type === "permission/preset" && typeof event.data.preset === "string") {
+          // Covers /permission and any other DSH-side preset change.
+          if (session.open.permissionPreset !== event.data.preset) {
+            session.open = { ...session.open, permissionPreset: event.data.preset };
+            emitConfig(session, emit);
+          }
+        }
+        const clientMessageId =
+          event.type === "command/run" && session.dispatch?.kind === "command"
+            ? session.dispatch.clientMessageId
+            : undefined;
+        for (const projected of session.projector.projectEvent(event, { clientMessageId })) {
+          observeProjectedSubagentCalls(session, session.nativeId, projected, emit);
+          emit(projected);
+        }
+        for (const image of toolImageMessages(session.paseoId, event, images ?? [])) emit(image);
+        return;
+      }
+
+      const child = !session.closed ? session.children.get(sessionId) : undefined;
+      if (!child) return;
+      session.activityRevision += 1;
+      if (
+        event.type === "agent-preset/selected" &&
+        typeof event.data.agentPreset === "string" &&
+        event.data.agentPreset
+      ) {
+        child.agentPreset = event.data.agentPreset;
+        return;
+      }
+      if (event.type === "subagent/descriptor") {
+        if (typeof event.data.label === "string" && event.data.label) {
+          child.label = event.data.label;
+        }
+        if (typeof event.data.provider === "string" && event.data.provider) {
+          child.provider = event.data.provider;
+        }
+        return;
+      }
+      if (event.type === "subagent/catalog") {
+        handleSubagentCatalogEvent(session, child.nativeId, event, emit);
+        return;
+      }
       if (event.type === "turn/start") {
-        // A turn nobody dispatched from Paseo: a /goal continuation or a queued
-        // follow-up that DSH drains without going idle.
-        if (!session.activeTurnId && !session.dispatch) {
-          startTurn(session, `dsh-auto-${randomUUID()}`, emit);
+        ensureChildOpened(session, child, emit);
+        if (!child.activeTurnId) {
+          child.activeTurnId = `dsh-subagent-${randomUUID()}`;
+          emitChildEvent(
+            session,
+            child,
+            {
+              type: "session.turn",
+              sessionId: child.nativeId,
+              turnId: child.activeTurnId,
+              state: "started",
+            },
+            emit,
+          );
         }
         return;
       }
       if (event.type === "turn/end") {
+        ensureChildOpened(session, child, emit);
         const terminal = classifyTurnEnd(event.data);
-        // Failures reach Paseo through session.turn; other abnormal ends become notices.
-        if (terminal.state !== "failed") {
-          for (const projected of session.projector.projectEvent(event)) emit(projected);
+        const projected =
+          terminal.state === "failed"
+            ? child.projector.failRunningTools(terminal.error?.message ?? "DSH subagent turn failed")
+            : child.projector.projectEvent(event);
+        for (const item of projected) {
+          observeProjectedSubagentCalls(session, child.nativeId, item, emit);
+          emitChildEvent(session, child, item, emit);
         }
-        // DSH can finish before the prompt or command RPC returns.
-        if (!session.activeTurnId && session.dispatch) session.dispatch.deferred = terminal;
-        else finishTurn(session, terminal, emit);
+        flushWaitingChildren(session, child.nativeId, emit);
+        finishChildTurn(session, child, terminal, emit, `turn:${child.nativeId}:${event.seq}`);
         return;
       }
-      if (event.type === "plan/mode" && typeof event.data.active === "boolean") {
-        if (session.planMode !== event.data.active) {
-          session.planMode = event.data.active;
-          emitConfig(session, emit);
-        }
+      const projected = child.projector.projectEvent(event);
+      const imageEvents = toolImageMessages(child.nativeId, event, images ?? []);
+      if (projected.length > 0 || imageEvents.length > 0) {
+        ensureChildOpened(session, child, emit);
       }
-      if (event.type === "permission/preset" && typeof event.data.preset === "string") {
-        // Covers /permission and any other DSH-side preset change.
-        if (session.open.permissionPreset !== event.data.preset) {
-          session.open = { ...session.open, permissionPreset: event.data.preset };
-          emitConfig(session, emit);
-        }
+      for (const item of projected) {
+        observeProjectedSubagentCalls(session, child.nativeId, item, emit);
+        emitChildEvent(session, child, item, emit);
       }
-      const clientMessageId =
-        event.type === "command/run" && session.dispatch?.kind === "command"
-          ? session.dispatch.clientMessageId
-          : undefined;
-      for (const projected of session.projector.projectEvent(event, { clientMessageId })) {
-        emit(projected);
-      }
-      for (const image of toolImageMessages(session, event, images ?? [])) emit(image);
+      for (const image of imageEvents) emitChildEvent(session, child, image, emit);
     }),
     session.bridge.on("session.stream", ({ sessionId, frame }) => {
-      if (!isCurrentSession(sessionId)) return;
-      session.activityRevision += 1;
-      for (const projected of session.projector.projectStream(frame)) emit(projected);
-    }),
-    session.bridge.on("session.status", ({ sessionId, status }) => {
-      if (!isCurrentSession(sessionId)) return;
-      session.activityRevision += 1;
-      if (status === "running") {
-        if (session.dispatch) session.dispatch.sawRunning = true;
+      if (isCurrentSession(sessionId)) {
+        session.activityRevision += 1;
+        for (const projected of session.projector.projectStream(frame)) {
+          observeProjectedSubagentCalls(session, session.nativeId, projected, emit);
+          emit(projected);
+        }
         return;
       }
-      const terminal: TurnTerminal = { state: session.cancelRequested ? "canceled" : "completed" };
-      if (session.activeTurnId) finishTurn(session, terminal, emit);
-      else if (session.dispatch?.sawRunning && !session.dispatch.deferred) {
-        session.dispatch.deferred = terminal;
+      const child = !session.closed ? session.children.get(sessionId) : undefined;
+      if (!child) return;
+      session.activityRevision += 1;
+      const projected = child.projector.projectStream(frame);
+      if (projected.length > 0) ensureChildOpened(session, child, emit);
+      for (const item of projected) {
+        observeProjectedSubagentCalls(session, child.nativeId, item, emit);
+        emitChildEvent(session, child, item, emit);
+      }
+    }),
+    session.bridge.on("session.status", ({ sessionId, status }) => {
+      if (isCurrentSession(sessionId)) {
+        session.activityRevision += 1;
+        if (status === "running") {
+          if (session.dispatch) session.dispatch.sawRunning = true;
+          return;
+        }
+        const terminal: TurnTerminal = { state: session.cancelRequested ? "canceled" : "completed" };
+        if (session.activeTurnId) finishTurn(session, terminal, emit);
+        else if (session.dispatch?.sawRunning && !session.dispatch.deferred) {
+          session.dispatch.deferred = terminal;
+        }
+        return;
+      }
+      const child = !session.closed ? session.children.get(sessionId) : undefined;
+      if (!child) return;
+      session.activityRevision += 1;
+      if (status === "running") return;
+      if (child.activeTurnId) {
+        finishChildTurn(
+          session,
+          child,
+          { state: session.cancelRequested ? "canceled" : "completed" },
+          emit,
+        );
       }
     }),
     session.bridge.on("session.usage", ({ sessionId, usage }) => {
@@ -392,6 +541,25 @@ function failSession(
     emit({ type: "session.permission_resolved", sessionId: session.paseoId, permissionId });
   }
   session.pendingInteractions.clear();
+  for (const child of session.children.values()) {
+    if (!child.opened || !session.subsessionsEnabled) continue;
+    for (const projected of child.projector.failRunningTools(error.message)) emit(projected);
+    if (child.activeTurnId) {
+      emit({
+        type: "session.turn",
+        sessionId: child.nativeId,
+        turnId: child.activeTurnId,
+        state: "failed",
+        error: { message: error.message },
+      });
+      child.activeTurnId = null;
+    }
+    emit({
+      type: "session.runtime_failed",
+      sessionId: child.nativeId,
+      error: { message: error.message },
+    });
+  }
   for (const projected of session.projector.failRunningTools(error.message)) emit(projected);
   if (session.activeTurnId) {
     emit({
@@ -544,6 +712,8 @@ async function openSession(
       title ? bridge.request("session.rename", { sessionId: opened.sessionId, title }) : undefined,
     ]);
     if (state.isClosed()) return;
+    const pluginCardsEnabled = state.capabilities.includes("timeline.plugin");
+    const subsessionsEnabled = state.capabilities.includes("session.subsession");
     session = {
       paseoId: input.sessionId,
       nativeId: opened.sessionId,
@@ -551,7 +721,11 @@ async function openSession(
       open: opened,
       bridge,
       releaseBridgeListeners: [],
-      projector: new TimelineProjector(input.sessionId, state.capabilities.includes("timeline.plugin")),
+      projector: new TimelineProjector(input.sessionId, pluginCardsEnabled),
+      subsessionsEnabled,
+      pluginCardsEnabled,
+      children: new Map(),
+      pendingSubagentCalls: new Map(),
       activeTurnId: null,
       cancelRequested: false,
       dispatch: null,
@@ -596,11 +770,28 @@ async function openSession(
   emitCommands(session, state.emit);
   if (input.history === "replay") {
     for (const event of session.open.events) {
-      for (const projected of session.projector.projectEvent(event)) state.emit(projected);
-      for (const image of toolImageMessages(session, event, event.images ?? [])) state.emit(image);
+      if (event.type === "subagent/catalog") {
+        recordSubagentCatalogMeta(session, session.nativeId, event);
+        continue;
+      }
+      for (const projected of session.projector.projectEvent(event)) {
+        observeProjectedSubagentCalls(session, session.nativeId, projected);
+        state.emit(projected);
+      }
+      for (const image of toolImageMessages(session.paseoId, event, event.images ?? [])) {
+        state.emit(image);
+      }
     }
   } else {
     session.projector.seed(session.open.events);
+    for (const event of session.open.events) {
+      if (event.type === "subagent/catalog") {
+        recordSubagentCatalogMeta(session, session.nativeId, event);
+      }
+    }
+  }
+  for (const subagent of session.open.subagents ?? []) {
+    replayOrSeedSubagent(session, subagent, input.history === "replay", state.emit);
   }
   await warnOnDshVersionMismatch(session, state);
   if (state.isClosed() || session.closed) return;
@@ -905,7 +1096,8 @@ function isProviderSessionIdle(session: SessionState): boolean {
     !session.activeTurnId &&
     !session.dispatch &&
     session.pendingInteractions.size === 0 &&
-    session.pendingOperations === 0
+    session.pendingOperations === 0 &&
+    ![...session.children.values()].some((child) => child.activeTurnId !== null)
   );
 }
 
@@ -927,11 +1119,396 @@ async function closeSession(
       await session.bridge.close();
     } finally {
       state.sessions.delete(input.sessionId);
+      for (const child of session.children.values()) {
+        if (child.opened && session.subsessionsEnabled && child.activeTurnId) {
+          finishChildTurn(session, child, { state: "canceled" }, state.emit);
+        }
+      }
       if (session.activeTurnId) finishTurn(session, { state: "canceled" }, state.emit);
       state.emit({ type: "session.closed", sessionId: input.sessionId });
     }
   }
   state.emit({ type: "request.completed", requestId: input.requestId });
+}
+
+function ensureChildSession(
+  session: SessionState,
+  info: {
+    sessionId: string;
+    parentSessionId: string;
+    cwd?: string;
+    agentPreset?: string;
+    label?: string;
+    provider?: string;
+  },
+): ChildSessionState {
+  const existing = session.children.get(info.sessionId);
+  if (existing) {
+    if (info.cwd) existing.cwd = info.cwd;
+    if (info.agentPreset) existing.agentPreset = info.agentPreset;
+    if (info.label) existing.label = info.label;
+    if (info.provider) existing.provider = info.provider;
+    return existing;
+  }
+  const child: ChildSessionState = {
+    nativeId: info.sessionId,
+    parentNativeId: info.parentSessionId,
+    parentPaseoId:
+      info.parentSessionId === session.nativeId ? session.paseoId : info.parentSessionId,
+    cwd: info.cwd || session.open.cwd,
+    ...(info.agentPreset ? { agentPreset: info.agentPreset } : {}),
+    ...(info.label ? { label: info.label } : {}),
+    ...(info.provider ? { provider: info.provider } : {}),
+    projector: new TimelineProjector(
+      info.sessionId,
+      session.pluginCardsEnabled,
+      info.parentSessionId,
+    ),
+    activeTurnId: null,
+    admitted: false,
+    opened: false,
+    pendingEvents: [],
+  };
+  session.children.set(info.sessionId, child);
+  return child;
+}
+
+function getPendingSubagentCalls(
+  session: SessionState,
+  parentNativeId: string,
+): PendingSubagentCall[] {
+  let list = session.pendingSubagentCalls.get(parentNativeId);
+  if (!list) {
+    list = [];
+    session.pendingSubagentCalls.set(parentNativeId, list);
+  }
+  return list;
+}
+
+function observeProjectedSubagentCalls(
+  session: SessionState,
+  parentNativeId: string,
+  event: ProviderEvent,
+  emit?: (event: ProviderEvent) => void,
+): void {
+  if (
+    event.type !== "timeline.item" ||
+    event.item.type !== "tool_call" ||
+    event.item.detail.type !== "sub_agent"
+  ) {
+    return;
+  }
+  const { callId, detail, status } = event.item;
+  const calls = getPendingSubagentCalls(session, parentNativeId);
+  if (status !== "running" && !detail.childSessionId) {
+    const idx = calls.findIndex((candidate) => candidate.callId === callId && !candidate.childSessionId);
+    if (idx >= 0) {
+      calls.splice(idx, 1);
+      if (emit) flushWaitingChildren(session, parentNativeId, emit);
+    }
+    return;
+  }
+  let pending = calls.find((candidate) => candidate.callId === callId);
+  if (!pending) {
+    pending = {
+      callId,
+      ...(detail.subAgentType ? { subAgentType: detail.subAgentType } : {}),
+      ...(detail.description ? { description: detail.description } : {}),
+      ...(detail.childSessionId ? { childSessionId: detail.childSessionId } : {}),
+    };
+    calls.push(pending);
+  } else {
+    if (detail.subAgentType) pending.subAgentType = detail.subAgentType;
+    if (detail.description) pending.description = detail.description;
+    if (detail.childSessionId) pending.childSessionId = detail.childSessionId;
+  }
+  if (pending.childSessionId) {
+    for (const other of calls) {
+      if (other !== pending && other.childSessionId === pending.childSessionId) {
+        other.childSessionId = undefined;
+      }
+    }
+    const child = session.children.get(pending.childSessionId);
+    if (child) {
+      child.toolCallId = pending.callId;
+      child.description ??= pending.description;
+      child.subAgentType ??= pending.subAgentType;
+      const pendingIndex = calls.indexOf(pending);
+      if (pendingIndex >= 0) calls.splice(pendingIndex, 1);
+      if (emit) {
+        ensureChildOpened(session, child, emit);
+        flushWaitingChildren(session, parentNativeId, emit);
+      }
+    }
+  }
+}
+
+function recordSubagentCatalogMeta(
+  session: SessionState,
+  parentNativeId: string,
+  event: DshSessionEvent,
+): ChildSessionState | undefined {
+  if (event.data.mode === "external") return undefined;
+  const childId =
+    typeof event.data.childId === "string" && event.data.childId.trim()
+      ? event.data.childId.trim()
+      : undefined;
+  if (!childId) return undefined;
+  const label =
+    typeof event.data.label === "string" && event.data.label.trim()
+      ? event.data.label.trim()
+      : undefined;
+  return ensureChildSession(session, {
+    sessionId: childId,
+    parentSessionId: parentNativeId,
+    ...(label ? { label } : {}),
+  });
+}
+
+function handleSubagentCatalogEvent(
+  session: SessionState,
+  parentNativeId: string,
+  event: DshSessionEvent,
+  emit: (event: ProviderEvent) => void,
+): void {
+  const child = recordSubagentCatalogMeta(session, parentNativeId, event);
+  if (child) ensureChildOpened(session, child, emit);
+}
+
+function hasAmbiguousPendingSubagentCall(
+  session: SessionState,
+  child: ChildSessionState,
+): boolean {
+  if (child.toolCallId) return false;
+  const calls = session.pendingSubagentCalls.get(child.parentNativeId) ?? [];
+  if (calls.some((candidate) => candidate.childSessionId === child.nativeId)) return false;
+  const unassigned = calls.filter((candidate) => !candidate.childSessionId);
+  if (child.label) {
+    const byLabel = unassigned.filter((candidate) => candidate.description === child.label);
+    if (byLabel.length > 1) return true;
+    if (byLabel.length === 1) return false;
+  }
+  return unassigned.length > 1;
+}
+
+function correlateChildWithParentCall(
+  session: SessionState,
+  child: ChildSessionState,
+  emit?: (event: ProviderEvent) => void,
+): void {
+  if (!child.toolCallId) {
+    const calls = session.pendingSubagentCalls.get(child.parentNativeId) ?? [];
+    const exact = calls.find((candidate) => candidate.childSessionId === child.nativeId);
+    let pending = exact;
+    if (!pending && !hasAmbiguousPendingSubagentCall(session, child)) {
+      const unassigned = calls.filter((candidate) => !candidate.childSessionId);
+      pending =
+        (child.label
+          ? unassigned.find((candidate) => candidate.description === child.label)
+          : undefined) ?? unassigned[0];
+    }
+    if (pending) {
+      pending.childSessionId ??= child.nativeId;
+      child.toolCallId = pending.callId;
+      child.description ??= pending.description;
+      child.subAgentType ??= pending.subAgentType;
+    }
+  }
+  if (child.toolCallId) {
+    const parentProjector =
+      child.parentNativeId === session.nativeId
+        ? session.projector
+        : session.children.get(child.parentNativeId)?.projector;
+    const updatedTool = parentProjector?.attachSubagentChild(child.toolCallId, child.nativeId);
+    if (updatedTool && emit) {
+      const parentChild = session.children.get(child.parentNativeId);
+      if (child.parentNativeId === session.nativeId || (parentChild?.opened && session.subsessionsEnabled)) {
+        emit(updatedTool);
+      } else if (parentChild && session.subsessionsEnabled) {
+        parentChild.pendingEvents.push(updatedTool);
+      }
+    }
+  }
+}
+
+function ensureChildOpened(
+  session: SessionState,
+  child: ChildSessionState,
+  emit: (event: ProviderEvent) => void,
+  force = false,
+): void {
+  child.admitted = true;
+  correlateChildWithParentCall(session, child, emit);
+  if (child.opened || !session.subsessionsEnabled) return;
+  if (!force && hasAmbiguousPendingSubagentCall(session, child)) return;
+  if (child.parentNativeId !== session.nativeId) {
+    const parentChild = session.children.get(child.parentNativeId);
+    if (!parentChild) return;
+    ensureChildOpened(session, parentChild, emit, force);
+    if (!parentChild.opened || child.opened) return;
+  }
+  child.opened = true;
+  const title =
+    child.agentPreset ??
+    child.subAgentType ??
+    (child.provider === "fork" ? "Fork" : "Subagent");
+  const description = child.label ?? child.description;
+  emit({
+    type: "session.opened",
+    sessionId: child.nativeId,
+    parentSessionId: child.parentPaseoId,
+    capabilities: [],
+    restoration: "parent",
+    cwd: child.cwd || session.open.cwd,
+    title,
+    ...(description ? { description } : {}),
+    ...(child.toolCallId ? { toolCallId: child.toolCallId } : {}),
+  });
+  for (const buffered of child.pendingEvents.splice(0)) {
+    emit(buffered);
+  }
+  flushWaitingChildren(session, child.nativeId, emit);
+}
+
+function emitChildEvent(
+  session: SessionState,
+  child: ChildSessionState,
+  event: ProviderEvent,
+  emit: (event: ProviderEvent) => void,
+): void {
+  if (!session.subsessionsEnabled) return;
+  if (child.opened) {
+    emit(event);
+  } else {
+    child.pendingEvents.push(event);
+  }
+}
+
+function flushWaitingChildren(
+  session: SessionState,
+  parentNativeId: string,
+  emit: (event: ProviderEvent) => void,
+): void {
+  for (const child of session.children.values()) {
+    if (child.parentNativeId === parentNativeId && child.admitted && !child.opened) {
+      ensureChildOpened(session, child, emit);
+    }
+  }
+}
+
+function finishChildTurn(
+  session: SessionState,
+  child: ChildSessionState,
+  terminal: TurnTerminal,
+  emit: (event: ProviderEvent) => void,
+  fallbackTurnId?: string,
+): void {
+  const turnId = child.activeTurnId ?? fallbackTurnId;
+  child.activeTurnId = null;
+  if (!turnId || !session.subsessionsEnabled) return;
+  emitChildEvent(
+    session,
+    child,
+    {
+      type: "session.turn",
+      sessionId: child.nativeId,
+      turnId,
+      state: terminal.state,
+      ...(terminal.state === "failed"
+        ? { error: terminal.error ?? { message: "DSH subagent turn failed" } }
+        : {}),
+    },
+    emit,
+  );
+}
+
+function replayOrSeedSubagent(
+  session: SessionState,
+  subagent: SubagentSessionSnapshot,
+  replay: boolean,
+  emit: (event: ProviderEvent) => void,
+): void {
+  const child = ensureChildSession(session, subagent);
+  for (const event of subagent.events) {
+    if (
+      event.type === "agent-preset/selected" &&
+      typeof event.data.agentPreset === "string" &&
+      event.data.agentPreset
+    ) {
+      child.agentPreset = event.data.agentPreset;
+    } else if (event.type === "subagent/descriptor") {
+      if (typeof event.data.label === "string" && event.data.label) {
+        child.label = event.data.label;
+      }
+      if (typeof event.data.provider === "string" && event.data.provider) {
+        child.provider = event.data.provider;
+      }
+    }
+  }
+  if (!replay) {
+    correlateChildWithParentCall(session, child);
+    child.projector.seed(subagent.events);
+    for (const event of subagent.events) {
+      if (event.type === "subagent/catalog") {
+        recordSubagentCatalogMeta(session, child.nativeId, event);
+      }
+    }
+    return;
+  }
+  ensureChildOpened(session, child, emit, true);
+  let activeTurnId: string | null = null;
+  let lastTurnId: string | null = null;
+  let lastTurnTerminal: TurnTerminal | null = null;
+  for (const event of subagent.events) {
+    if (event.type === "subagent/catalog") {
+      recordSubagentCatalogMeta(session, child.nativeId, event);
+      continue;
+    }
+    if (event.type === "turn/start") {
+      activeTurnId = `turn:${child.nativeId}:${event.seq}`;
+      lastTurnTerminal = null;
+      continue;
+    }
+    if (event.type === "turn/end") {
+      lastTurnId = activeTurnId ?? `turn:${child.nativeId}:${event.seq}`;
+      lastTurnTerminal = classifyTurnEnd(event.data);
+      activeTurnId = null;
+    }
+    for (const projected of child.projector.projectEvent(event)) {
+      observeProjectedSubagentCalls(session, child.nativeId, projected, emit);
+      if (session.subsessionsEnabled) emit(projected);
+    }
+    if (session.subsessionsEnabled) {
+      for (const image of toolImageMessages(child.nativeId, event, event.images ?? [])) {
+        emit(image);
+      }
+    }
+  }
+  if (activeTurnId) {
+    child.activeTurnId = activeTurnId;
+    if (session.subsessionsEnabled) {
+      emit({
+        type: "session.turn",
+        sessionId: child.nativeId,
+        turnId: activeTurnId,
+        state: "started",
+      });
+    }
+    return;
+  }
+  const terminal = lastTurnTerminal ?? { state: "completed" as const };
+  const turnId = lastTurnId ?? `turn:${child.nativeId}:0`;
+  if (session.subsessionsEnabled) {
+    emit({
+      type: "session.turn",
+      sessionId: child.nativeId,
+      turnId,
+      state: terminal.state,
+      ...(terminal.state === "failed"
+        ? { error: terminal.error ?? { message: "DSH subagent turn failed" } }
+        : {}),
+    });
+  }
 }
 
 function validateAdmission(
@@ -968,7 +1545,7 @@ function validateSessionConfig(config: ProviderSessionConfig): void {
  * replayed twice maps onto the same row.
  */
 function toolImageMessages(
-  session: SessionState,
+  paseoSessionId: string,
   event: DshSessionEvent,
   images: readonly ToolImageOutcome[],
 ): ProviderEvent[] {
@@ -980,7 +1557,7 @@ function toolImageMessages(
     if (image.status === "failed") {
       events.push({
         type: "timeline.item",
-        sessionId: session.paseoId,
+        sessionId: paseoSessionId,
         item: {
           type: "notification",
           id,
@@ -995,7 +1572,7 @@ function toolImageMessages(
     const href = pathToFileURL(image.path).href.replace(/\\/g, "\\\\").replace(/\)/g, "\\)");
     events.push({
       type: "timeline.item",
-      sessionId: session.paseoId,
+      sessionId: paseoSessionId,
       item: {
         type: "assistant_message",
         id,

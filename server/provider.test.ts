@@ -1468,3 +1468,726 @@ test("replaying a resumed session emits tool-result images from historical event
   }
   await connection.close();
 });
+
+test("streams live subagent sessions and correlates parent sub_agent tool calls", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: [
+      "prompt.message",
+      "session.persistence",
+      "session.subsession",
+      "session.can_stop_runtime",
+    ],
+  });
+  assert.ok(connection.capabilities.includes("session.subsession"));
+
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  await connection.send({
+    type: "session.open",
+    requestId: "open-sub",
+    sessionId: "paseo-root",
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+    history: "skip",
+  });
+  await tick();
+  await tick();
+
+  // Parent emits subagent tool/call
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "tool/call",
+      seq: 1,
+      time: 10,
+      data: {
+        callId: "call-sub-1",
+        name: "subagent",
+        arguments: JSON.stringify({
+          description: "Audit auth module",
+          prompt: "Inspect server/auth.ts and summarize findings",
+          agent_preset: "explore",
+        }),
+      },
+    },
+    images: [],
+  });
+
+  // Bridge announces child session creation followed by setup() descriptor
+  bridge.notify("session.child", {
+    sessionId: "native-child-1",
+    parentSessionId: "native-new",
+    cwd: "/repo",
+  });
+  bridge.notify("session.event", {
+    sessionId: "native-child-1",
+    event: {
+      type: "agent-preset/selected",
+      seq: 0,
+      time: 11,
+      data: { agentPreset: "explore" },
+    },
+    images: [],
+  });
+  bridge.notify("session.event", {
+    sessionId: "native-child-1",
+    event: {
+      type: "subagent/descriptor",
+      seq: 1,
+      time: 12,
+      data: { version: 3, mode: "continuable", provider: "spawn", label: "Audit auth module" },
+    },
+    images: [],
+  });
+
+  // Child starts turn and streams assistant text
+  bridge.notify("session.event", {
+    sessionId: "native-child-1",
+    event: {
+      type: "user/message",
+      seq: 2,
+      time: 13,
+      data: {
+        id: "child-u-1",
+        source: { kind: "user" },
+        content: [
+          { type: "text", text: "Inspect server/auth.ts and summarize findings" },
+          {
+            type: "text",
+            text: 'Your parent agent id is "native-new". Before you finish, send your result to that agent with send_message({ agent_id: "native-new", message: "<final summary>" }).',
+          },
+        ],
+      },
+    },
+    images: [],
+  });
+
+  const childOpened = events.find(
+    (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+      event.type === "session.opened" && event.sessionId === "native-child-1",
+  );
+  assert.ok(childOpened);
+  assert.equal(childOpened.parentSessionId, "paseo-root");
+  assert.equal(childOpened.restoration, "parent");
+  assert.deepEqual(childOpened.capabilities, []);
+  assert.equal(childOpened.title, "explore");
+  assert.equal(childOpened.description, "Audit auth module");
+  assert.equal(childOpened.toolCallId, "call-sub-1");
+  bridge.notify("session.event", {
+    sessionId: "native-child-1",
+    event: { type: "turn/start", seq: 3, time: 14, data: { turn: 1 } },
+    images: [],
+  });
+  bridge.notify("session.stream", {
+    sessionId: "native-child-1",
+    frame: {
+      type: "chunk",
+      attemptId: "c-a1",
+      revision: 1,
+      index: 0,
+      time: 15,
+      chunk: { type: "text-delta", index: 0, text: "Auth module looks clean." },
+    },
+  });
+
+  // While child turn is active, session.can_stop_runtime returns canStop: false
+  await connection.send({
+    type: "session.can_stop_runtime",
+    requestId: "stop-while-child-active",
+    sessionId: "paseo-root",
+  });
+  await tick();
+  const stopCheck = events.find(
+    (event): event is Extract<ProviderEvent, { type: "session.can_stop_runtime" }> =>
+      event.type === "session.can_stop_runtime" && event.requestId === "stop-while-child-active",
+  );
+  assert.equal(stopCheck?.canStop, false);
+
+  bridge.notify("session.event", {
+    sessionId: "native-child-1",
+    event: { type: "turn/end", seq: 4, time: 16, data: { turn: 1 } },
+    images: [],
+  });
+
+  const childTurns = events.filter(
+    (event): event is Extract<ProviderEvent, { type: "session.turn" }> =>
+      event.type === "session.turn" && event.sessionId === "native-child-1",
+  );
+  assert.deepEqual(
+    childTurns.map((turn) => turn.state),
+    ["started", "completed"],
+  );
+
+  const childTimeline = events.filter(
+    (event): event is Extract<ProviderEvent, { type: "timeline.item" }> =>
+      event.type === "timeline.item" && event.sessionId === "native-child-1",
+  );
+  assert.equal(childTimeline.length, 2);
+  assert.equal(childTimeline[0]?.item.type, "user_message");
+  if (childTimeline[0]?.item.type === "user_message") {
+    assert.equal(childTimeline[0].item.text, "Inspect server/auth.ts and summarize findings");
+  }
+  assert.equal(childTimeline[1]?.item.type, "assistant_message");
+  if (childTimeline[1]?.item.type === "assistant_message") {
+    assert.equal(childTimeline[1].item.text, "Auth module looks clean.");
+  }
+
+  await connection.close();
+});
+
+test("replays historical subagent sessions on session.open and degrades when session.subsession is not negotiated", async () => {
+  class ReplaySubagentBridge extends FakeBridge {
+    override async request<Name extends keyof BridgeMethods>(
+      method: Name,
+      params: BridgeMethods[Name]["params"],
+      timeoutMs?: number,
+    ): Promise<BridgeMethods[Name]["result"]> {
+      if (method === "session.open") {
+        const open = params as BridgeMethods["session.open"]["params"];
+        return {
+          sessionId: open.sessionId ?? "native-root",
+          cwd: open.cwd,
+          model: this.initialized.catalog.defaultModel,
+          preset: "default",
+          permissionPreset: "read-only",
+          events: [
+            {
+              type: "tool/call",
+              seq: 1,
+              time: 10,
+              data: {
+                callId: "call-hist-1",
+                name: "subagent",
+                arguments: JSON.stringify({
+                  description: "Check routes",
+                  prompt: "Inspect routes.ts",
+                  agent_preset: "explore",
+                }),
+              },
+            },
+            {
+              type: "subagent/catalog",
+              seq: 2,
+              time: 11,
+              data: {
+                version: 0,
+                childId: "child-hist-1",
+                childCreatedAt: 11,
+                mode: "continuable",
+                label: "Check routes",
+              },
+            },
+            {
+              type: "tool/result",
+              seq: 3,
+              time: 12,
+              data: {
+                message: {
+                  role: "tool",
+                  toolCallId: "call-hist-1",
+                  content: [{ type: "text", text: "started subagent child-hist-1" }],
+                },
+              },
+            },
+          ],
+          subagents: [
+            {
+              sessionId: "child-hist-1",
+              parentSessionId: "native-root",
+              cwd: "/repo",
+              agentPreset: "explore",
+              label: "Check routes",
+              provider: "spawn",
+              events: [
+                { type: "turn/start", seq: 0, time: 11, data: { turn: 1 } },
+                {
+                  type: "assistant/message",
+                  seq: 1,
+                  time: 12,
+                  data: {
+                    turn: 1,
+                    step: 1,
+                    message: { id: "m-1", content: [{ type: "text", text: "Routes verified." }] },
+                  },
+                },
+                { type: "turn/end", seq: 2, time: 13, data: { turn: 1 } },
+              ],
+            },
+          ],
+        } as BridgeMethods[Name]["result"];
+      }
+      return super.request(method, params, timeoutMs);
+    }
+  }
+
+  // 1. With session.subsession negotiated
+  const bridgeWithSub = new ReplaySubagentBridge();
+  const providerWithSub = createDshProvider({
+    createBridge: async () => bridgeWithSub,
+    detectDshVersion: noVersionWarning,
+  });
+  const connWithSub = await providerWithSub.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const eventsWithSub: ProviderEvent[] = [];
+  connWithSub.onEvent((event) => eventsWithSub.push(event));
+  await connWithSub.send({
+    type: "session.open",
+    requestId: "open-with-sub",
+    sessionId: "paseo-with-sub",
+    persistence: { version: 1, data: { dshSessionId: "native-root" } },
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+    history: "replay",
+  });
+  await tick();
+  await tick();
+
+  const childOpened = eventsWithSub.find(
+    (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+      event.type === "session.opened" && event.sessionId === "child-hist-1",
+  );
+  assert.ok(childOpened);
+  assert.equal(childOpened.parentSessionId, "paseo-with-sub");
+  assert.equal(childOpened.toolCallId, "call-hist-1");
+  assert.equal(childOpened.title, "explore");
+  assert.equal(childOpened.description, "Check routes");
+
+  const childTurn = eventsWithSub.find(
+    (event): event is Extract<ProviderEvent, { type: "session.turn" }> =>
+      event.type === "session.turn" && event.sessionId === "child-hist-1",
+  );
+  assert.equal(childTurn?.state, "completed");
+  await connWithSub.close();
+
+  // 2. Without session.subsession negotiated (graceful fallback)
+  const bridgeWithoutSub = new ReplaySubagentBridge();
+  const providerWithoutSub = createDshProvider({
+    createBridge: async () => bridgeWithoutSub,
+    detectDshVersion: noVersionWarning,
+  });
+  const connWithoutSub = await providerWithoutSub.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence"],
+  });
+  const eventsWithoutSub: ProviderEvent[] = [];
+  connWithoutSub.onEvent((event) => eventsWithoutSub.push(event));
+  await connWithoutSub.send({
+    type: "session.open",
+    requestId: "open-without-sub",
+    sessionId: "paseo-without-sub",
+    persistence: { version: 1, data: { dshSessionId: "native-root" } },
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+    history: "replay",
+  });
+  await tick();
+  await tick();
+
+  assert.equal(
+    eventsWithoutSub.some(
+      (event) => "sessionId" in event && event.sessionId === "child-hist-1",
+    ),
+    false,
+  );
+  const parentToolCalls = eventsWithoutSub.filter(
+    (event): event is Extract<ProviderEvent, { type: "timeline.item" }> =>
+      event.type === "timeline.item" &&
+      event.sessionId === "paseo-without-sub" &&
+      event.item.type === "tool_call",
+  );
+  assert.equal(parentToolCalls.length, 2);
+  await connWithoutSub.close();
+});
+
+test("disambiguates parallel same-description subagents, ignores pre-admission rollback and external catalog entries, and fails running child tools on turn error", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({
+    createBridge: async () => bridge,
+    detectDshVersion: noVersionWarning,
+  });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+
+  await connection.send({
+    type: "session.open",
+    requestId: "open-1",
+    sessionId: "paseo-root",
+    config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+    history: "skip",
+  });
+  await tick();
+  await tick();
+
+  // 1. Subagent startup fails after descriptor and before admission: must not emit session.opened
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "tool/call",
+      seq: 1,
+      time: 1000,
+      data: {
+        callId: "call-rollback",
+        name: "subagent",
+        arguments: JSON.stringify({ description: "Fail before admission", prompt: "Work" }),
+      },
+    },
+    images: [],
+  });
+  bridge.notify("session.child", {
+    sessionId: "child-rollback",
+    parentSessionId: "native-new",
+    cwd: "/repo",
+  });
+  bridge.notify("session.event", {
+    sessionId: "child-rollback",
+    event: {
+      type: "subagent/descriptor",
+      seq: 0,
+      time: 1001,
+      data: { version: 3, mode: "continuable", provider: "spawn", label: "Fail before admission" },
+    },
+    images: [],
+  });
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "tool/result",
+      seq: 2,
+      time: 1002,
+      data: {
+        message: {
+          toolCallId: "call-rollback",
+          isError: true,
+          content: [{ type: "text", text: "cwd does not exist" }],
+        },
+      },
+    },
+    images: [],
+  });
+  assert.equal(
+    events.some(
+      (event) => event.type === "session.opened" && event.sessionId === "child-rollback",
+    ),
+    false,
+  );
+
+  // 2. External catalog entry: must not emit local child session.opened
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "subagent/catalog",
+      seq: 3,
+      time: 1003,
+      data: { version: 3, childId: "child-external", mode: "external", label: "External worker" },
+    },
+    images: [],
+  });
+  assert.equal(
+    events.some(
+      (event) => event.type === "session.opened" && event.sessionId === "child-external",
+    ),
+    false,
+  );
+
+  // 3. Two parallel subagent calls with identical descriptions where child-b starts before child-a
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "tool/call",
+      seq: 4,
+      time: 1004,
+      data: {
+        callId: "call-a",
+        name: "subagent",
+        arguments: JSON.stringify({ description: "Same description", prompt: "Task A" }),
+      },
+    },
+    images: [],
+  });
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "tool/call",
+      seq: 5,
+      time: 1005,
+      data: {
+        callId: "call-b",
+        name: "subagent",
+        arguments: JSON.stringify({ description: "Same description", prompt: "Task B" }),
+      },
+    },
+    images: [],
+  });
+
+  bridge.notify("session.child", {
+    sessionId: "child-b",
+    parentSessionId: "native-new",
+    cwd: "/repo",
+  });
+  bridge.notify("session.event", {
+    sessionId: "child-b",
+    event: {
+      type: "subagent/descriptor",
+      seq: 0,
+      time: 1006,
+      data: { version: 3, mode: "continuable", provider: "spawn", label: "Same description" },
+    },
+    images: [],
+  });
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "subagent/catalog",
+      seq: 6,
+      time: 1007,
+      data: { version: 3, childId: "child-b", mode: "continuable", label: "Same description" },
+    },
+    images: [],
+  });
+  bridge.notify("session.event", {
+    sessionId: "child-b",
+    event: { type: "turn/start", seq: 1, time: 1008, data: { turn: 0 } },
+    images: [],
+  });
+  // Authoritative tool/result for call-b arrives first
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "tool/result",
+      seq: 7,
+      time: 1009,
+      data: {
+        message: {
+          toolCallId: "call-b",
+          content: [{ type: "text", text: "started subagent child-b" }],
+        },
+      },
+    },
+    images: [],
+  });
+
+  bridge.notify("session.child", {
+    sessionId: "child-a",
+    parentSessionId: "native-new",
+    cwd: "/repo",
+  });
+  bridge.notify("session.event", {
+    sessionId: "child-a",
+    event: {
+      type: "subagent/descriptor",
+      seq: 0,
+      time: 1010,
+      data: { version: 3, mode: "continuable", provider: "spawn", label: "Same description" },
+    },
+    images: [],
+  });
+  bridge.notify("session.event", {
+    sessionId: "native-new",
+    event: {
+      type: "subagent/catalog",
+      seq: 8,
+      time: 1011,
+      data: { version: 3, childId: "child-a", mode: "continuable", label: "Same description" },
+    },
+    images: [],
+  });
+
+  const openedB = events.find(
+    (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+      event.type === "session.opened" && event.sessionId === "child-b",
+  );
+  const openedA = events.find(
+    (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+      event.type === "session.opened" && event.sessionId === "child-a",
+  );
+  assert.equal(openedB?.toolCallId, "call-b");
+  assert.equal(openedA?.toolCallId, "call-a");
+
+  // 4. Child turn error settles any running streamed tool call on the child
+  bridge.notify("session.stream", {
+    sessionId: "child-b",
+    frame: {
+      type: "chunk",
+      attemptId: "att-1",
+      index: 0,
+      revision: 1,
+      time: 1012,
+      chunk: {
+        type: "tool-call-delta",
+        id: "child-tool-1",
+        name: "bash",
+        argumentsDelta: '{"command":"ls"}',
+      },
+    },
+  });
+  bridge.notify("session.event", {
+    sessionId: "child-b",
+    event: {
+      type: "turn/end",
+      seq: 2,
+      time: 1013,
+      data: {
+        turn: 0,
+        reason: { kind: "error", error: { message: "Stream disconnected" } },
+      },
+    },
+    images: [],
+  });
+
+  const childToolItems = events.filter(
+    (event): event is Extract<ProviderEvent, { type: "timeline.item" }> =>
+      event.type === "timeline.item" &&
+      event.sessionId === "child-b" &&
+      event.item.type === "tool_call",
+  );
+  const lastToolItem = childToolItems.at(-1)?.item;
+  assert.equal(lastToolItem?.type, "tool_call");
+  if (lastToolItem?.type === "tool_call") {
+    assert.equal(lastToolItem.status, "failed");
+    assert.equal(lastToolItem.error, "Stream disconnected");
+  }
+
+  await connection.close();
+});
+
+test("waits for exact parent call identity when an ambiguous child finishes before its launch result", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({
+    createBridge: async () => bridge,
+    detectDshVersion: noVersionWarning,
+  });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  try {
+    await connection.send({
+      type: "session.open",
+      requestId: "open-early-child",
+      sessionId: "paseo-root",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+    let seq = 0;
+    const durable = (sessionId: string, type: string, data: Record<string, unknown>) => {
+      bridge.notify("session.event", {
+        sessionId,
+        event: { type, seq: seq++, time: 1, data },
+        images: [],
+      });
+    };
+    for (const callId of ["call-a", "call-b"]) {
+      durable("native-new", "tool/call", {
+        callId,
+        name: "subagent",
+        arguments: JSON.stringify({ description: "Same task", prompt: "Inspect" }),
+      });
+    }
+    bridge.notify("session.child", {
+      sessionId: "child-b",
+      parentSessionId: "native-new",
+      cwd: "/repo",
+    });
+    durable("child-b", "subagent/descriptor", { mode: "continuable", label: "Same task" });
+    durable("native-new", "subagent/catalog", {
+      childId: "child-b", mode: "continuable", label: "Same task",
+    });
+    durable("child-b", "turn/start", { turn: 1 });
+    durable("child-b", "assistant/message", {
+      turn: 1, step: 1,
+      message: { id: "early-report", content: [{ type: "text", text: "Finished early" }] },
+    });
+    durable("child-b", "turn/end", { turn: 1 });
+    assert.equal(events.some((event) => event.type === "session.opened" && event.sessionId === "child-b"), false);
+
+    durable("native-new", "tool/result", {
+      message: { toolCallId: "call-b", content: [{ type: "text", text: "started subagent child-b" }] },
+    });
+    const childOpened = events.filter(
+      (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+        event.type === "session.opened" && event.sessionId === "child-b",
+    );
+    assert.equal(childOpened.length, 1);
+    assert.equal(childOpened[0]?.toolCallId, "call-b");
+    const childEvents = events.filter((event) => "sessionId" in event && event.sessionId === "child-b");
+    assert.deepEqual(childEvents.map((event) => event.type), [
+      "session.opened", "session.turn", "timeline.item", "session.turn",
+    ]);
+    assert.deepEqual(childEvents.filter((event) => event.type === "session.turn").map((event) => event.state), ["started", "completed"]);
+    assert.equal(events.some((event) => event.type === "timeline.item" && event.item.type === "tool_call" && event.item.callId === "call-a" && event.item.detail.type === "sub_agent" && event.item.detail.childSessionId === "child-b"), false);
+  } finally {
+    await connection.close();
+  }
+});
+
+test("opens a buffered parent before its already-finished nested subagent", async () => {
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+  const connection = await provider.connect({
+    versions: [1], capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+  try {
+    await connection.send({
+      type: "session.open", requestId: "open-nested", sessionId: "paseo-root",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true }, history: "skip",
+    });
+    await tick();
+    await tick();
+    let seq = 0;
+    const durable = (sessionId: string, type: string, data: Record<string, unknown>) => {
+      bridge.notify("session.event", { sessionId, event: { type, seq: seq++, time: 1, data }, images: [] });
+    };
+    for (const callId of ["call-a", "call-b"]) {
+      durable("native-new", "tool/call", {
+        callId, name: "subagent", arguments: JSON.stringify({ description: "Same task", prompt: "Inspect" }),
+      });
+    }
+    bridge.notify("session.child", { sessionId: "child-b", parentSessionId: "native-new", cwd: "/repo" });
+    durable("child-b", "subagent/descriptor", { mode: "continuable", label: "Same task" });
+    durable("native-new", "subagent/catalog", { childId: "child-b", mode: "continuable", label: "Same task" });
+    durable("child-b", "turn/start", { turn: 1 });
+    durable("child-b", "tool/call", {
+      callId: "grand-call", name: "subagent", arguments: JSON.stringify({ description: "Nested task" }),
+    });
+    bridge.notify("session.child", { sessionId: "grandchild", parentSessionId: "child-b", cwd: "/repo" });
+    durable("child-b", "subagent/catalog", { childId: "grandchild", mode: "continuable", label: "Nested task" });
+    durable("grandchild", "turn/start", { turn: 1 });
+    durable("grandchild", "assistant/message", {
+      turn: 1, step: 1, message: { id: "nested-report", content: [{ type: "text", text: "Nested report" }] },
+    });
+    durable("grandchild", "turn/end", { turn: 1 });
+    durable("child-b", "tool/result", {
+      message: { toolCallId: "grand-call", content: [{ type: "text", text: "started subagent grandchild" }] },
+    });
+    durable("child-b", "turn/end", { turn: 1 });
+    assert.equal(events.some((event) => "sessionId" in event && ["child-b", "grandchild"].includes(event.sessionId)), false);
+
+    durable("native-new", "tool/result", {
+      message: { toolCallId: "call-b", content: [{ type: "text", text: "started subagent child-b" }] },
+    });
+    const opened = events.filter(
+      (event): event is Extract<ProviderEvent, { type: "session.opened" }> =>
+        event.type === "session.opened" && ["child-b", "grandchild"].includes(event.sessionId),
+    );
+    assert.deepEqual(opened.map((event) => [event.sessionId, event.parentSessionId, event.toolCallId]), [
+      ["child-b", "paseo-root", "call-b"], ["grandchild", "child-b", "grand-call"],
+    ]);
+    const grandchildEvents = events.filter((event) => "sessionId" in event && event.sessionId === "grandchild");
+    assert.deepEqual(grandchildEvents.map((event) => event.type), ["session.opened", "session.turn", "timeline.item", "session.turn"]);
+    assert.deepEqual(grandchildEvents.filter((event) => event.type === "session.turn").map((event) => event.state), ["started", "completed"]);
+  } finally {
+    await connection.close();
+  }
+});
