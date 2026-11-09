@@ -49,11 +49,11 @@
 
 ## 实际结果
 
-三路调查、独立方案审查、四路 simplify、独立 code review 和风格审查已完成。候选合入最新 main 后的最终门禁通过：build、四个 typecheck target、271 项测试（另 2 项环境条件跳过）、notes/docs 门禁和 `git diff --check`。真实 DSH 设置验收、受控 16 秒 ready 和真实 Paseo 0.15.3 双端编译器均通过。四路建议中采纳默认常量解耦、毫秒单位注释、测试失败时回收已打开桥接；宿主实验又发现卸载时可能留下未就绪子进程，因此新增启动取消与关闭确认，最终 code review 已复查该修订。CI 尚待推送后运行。
+三路调查、独立方案审查、四路 simplify、独立 code review 和风格审查已完成。候选合入最新 main 后的最终门禁通过：build、四个 typecheck target、271 项测试（另 2 项环境条件跳过）、notes/docs 门禁和 `git diff --check`。最终提交 [3d95dfc](https://github.com/Jecvay/paseo-dsh-direct/commit/3d95dfc473b7caa0be763e9c0c3c873291f83dd5) 的 GitHub CI [check 已成功](https://github.com/Jecvay/paseo-dsh-direct/actions/runs/42597491365)。真实 DSH 设置验收、受控 16 秒 ready 和真实 Paseo 0.15.3 双端编译器均通过。四路建议中采纳默认常量解耦、毫秒单位注释、测试失败时回收已打开桥接；宿主实验又发现卸载时可能留下未就绪子进程，因此新增启动取消与关闭确认，最终 code review 已复查该修订。CI 尚待推送后运行。
 
 Linux、Node 24.22.1 下，真实 DSH 0.2.2-rc.1 使用临时 home 完成设置初始化、保存、冲突拒绝、恢复与关闭；独立测量 spawn 到插件 `bridge.ready` 为 1781ms，初始化完成且子进程退出。受控子进程延迟 16 秒，在 20 秒配置下约 16082ms 完成初始化，关闭后进程和临时目录均回收。这些结果不证明并发负载原因或各平台界面已通过。
 
-真实 Paseo 0.15.3 双端编译器通过。隔离宿主通用连接/RPC实验在约 30001ms 超时，32 秒后连接被关闭、普通 RPC 临时保存标记仍写入；该实验验证宿主行为，未冒充本仓真实子代理设置保存验收。安装包 runtime.js 的 SHA-256 为 `908804bb291f37c2b02f756dfbaba46dd2942daa7044f399ca131ab03a826574`。0.11/0.14 只有固定源码核对，未运行对应宿主。真实候选卸载回收与已连接会话超过 30 秒的结果已在 Paseo 0.15.3 隔离宿主验证：设置 600 秒等待时，`stopPluginById` 触发插件 disposer，18ms 后插件与启动子进程均退出，临时目录删除；已建立连接后的 32.1 秒 `session.open` 到达 `session.ready`。`index.server.ts` / `server/bridge-client.ts` 源码摘要为 SHA-256 `f7a43abdd15e824e136f674f5a9becac38eea06e4c3bb9e8cd97d6465550dac5` / `12d8535630ed129fdb4de9e73fc68ba1838f8d60263867ad0934dadf457c5bfe`，编译 bundle SHA-256 `fd9a07d7962ac8acf4204c51632cb4f6a05ba580835c8f6a45e9b2ada4492b30`。此结果只适用于 Node 24.22.1/Linux x64 隔离宿主，未运行 Paseo 0.11/0.14；候选最终 SHA 与 CI 尚待。
+真实 Paseo 0.15.3 双端编译器通过。隔离宿主通用连接/RPC实验在约 30001ms 超时，32 秒后连接被关闭、普通 RPC 临时保存标记仍写入；该实验验证宿主行为，未冒充本仓真实子代理设置保存验收。安装包 runtime.js 的 SHA-256 为 `908804bb291f37c2b02f756dfbaba46dd2942daa7044f399ca131ab03a826574`。0.11/0.14 只有固定源码核对，未运行对应宿主。真实候选卸载回收与已连接会话超过 30 秒的结果已在 Paseo 0.15.3 隔离宿主验证：设置 600 秒等待时，`stopPluginById` 触发插件 disposer，18ms 后插件与启动子进程均退出，临时目录删除；已建立连接后的 32.1 秒 `session.open` 到达 `session.ready`。`index.server.ts` / `server/bridge-client.ts` 源码摘要为 SHA-256 `f7a43abdd15e824e136f674f5a9becac38eea06e4c3bb9e8cd97d6465550dac5` / `12d8535630ed129fdb4de9e73fc68ba1838f8d60263867ad0934dadf457c5bfe`，编译 bundle SHA-256 `fd9a07d7962ac8acf4204c51632cb4f6a05ba580835c8f6a45e9b2ada4492b30`。此结果只适用于 Node 24.22.1/Linux x64 隔离宿主，未运行 Paseo 0.11/0.14；18ms 清理耗时不是所有平台的硬上界。候选最终 SHA 与 CI 尚待。
 
 并发慢启动、Windows/macOS 运行、原生移动端和真实设置页输入保存尚未实测；真实模型交互测试缺少凭证，固定 Paseo 0.14 全生命周期测试缺少对应运行时依赖。最终 HEAD 的 CI 待推送后核实。本候选未获合并/发布批准、未合并、未发布。
 
