@@ -25,7 +25,7 @@ description: 黑伤接到 paseo-dsh-direct 的 issue、新回复、PR CI/审查�
 
 ## 等待与交付
 
-候选完成后，按 [黑伤回执](../issue-handler/references/heishang.md) 生成绑定完整 HEAD、PR、版本、目标分支、实际测试证据的 ask。不调用 answer/resolve 自批、不从旧历史授权推断本次同意。可信 answers 到来后重新核实候选，实质变化须重新确认。
+候选完成后，按 [黑伤回执](../issue-handler/references/heishang.md) 生成绑定 repo、issue（如有）、PR、完整 HEAD、base、版本、dist-tag、精确动作和实际测试证据的 ask。正文最多 900 字，独立交代用户目标（仅引用 issue/本人消息）、触发原因、已完成与未验证状态、现在为何需本人、各选项与暂缓后果，以及获答后的受控下一步；详细证据放总结评论并在正文链接。不要把完整聊天作为上下文。只有决定所需事实缺失时才问，否则明示未知。不得用插件组合 hash 冒充 issue 编号或把 compat 事件挂到无关 issue。不调用 answer/resolve 自批、不从旧历史授权推断本次同意。可信 answers 到来后重新核实候选；repo/PR/HEAD/base/version/dist-tag/action 任一变化，旧答复失效，须重新确认。批准仅覆盖卡片列出的动作；合并后的发布按既有有界续办核实，不扩展批准范围。
 
 获批后由 [交付流程](../issue-handler/references/delivery.md) 合并并核实同一 Publish run。运行中可一次性 later 续办，key 绑定 issue/PR/run，设置实际计算的复查时刻；同一 run 最多复查 3 次或 30 分钟，超出后报告实际阻塞并结束等待人工处理，不无限循环。合并成功不等于发布成功：核实 Actions、精确 npm 版本、dist-tag、远端 tag 与 tarball 后才报告完成。不得自动更新用户正在用的 CLI、daemon 或插件。
 

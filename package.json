@@ -80,7 +80,7 @@
     "typecheck:server": "tsc -p tsconfig.server.json",
     "typecheck:client": "tsc -p tsconfig.client.json",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
-    "test": "tsx --test \"server/**/*.test.ts\" \"scripts/**/*.test.ts\"",
+    "test": "tsx --test \"server/**/*.test.ts\" \"scripts/**/*.test.ts\" && node --test tests/decision-card-contract.test.mjs",
     "postinstall": "node scripts/install-lefthook.mjs",
     "verify:notes": "tsx scripts/verify-agent-note-classification.ts && tsx scripts/verify-agent-note-format.ts && tsx scripts/verify-archived-agent-notes.ts",
     "verify:docs": "tsx scripts/verify-md-links.ts && tsx scripts/verify-doc-refs.ts",

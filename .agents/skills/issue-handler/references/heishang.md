@@ -46,7 +46,7 @@
 {
   "ask": [{
     "title": "确认 issue #123 的合并与发布",
-    "text": "改动与影响的一句话；验证结果和未验证项；重大架构影响（如有）。PR：https://github.com/Jecvay/paseo-dsh-direct/pull/456；HEAD：<完整SHA>；目标：main；版本：<拟发版本>；dist-tag：latest；动作：合并并发布。图解：<总结评论URL>。仅批准这里列出的候选。",
+    "text": "目标：<issue/本人原话中的目标>。问题与触发：<一句事实>。状态：<已完成与未验证>；现在需你批准这个候选。repo：Jecvay/paseo-dsh-direct；issue：#123；PR：https://github.com/Jecvay/paseo-dsh-direct/pull/456；HEAD：<完整SHA>；base：main；version：<拟发版本>；dist-tag：latest；action：合并并由既有 Publish 工作流发布。批准=执行上述动作；需要修改=更新候选并重新确认；暂不发布=保留候选不动。获批后我只合并此 PR 并核实同一发布结果。详情与验证：<总结评论URL>。",
     "options": ["批准这次合并与发布", "需要修改", "暂不发布"],
     "recommend": 1,
     "about": "repo=Jecvay/paseo-dsh-direct; issue=123; pr=456; head=<完整SHA>; base=main; version=<拟发版本>; distTag=latest; action=merge-and-release; summary=<总结评论URL>; 已完成方案、编码、simplify、独立review与验收；续办先核对上述事实，获批后只合并和核实实际发布。",
