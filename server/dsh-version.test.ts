@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -62,7 +62,28 @@ describe("detectDshVersion", () => {
   it("returns an empty string and kills the process on timeout", async () => {
     const f = await fixture();
     try {
-      const exe = await f.script("dsh-hangs", `sleep 5`);
+      const exe = await f.script("dsh-hangs", `exec sleep 5`);
+      assert.equal(await detectDshVersion(exe, { timeoutMs: 50 }), "");
+    } finally {
+      await rm(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it("aborts an uncached version probe and does not poison the shared cache", async () => {
+    const f = await fixture();
+    const controller = new AbortController();
+    try {
+      const pidFile = path.join(f.root, "child.pid");
+      const exe = await f.script("dsh-abort", `echo $$ > "${pidFile}"\nexec sleep 30`);
+      const probing = detectDshVersion(exe, { signal: controller.signal });
+      while (true) {
+        try { await stat(pidFile); break; }
+        catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+      }
+      const pid = Number((await readFile(pidFile, "utf8")).trim());
+      controller.abort();
+      await assert.rejects(probing, { name: "AbortError" });
+      assert.throws(() => process.kill(pid, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH");
       assert.equal(await detectDshVersion(exe, { timeoutMs: 50 }), "");
     } finally {
       await rm(f.root, { recursive: true, force: true });

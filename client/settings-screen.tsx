@@ -8,7 +8,7 @@ import SubagentSettings from "./subagent-settings.js";
 
 const EXECUTABLE_HINT = "DSH command or path; environment takes priority";
 const PROFILE_HINT = "Default: paseo, unless set by environment";
-const STARTUP_TIMEOUT_HINT = `Seconds to wait for dsh to start, ${DEFAULT_STARTUP_TIMEOUT_SECONDS} by default, up to ${MAX_STARTUP_TIMEOUT_SECONDS}`;
+const STARTUP_TIMEOUT_HINT = `Wait for the bridge ready signal after dsh starts; ${DEFAULT_STARTUP_TIMEOUT_SECONDS}s by default, up to ${MAX_STARTUP_TIMEOUT_SECONDS}s`;
 
 /** Edits the dsh executable, profile and startup timeout that the server reads when it launches a bridge. */
 export default function DshSettingsScreen({ theme }: PluginSurfaceProps) {
@@ -102,7 +102,7 @@ export default function DshSettingsScreen({ theme }: PluginSurfaceProps) {
         />
         <SettingsAction
           label="Save settings"
-          hint="Applies to new sessions"
+          hint="Applies to newly started bridges"
           error={settings.saveError}
           actionLabel={settings.saving ? "Saving" : "Save"}
           onPress={save}

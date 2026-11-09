@@ -1,7 +1,5 @@
-import {
-  type DshSettingsValues,
-  MAX_STARTUP_TIMEOUT_SECONDS,
-} from "../shared/settings.js";
+import type { DshSettingsValues } from "../shared/settings.js";
+import { MAX_STARTUP_TIMEOUT_SECONDS } from "../shared/startup-timeout.js";
 
 /** The dsh launch choices that outrank Paseo's own `launch` and the built-in defaults. */
 export interface DshConfigured {
@@ -10,8 +8,8 @@ export interface DshConfigured {
   /** A non-blank profile name, or undefined to use the default profile. */
   profile?: string;
   /**
-   * How long a bridge may take to become ready. Undefined means the launcher
-   * default; otherwise whole seconds from the settings screen.
+   * Milliseconds to wait for bridge.ready, parsed from whole seconds in the
+   * settings screen. Undefined means the launcher default.
    */
   startupTimeoutMs?: number;
 }
@@ -32,10 +30,10 @@ export interface StartupTimeout {
 export function parseStartupTimeoutSeconds(value: string | undefined): StartupTimeout {
   const text = nonBlank(value);
   if (text === undefined) return {};
-  if (!/^[0-9]+$/.test(text)) return { problem: `startup timeout ${JSON.stringify(text)} is not a whole number of seconds` };
+  if (!/^[0-9]+$/.test(text)) return { problem: "startup timeout must be a whole number of seconds" };
   const seconds = Number(text);
   if (seconds < 1 || seconds > MAX_STARTUP_TIMEOUT_SECONDS) {
-    return { problem: `startup timeout ${seconds}s is outside 1..${MAX_STARTUP_TIMEOUT_SECONDS} seconds` };
+    return { problem: `startup timeout must be within 1..${MAX_STARTUP_TIMEOUT_SECONDS} seconds` };
   }
   return { milliseconds: seconds * 1000 };
 }

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.18
+
+- Allow the bridge ready wait to be configured in host settings as 1–600 whole seconds, with the existing 15-second default. Apply changes to newly started bridges and preserve executable/profile settings when the timeout text is invalid (#91, contributed by @yuchi0531).
+- Keep the setting scoped to the ready signal after DSH is spawned. Profile preparation, initialization requests and Paseo's outer 30-second connection/settings request limits retain their own deadlines; longer waits do not solve startup deadlocks or concurrent resource contention.
+- Cancel pending startup processes when the plugin unloads, before the host's forced shutdown can leave them behind. Preserve the normal shutdown path for bridges already in use.
+
+## 0.2.17
+
+- Display DSH subagents in Paseo's native subsession track, panels, and parent timeline cards. Correlate live and restored child sessions, exclude inherited fork events, and retain root-only usage reporting. Hosts without `session.subsession` keep the parent launch card.
+- Validate persisted child-session identity and parent ownership before restoring its history. Wait for exact parent call identity when parallel children finish early, and open nested children after their parent. Release matched child-call records after correlation.
+- Verified with build, all four typecheck targets, 259 passing tests (two environment-gated skips), notes and documentation gates, and `git diff --check`. The isolated real Paseo/DSH E2E remained skipped because its pinned Paseo 0.14 runtime dependencies were unavailable.
+
+## 0.2.16
+
+- Send streamed text and reasoning as individual deltas instead of repeatedly transferring the accumulated reply. Preserve repeated whitespace and indentation, and append only the unstreamed suffix when a reply settles (#83, contributed by @frederick-wang).
+- Display images returned by tools in live conversations and restored history. Read images through DSH's attachment service, store verified bytes in a persistent cache, and show a warning for individual image failures without failing the turn (#85, contributed by @frederick-wang).
+- Share concurrent reads and writes of the same image while retaining each block's name and position. Recheck completed cache entries for corruption, use native file URLs for Windows network paths, and keep attachment and filesystem error details out of image notifications.
+- Simplify deferred notification handling while preserving event order. Verify actual bridge JSON output and delayed-image ordering, and test streaming contracts without copying Paseo's internal mapper.
+- Keep Paseo 0.11 and later supported. Build, all four typecheck targets, 314 passing tests, and notes and documentation gates verify the release; two environment-gated tests are skipped. This release preparation does not repeat live-model, browser or native-device tests.
+
 ## 0.2.15
 
 - Keep the settings page compact with an Edit models button. Model selection opens in a host dialog on wide layouts and a bottom sheet on narrow layouts, with internal scrolling. Closing the editor preserves unsaved choices and search text; clients without the modal components keep a collapsed inline editor.

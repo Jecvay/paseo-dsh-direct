@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+<title id="title">在 Paseo 查看 DSH 子代理：候选实现与验收状态</title>
+<desc id="desc">父会话原本只显示通用工具卡。候选按原生父子会话关系拆分子代理时间线，校验恢复归属并等待明确并发关联。本地检查和真实 DSH 桥接验证通过，宿主与设备验收状态见 PR，总结对应候选尚未发布。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#38556d"/></marker></defs>
+<rect width="1600" height="1000" fill="#f6f8fa"/>
+<g font-family="Noto Sans CJK SC, Microsoft YaHei, sans-serif" fill="#183247">
+<text x="80" y="85" font-size="44" font-weight="700">在 Paseo 查看 DSH 子代理</text>
+<text x="80" y="135" font-size="27">PR #93 · 0.2.17 候选 · 尚未合并、尚未发布</text>
+<text x="80" y="210" font-size="30" font-weight="700">用户遇到的问题</text>
+<g fill="#fff" stroke="#8a9ba8" stroke-width="3"><rect x="80" y="240" width="360" height="125" rx="14"/><rect x="620" y="240" width="360" height="125" rx="14"/><rect x="1160" y="240" width="360" height="125" rx="14"/></g>
+<g font-size="28" text-anchor="middle"><text x="260" y="290">DSH 启动子代理</text><text x="260" y="332">子代理持续执行</text><text x="800" y="290">只转发父会话</text><text x="800" y="332">工具显示为通用卡片</text><text x="1340" y="290">看不到子代理详情</text><text x="1340" y="332">进度与报告难以查看</text></g>
+<g fill="none" stroke="#38556d" stroke-width="4" marker-end="url(#arrow)"><path d="M450 302H602"/><path d="M990 302H1142"/></g>
+<text x="80" y="440" font-size="30" font-weight="700">候选如何处理</text>
+<g fill="#e7f3ed" stroke="#33765a" stroke-width="3"><rect x="80" y="470" width="360" height="165" rx="14"/><rect x="620" y="470" width="360" height="165" rx="14"/><rect x="1160" y="470" width="360" height="165" rx="14"/></g>
+<g font-size="28" text-anchor="middle"><text x="260" y="515">识别原生父子关系</text><text x="260" y="560">过滤 fork 继承历史</text><text x="260" y="605">恢复前核对会话头</text><text x="800" y="515">独立投影子会话</text><text x="800" y="560">同名并发等明确 ID</text><text x="800" y="605">不因提前结束强行配对</text><text x="1340" y="515">原生子代理轨道</text><text x="1340" y="560">详情面板与启动卡</text><text x="1340" y="605">旧宿主保留父卡片</text></g>
+<g fill="none" stroke="#38556d" stroke-width="4" marker-end="url(#arrow)"><path d="M450 552H602"/><path d="M990 552H1142"/></g>
+<rect x="80" y="700" width="700" height="220" rx="14" fill="#fff" stroke="#33765a" stroke-width="3"/>
+<rect x="820" y="700" width="700" height="220" rx="14" fill="#fff6df" stroke="#9b7621" stroke-width="3"/>
+<text x="115" y="748" font-size="30" font-weight="700">本地检查</text><text x="115" y="795" font-size="27">构建、四个类型检查通过</text><text x="115" y="840" font-size="27">261 项测试：259 通过、2 项跳过</text><text x="115" y="885" font-size="27">笔记、文档门禁与差异检查通过</text>
+<text x="855" y="748" font-size="30" font-weight="700">仍待完成</text><text x="855" y="795" font-size="27">最终候选 CI 与宿主路由验证</text><text x="855" y="840" font-size="27">原生移动端及压力场景尚未验收</text><text x="855" y="885" font-size="27">合并与发布须本人明确批准</text>
+</g></svg>

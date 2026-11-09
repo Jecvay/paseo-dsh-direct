@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">PR 91：在设置中调整桥接就绪等待</title>
+  <desc id="desc">候选未发布。在 Paseo 的 DeepSeek Harness 设置页填写 Startup timeout，可设 1 到 600 整数秒，留空仍为默认 15 秒；只控制启动桥接进程到收到 bridge.ready 的等待。前置 profile 创建 60 秒、配置检查 20 秒和后续初始化 30 秒独立计时。设置作用于所有新桥接；Paseo 0.11、0.14、0.15.3 的建立连接与子代理设置读写仍有 30 秒外层时限，超时不保证取消，保存可能稍后提交。构建、4 项类型检查、269 项测试和 notes/docs 检查已通过，另 2 项测试跳过；DSH 0.2.2-rc.1 的真实就绪计时与设置流程已通过；16 秒受控延迟在 20 秒等待配置下成功，初始化、子进程退出和临时目录清理均通过。精确计时见 proposal.md。宿主 30 秒边界、超时后保存及最终 CI 仍待确认；并发负载导致慢启动的说法尚未独立复现。发布须另获批准。</desc>
+  <defs>
+    <style>
+      text { font-family: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif; fill: #172b38; }
+      .mono { font-family: "DejaVu Sans Mono", "Cascadia Code", monospace; }
+      .muted { fill: #526773; }
+      .white { fill: #fff; }
+      .eyebrow { font-size: 19px; font-weight: 700; letter-spacing: 2px; }
+      .heading { font-size: 28px; font-weight: 700; }
+      .body { font-size: 22px; }
+      .small { font-size: 19px; }
+      .tiny { font-size: 17px; }
+      .rule { stroke: #d5dfe3; stroke-width: 2; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L9 5 L0 10" fill="none" stroke="#8b9ba4" stroke-width="2"/></marker>
+  </defs>
+  <rect width="1600" height="1000" fill="#eef3f4"/>
+  <rect x="0" y="0" width="1600" height="184" fill="#132d3d"/>
+  <rect x="48" y="36" width="110" height="32" rx="6" fill="#39c6b0"/>
+  <text x="103" y="59" text-anchor="middle" class="eyebrow" fill="#132d3d">PR #91</text>
+  <text x="48" y="124" class="white" font-size="43" font-weight="700">在设置中调整桥接就绪等待</text>
+  <text x="49" y="159" class="white body">DSH 启动超过 15 秒时可延长等待；默认 15 秒不变。</text>
+  <rect x="1170" y="46" width="382" height="80" rx="12" fill="#594426" stroke="#e9b557" stroke-width="2"/>
+  <text x="1361" y="79" text-anchor="middle" class="white heading">候选 · 未发布</text>
+  <text x="1361" y="108" text-anchor="middle" class="white small">宿主探针与最终 CI 待确认</text>
+
+  <rect x="48" y="212" width="1504" height="286" rx="16" fill="#fff"/>
+  <text x="76" y="251" class="eyebrow muted">01 / 设置控制哪一段</text>
+  <rect x="1136" y="229" width="388" height="44" rx="22" fill="#e3f6f1"/>
+  <text x="1330" y="258" text-anchor="middle" class="body" font-weight="700">可设 1–600 秒 · 留空用 15 秒</text>
+
+  <rect x="76" y="300" width="250" height="108" rx="12" fill="#f0f3f5"/>
+  <text x="201" y="338" text-anchor="middle" class="body" font-weight="700">profile 创建</text>
+  <text x="201" y="375" text-anchor="middle" class="mono heading muted">60 s</text>
+  <line x1="338" y1="354" x2="366" y2="354" stroke="#8b9ba4" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="382" y="300" width="250" height="108" rx="12" fill="#f0f3f5"/>
+  <text x="507" y="338" text-anchor="middle" class="body" font-weight="700">启动配置检查</text>
+  <text x="507" y="375" text-anchor="middle" class="mono heading muted">20 s</text>
+  <line x1="644" y1="354" x2="672" y2="354" stroke="#8b9ba4" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="688" y="290" width="494" height="128" rx="12" fill="#147c70"/>
+  <text x="935" y="327" text-anchor="middle" class="white small">本设置只控制这一段</text>
+  <text x="935" y="365" text-anchor="middle" class="white heading">启动进程 → 桥接就绪</text>
+  <text x="935" y="399" text-anchor="middle" class="white small">spawn → bridge.ready；只调整等待时间</text>
+  <line x1="1194" y1="354" x2="1222" y2="354" stroke="#8b9ba4" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="1238" y="300" width="286" height="108" rx="12" fill="#f0f3f5"/>
+  <text x="1381" y="338" text-anchor="middle" class="mono body" font-weight="700">bridge.initialize</text>
+  <text x="1381" y="375" text-anchor="middle" class="mono heading muted">30 s</text>
+  <text x="76" y="459" class="body muted">前后阶段独立计时。桥接就绪后仍须初始化；600 秒是设置上限，不代表整个操作可等这么久。</text>
+
+  <rect x="48" y="522" width="724" height="264" rx="16" fill="#fff"/>
+  <text x="76" y="563" class="eyebrow muted">02 / 哪些启动会用到</text>
+  <text x="76" y="607" class="heading">所有新桥接都读取设置</text>
+  <text x="76" y="648" class="body">会话创建 / 恢复 · 模型目录 / 历史查询</text>
+  <text x="76" y="682" class="body">子代理设置读取 / 保存</text>
+  <line x1="76" y1="704" x2="744" y2="704" class="rule"/>
+  <text x="76" y="739" class="small muted">保存后，从下一次桥接启动生效。</text>
+  <text x="76" y="768" class="small muted">运行中桥接不变；等待加长也可能延长连接关闭。</text>
+
+  <rect x="796" y="522" width="756" height="264" rx="16" fill="#fff8eb" stroke="#dfbe7a" stroke-width="2"/>
+  <text x="824" y="563" class="eyebrow" fill="#855315">03 / 宿主仍有外层限制</text>
+  <text x="824" y="607" class="heading">建立连接 / 设置读写：仍限 30 秒</text>
+  <text x="824" y="644" class="small">Provider connect / RPC：已核对 Paseo 0.11、0.14、0.15.3 源码。</text>
+  <text x="824" y="678" class="small">已连接后打开会话（session.open）无同类外层计时器。</text>
+  <line x1="824" y1="702" x2="1524" y2="702" stroke="#e5cfaa" stroke-width="2"/>
+  <text x="824" y="736" class="small">模型目录查询、子代理设置操作不保证可等 600 秒。</text>
+  <text x="824" y="767" class="small" font-weight="700">超时后保存仍可能完成；重试前核对当前状态。</text>
+
+  <rect x="48" y="810" width="1504" height="142" rx="16" fill="#dfe8ed"/>
+  <text x="76" y="849" class="eyebrow">04 / 证据与候选状态</text>
+  <text x="76" y="879" class="small" font-weight="700">已通过：构建、4 项类型检查、269 项测试（另 2 项跳过）及 notes/docs 检查。</text>
+  <text x="76" y="907" class="small">DSH 0.2.2-rc.1 真实就绪与设置流程通过；16 秒延迟 / 20 秒等待及清理通过。精确计时见方案。</text>
+  <text x="76" y="935" class="small">待确认：宿主 30 秒边界及超时后保存已测；最终 CI 待确认。并发负载说法未复现。</text>
+  <text x="48" y="981" class="tiny muted">卸载时取消未完成启动并回收进程；不增加队列或自动重试。发布须另获批准。固定源码与验收见同目录 proposal.md。</text>
+</svg>

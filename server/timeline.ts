@@ -16,9 +16,8 @@ import { arrayValue, numberValue, objectValue, stringValue } from "./values.js";
 
 export type SessionEvent = Extract<ProviderEvent, { sessionId: string }>;
 
-/** Converts DSH durable events and transient stream frames into Paseo cumulative snapshots. */
+/** Converts DSH durable events and transient stream frames into Paseo timeline items. */
 export class TimelineProjector {
-  private readonly text = new Map<string, string>();
   private readonly compactions = new Map<string, { trigger: "auto" | "manual"; preTokens?: number }>();
   private readonly tools = new Map<string, Extract<ProviderTimelineItem, { type: "tool_call" }>>();
   private readonly settledAttempts = new Map<string, number>();
@@ -31,6 +30,14 @@ export class TimelineProjector {
     string,
     { attemptId: string; ordinal: number }
   >();
+  /**
+   * Text already delivered through `projectStream`, grouped by attempt so an
+   * attempt that never settles drops exactly its own entries. Within an attempt
+   * the key is the block id: a durable message repeats what was streamed, and
+   * only the tail the stream did not reach may be sent, or Paseo concatenates
+   * both copies.
+   */
+  private readonly streamedText = new Map<string, Map<string, string>>();
 
   private planActive = false;
   private lastPreset: string | undefined;
@@ -41,10 +48,12 @@ export class TimelineProjector {
   /**
    * @param paseoSessionId Paseo session id stamped on every projected event.
    * @param pluginCards Whether the host negotiated `timeline.plugin`; when false no cards are emitted.
+   * @param parentSessionId Native parent session id when projecting a subagent child session.
    */
   constructor(
     private readonly paseoSessionId: string,
     private readonly pluginCards = false,
+    private readonly parentSessionId?: string,
   ) {}
 
   /**
@@ -103,6 +112,13 @@ export class TimelineProjector {
       this.liveAttemptByStep.set(key, { attemptId: frame.attemptId, ordinal });
       return [];
     }
+    if (frame.type === "end") {
+      // DSH sends `end` after the settled event for every attempt, including an
+      // abandoned one, so this is the single point that releases the attempt's
+      // streamed text when the settled event never consumed it.
+      this.streamedText.delete(frame.attemptId);
+      return [];
+    }
     if (frame.type !== "chunk") return [];
     const chunk = frame.chunk;
     const kind = stringValue(chunk.type);
@@ -110,12 +126,30 @@ export class TimelineProjector {
     if (kind === "text-delta" || kind === "reasoning-delta") {
       const type = kind === "text-delta" ? "assistant_message" : "reasoning";
       const attempt = this.liveAttempts.get(frame.attemptId);
-      const id = attempt
+      const blockId = attempt
         ? assistantItemId(type, attempt.turn, attempt.step, attempt.ordinal, index)
         : transientItemId(type, frame.attemptId, index);
-      const cumulative = (this.text.get(id) ?? "") + (stringValue(chunk.text) ?? "");
-      this.text.set(id, cumulative);
-      return [timeline(this.paseoSessionId, { type, id, text: cumulative }, toTimestamp(frame.time))];
+      const delta = stringValue(chunk.text) ?? "";
+      if (delta.length === 0) return [];
+      const attemptText = this.streamedText.get(frame.attemptId) ?? new Map<string, string>();
+      attemptText.set(blockId, (attemptText.get(blockId) ?? "") + delta);
+      this.streamedText.set(frame.attemptId, attemptText);
+      // Paseo treats same-id assistant text as a cumulative snapshot and slices
+      // off the previous text prefix. To avoid sending O(n^2) text across
+      // chunks, we send only each delta under its
+      // own id (reusing one id for non-cumulative deltas would drop repeated
+      // indentation or deltas starting with the previous delta) and share
+      // `messageId: blockId` on assistant messages so Paseo merges adjacent
+      // chunks into one message.
+      return [
+        timeline(
+          this.paseoSessionId,
+          type === "assistant_message"
+            ? { type, id: `${blockId}#${frame.revision}:${frame.index}`, messageId: blockId, text: delta }
+            : { type, id: `${blockId}#${frame.revision}:${frame.index}`, text: delta },
+          toTimestamp(frame.time),
+        ),
+      ];
     }
     if (kind === "tool-call-delta") {
       const callId = stringValue(chunk.id) ?? `tool:${frame.attemptId}:${index}`;
@@ -142,6 +176,18 @@ export class TimelineProjector {
 
   failRunningTools(message: string): SessionEvent[] {
     return this.settleRunningTools(message);
+  }
+
+  attachSubagentChild(callId: string, childSessionId: string): SessionEvent | undefined {
+    const existing = this.tools.get(callId);
+    if (!existing || existing.detail.type !== "sub_agent") return undefined;
+    if (existing.detail.childSessionId === childSessionId) return undefined;
+    const updated: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
+      ...existing,
+      detail: { ...existing.detail, childSessionId },
+    };
+    this.tools.set(callId, updated);
+    return timeline(this.paseoSessionId, updated);
   }
 
   private projectCommandRun(
@@ -320,9 +366,18 @@ export class TimelineProjector {
   private projectUserMessage(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
     const data = event.data;
     const source = objectValue(data.source);
-    if (source?.kind !== "user") return [];
+    const isUser = source?.kind === "user";
+    const isParentRelay =
+      this.parentSessionId !== undefined &&
+      source?.kind === "agent-message" &&
+      stringValue(source.senderSessionId) === this.parentSessionId;
+    if (!isUser && !isParentRelay) return [];
     const id = stringValue(data.id) ?? `event:${event.seq}`;
-    const text = userContentText(data.content);
+    const rawContent =
+      this.parentSessionId !== undefined
+        ? stripSubagentBoilerplate(data.content, isParentRelay)
+        : data.content;
+    const text = userContentText(rawContent);
     if (!text) return [];
     return [timeline(this.paseoSessionId, { type: "user_message", id, messageId: id, text }, timestamp)];
   }
@@ -333,7 +388,8 @@ export class TimelineProjector {
     const messageId = stringValue(message.id) ?? `event:${event.seq}`;
     const turn = numberValue(data.turn) ?? 0;
     const step = numberValue(data.step) ?? 0;
-    const ordinal = this.settlementOrdinal(event.seq, turn, step);
+    const settlement = this.settlementOrdinal(event.seq, turn, step);
+    const ordinal = settlement.ordinal;
     const content = arrayValue(message.content);
     const projected: SessionEvent[] = [];
     content.forEach((raw, index) => {
@@ -344,13 +400,16 @@ export class TimelineProjector {
         const itemType = type === "text" ? "assistant_message" : "reasoning";
         const id = assistantItemId(itemType, turn, step, ordinal, index);
         const text = stringValue(block.text) ?? "";
-        this.text.set(id, text);
+        const rest = this.remainingText(settlement.attemptId, id, text);
+        if (rest.length === 0) return;
         projected.push(
           timeline(
             this.paseoSessionId,
             itemType === "assistant_message"
-              ? { type: itemType, id, messageId, text }
-              : { type: itemType, id, text },
+              ? // The tail must carry the same messageId as the streamed deltas
+                // of this block, or Paseo keeps it as a separate message.
+                { type: itemType, id, messageId: id, text: rest }
+              : { type: itemType, id, text: rest },
             timestamp,
           ),
         );
@@ -377,9 +436,30 @@ export class TimelineProjector {
     return projected;
   }
 
-  private settlementOrdinal(seq: number, turn: number, step: number): number {
+  /**
+   * Content of a settled block that the stream has not delivered yet. The stream
+   * and the durable record describe the same text, so the settled message only
+   * contributes the tail the stream did not reach.
+   */
+  private remainingText(attemptId: string | undefined, id: string, settled: string): string {
+    if (attemptId === undefined) return settled;
+    const attemptText = this.streamedText.get(attemptId);
+    if (attemptText === undefined) return settled;
+    const streamed = attemptText.get(id);
+    if (streamed === undefined) return settled;
+    attemptText.delete(id);
+    if (attemptText.size === 0) this.streamedText.delete(attemptId);
+    return settled.startsWith(streamed) ? settled.slice(streamed.length) : settled;
+  }
+
+  /** Ordinal for a settled message plus the live attempt that produced it. */
+  private settlementOrdinal(
+    seq: number,
+    turn: number,
+    step: number,
+  ): { ordinal: number; attemptId?: string } {
     const known = this.settlementOrdinals.get(seq);
-    if (known !== undefined) return known;
+    if (known !== undefined) return { ordinal: known };
 
     const key = stepKey(turn, step);
     const live = this.liveAttemptByStep.get(key);
@@ -390,7 +470,7 @@ export class TimelineProjector {
       this.liveAttemptByStep.delete(key);
       this.liveAttempts.delete(live.attemptId);
     }
-    return ordinal;
+    return live ? { ordinal, attemptId: live.attemptId } : { ordinal };
   }
 
   private projectToolCall(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
@@ -525,6 +605,23 @@ function toolDetail(name: string, args: JsonObject): ProviderToolCallDetail {
   if (normalized === "web_fetch") {
     return { type: "fetch", url: stringValue(args.url) ?? "" };
   }
+  if (normalized === "subagent" || normalized === "subagent_fork") {
+    const subAgentType =
+      stringValue(args.agent_preset) ??
+      (normalized === "subagent_fork" ? "Fork" : "Subagent");
+    const description =
+      stringValue(args.description) ?? stringValue(args.prompt);
+    const childSessionId =
+      stringValue(args.subagentId) ?? stringValue(args.childSessionId);
+    const log = stringValue(args.prompt) ?? "";
+    return {
+      type: "sub_agent",
+      subAgentType,
+      ...(description ? { description } : {}),
+      ...(childSessionId ? { childSessionId } : {}),
+      log,
+    };
+  }
 
   // Everything else, including MCP tools, keeps a generic detail carrying the
   // raw arguments. Guessing a card type from the name would render MCP tools as
@@ -542,6 +639,14 @@ function withOutput(detail: ProviderToolCallDetail, output: string): ProviderToo
       return { ...detail, content: output };
     case "fetch":
       return { ...detail, result: output };
+    case "sub_agent": {
+      const childSessionId = extractSubagentId(output) ?? detail.childSessionId;
+      return {
+        ...detail,
+        ...(childSessionId ? { childSessionId } : {}),
+        log: output || detail.log,
+      };
+    }
     case "plain_text":
       return { ...detail, text: output };
     case "unknown":
@@ -549,6 +654,51 @@ function withOutput(detail: ProviderToolCallDetail, output: string): ProviderToo
     default:
       return detail;
   }
+}
+
+export function extractSubagentId(output: string): string | undefined {
+  const match = /^started subagent\s+([^\s"]+)/i.exec(output.trim());
+  if (match?.[1]) return match[1];
+  const parsed = objectValue(parseArguments(output));
+  return (
+    stringValue(parsed?.subagentId) ??
+    stringValue(parsed?.childSessionId) ??
+    stringValue(parsed?.agent_id)
+  );
+}
+
+const RETURN_GUIDANCE_PATTERN =
+  /^Your parent agent id is ".+"\. Before you finish, send your result to that agent with send_message\(/s;
+const AGENT_RELAY_PREFIX_PATTERN = /^Agent\s+\S+\s+sent a message:\s*/;
+
+function stripSubagentBoilerplate(value: unknown, isParentRelay: boolean): unknown {
+  if (typeof value === "string") {
+    return isParentRelay
+      ? value.replace(AGENT_RELAY_PREFIX_PATTERN, "")
+      : value.replace(
+          /\n+Your parent agent id is "[^"]+"\. Before you finish, send your result to that agent with send_message\([\s\S]*$/,
+          "",
+        );
+  }
+  if (!Array.isArray(value) || value.length === 0) return value;
+  let blocks = [...value];
+  if (isParentRelay) {
+    const first = objectValue(blocks[0]);
+    const firstText = first?.type === "text" ? stringValue(first.text) : undefined;
+    if (firstText !== undefined && AGENT_RELAY_PREFIX_PATTERN.test(firstText)) {
+      const rest = firstText.replace(AGENT_RELAY_PREFIX_PATTERN, "");
+      if (rest) blocks[0] = { ...first, text: rest };
+      else if (blocks.length > 1) blocks = blocks.slice(1);
+    }
+  }
+  if (blocks.length > 1) {
+    const last = objectValue(blocks.at(-1));
+    const lastText = last?.type === "text" ? stringValue(last.text)?.trim() : undefined;
+    if (lastText && RETURN_GUIDANCE_PATTERN.test(lastText)) {
+      blocks = blocks.slice(0, -1);
+    }
+  }
+  return blocks;
 }
 
 function parseArguments(value: unknown): JsonObject {

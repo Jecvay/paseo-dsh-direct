@@ -1,6 +1,7 @@
 # 决策记录: 用 GitHub 上的指令驱动 dsh agent 开发
 
 Status: implemented
+Archived: 2026-11-07
 
 ## 问题
 

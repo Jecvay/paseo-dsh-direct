@@ -45,7 +45,15 @@ paseo plugin update paseo-dsh-direct --yes     # 更新到最新
 
 Provider 支持连续正文和思考输出、工具执行与审批、用户问答、模型和 preset 配置、中断及会话恢复。它用插件专用的 `paseo` profile 启动 DSH，不修改 Paseo 或 DSH 核心。
 
-插件使用名为 `paseo` 的 DSH profile。首次启动时，插件用 DSH 官方的 `web` 模板自动创建它（位置是 `~/.dsh/profiles/paseo`；设置了 `$DSH_HOME` 时在其下）。模型路由、默认模型和权限预设写在 `~/.dsh/profiles/paseo/cordis.patch.yml`。可在 Paseo 设置里的 **DeepSeek Harness** 页（`dsh executable`、`dsh profile`、`startup timeout` 三项）指定可执行文件、profile 与桥接启动的等待秒数。可执行文件的选择顺序：`PASEO_DSH_EXECUTABLE`、设置页、Paseo 配置的 `agents.providers.dsh-pi.command`、`PATH` 里的 `dsh`。profile 的选择顺序：`PASEO_DSH_PROFILE`、设置页、默认的 `paseo`；显式指定的 profile 不会被自动创建。启动超时从 spawn dsh 起算到桥接握手 ready，默认 15 秒，没有环境变量覆盖，改动只对新会话生效。改动对新会话生效，已在运行的会话继续使用原来的 `dsh`。如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
+插件使用名为 `paseo` 的 DSH profile。首次启动时，插件用 DSH 官方的 `web` 模板自动创建它（位置是 `~/.dsh/profiles/paseo`；设置了 `$DSH_HOME` 时在其下）。模型路由、默认模型和权限预设写在 `~/.dsh/profiles/paseo/cordis.patch.yml`。可在 Paseo 设置里的 **DeepSeek Harness** 页通过 `Executable`、`Profile` 指定可执行文件和 profile。可执行文件的选择顺序：`PASEO_DSH_EXECUTABLE`、设置页、Paseo 配置的 `agents.providers.dsh-pi.command`、`PATH` 里的 `dsh`。profile 的选择顺序：`PASEO_DSH_PROFILE`、设置页、默认的 `paseo`；显式指定的 profile 不会被自动创建。
+
+在同一设置页的 `Startup timeout` 中填写桥接就绪等待时间，接受 1–600 整数秒，留空仍用默认 15 秒。它只控制启动桥接进程到收到就绪信号（`bridge.ready`）的等待，没有环境变量覆盖。设置对所有新启动的桥接生效，包括会话创建/恢复、模型目录/历史会话查询和子代理设置读写；已运行的桥接不受影响。
+
+创建默认 profile（60 秒）、检查启动配置（20 秒）和后续初始化请求（`bridge.initialize`，30 秒）各有独立时限。等待加长也可能延长连接关闭等待。
+
+Paseo 0.11、0.14 和 0.15.3 对建立 Provider 连接和普通插件请求（RPC）设有 30 秒外层时限。因此，设置更长的桥接等待不保证模型目录查询或子代理设置操作能等那么久。请求超时后底层任务仍可能继续，设置保存也可能稍后完成；重试前先核对当前状态。这些版本中，建立连接后打开会话的事件路径（`session.open`）没有同类外层计时器。600 秒是允许填写的上限，不代表整个操作可等待 600 秒。详见[等待范围与源码依据](docs/server-architecture.md#桥接就绪等待与宿主时限)。
+
+如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
 
 同一设置页的 **Subagent models** 区域可以按名称或提供方搜索模型、逐项勾选、全选、清空或关闭选模。首次初始化会选中当前可用的全部模型并保存到 DSH profile；已有选择（包括显式关闭）会保留，后续新增模型需要手动勾选。改动对支持选模的 preset 的新会话生效，详见[设置页说明](docs/client-architecture.md#设置页)。
 

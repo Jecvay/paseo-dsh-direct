@@ -9,10 +9,7 @@ export interface DshSettingsValues {
   startupTimeoutSeconds?: string;
 }
 
-/** Seconds a bridge may take to become ready when the settings screen is blank. */
-export const DEFAULT_STARTUP_TIMEOUT_SECONDS = 15;
-/** Upper bound of the settings-screen value; a longer wait is a hung dsh, not a slow one. */
-export const MAX_STARTUP_TIMEOUT_SECONDS = 600;
+export { DEFAULT_STARTUP_TIMEOUT_SECONDS, MAX_STARTUP_TIMEOUT_SECONDS } from "./startup-timeout.js";
 
 /**
  * Host-scoped plugin settings for the dsh launch. Every field is optional; an

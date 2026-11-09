@@ -45,7 +45,30 @@ profile 的顺序是非空的 `PASEO_DSH_PROFILE`、设置页里非空的 `profi
 
 `getCatalogCacheKey` 的键由范围（全局或工作区 `cwd`）、生效的启动命令加参数、生效的 profile 组成，因此改动 profile 或可执行文件后，新的目录发现不会复用旧结果。
 
-桥接启动的等待时间是 `server/dsh-config.ts` 的 `parseStartupTimeoutSeconds` 解析的设置页字段 `startupTimeoutSeconds`（整数秒，1..600，留空取 `launchDshBridge` 的 15 秒默认）；没有对应环境变量，因为它只影响起桥等待，不改变安装身份。除纯空白外，非法的值不让整页设置失效：其余字段照常生效，并向 stderr 写一行说明。等待从 `spawnDsh` 之后到 `bridge.ready` 握手，`startupTimeoutMs` 直接传给 `waitUntilReady`；窗口内的慢启动（例如多个 dsh-pi 会话同时起桥）不再被判失败，超过窗口的等待以 `DSH bridge did not become ready within <n>ms` 结束并终止子进程。
+### 桥接就绪等待与宿主时限
+
+`server/dsh-config.ts` 的 `parseStartupTimeoutSeconds` 解析设置页字段 `startupTimeoutSeconds`，接受 1–600 整数秒，留空或纯空白使用共享常量 `DEFAULT_STARTUP_TIMEOUT_SECONDS` 的 15 秒默认；没有对应环境变量。非法文本只忽略这一项，其余字段照常生效，stderr 只记录固定错误原因，不回显输入。600 秒是策略上限。
+
+`index.server.ts` 的 Provider `createBridge` 和子代理设置 `open` 两处起桥入口都重新读取设置并传给 `launchDshBridge`。因此设置作用于所有新桥接：会话创建/恢复、目录/历史发现、子代理设置读写。已运行的桥接不变；启动超时不参与目录缓存键。
+
+| 阶段 | 时限 | 与设置的关系 |
+|---|---|---|
+| 缺失的默认 profile 创建 | 60 秒 | 位于起桥前，独立计时 |
+| `--dump-config` 行检查 | 20 秒 | 位于起桥前，独立计时 |
+| 桥接进程 spawn → 收到 `bridge.ready` | 默认 15 秒，显式 1–600 秒 | `startupTimeoutMs` 传给 `waitUntilReady` |
+| `bridge.initialize` 请求 | 30 秒 | 位于 ready 后，独立计时 |
+
+超过就绪窗口时报 `DSH bridge did not become ready within <n>ms`，并走桥接清理路径。收到 ready 仅结束就绪等待，后续初始化和会话打开仍须完成。连接关闭会等待已接收的启动完成并清理取得的桥接，因此较长就绪等待也可能延长连接关闭。插件卸载会先取消尚未完成的启动，终止自己创建的启动进程并等待临时目录清理；已完成启动的桥接仍由 Provider 的既有关闭路径释放。
+
+Paseo 的以下固定版本在 `packages/server/src/server/plugins/runtime.ts` 中为 `provider.connect` 与普通插件 RPC 设置 30 秒外层时限：
+
+| Paseo 版本 | 固定源码 |
+|---|---|
+| 0.11（最低支持版本） | [runtime.ts @ 22488d4](https://github.com/getpaseo/paseo/blob/22488d4502cd0c8a4ee4619af991762f071b60a7/packages/server/src/server/plugins/runtime.ts) |
+| 0.14（开发 SDK 版本） | [runtime.ts @ 8c6de84](https://github.com/getpaseo/paseo/blob/8c6de842a3157530c26a7a94c78a3d647fb96ce9/packages/server/src/server/plugins/runtime.ts) |
+| 0.15.3 | [runtime.ts @ d91ae13](https://github.com/getpaseo/paseo/blob/d91ae138cb931447635e94296023414a58bedcc5/packages/server/src/server/plugins/runtime.ts) |
+
+这些版本中，已连接的 `session.open` 事件路径没有同类外层计时器。目录发现经 Provider connect，子代理设置读写经普通插件 RPC；它们可能先触及宿主的 30 秒时限，不能用 600 秒设置承诺端到端等待。RPC 超时不保证取消底层 task，子代理设置保存可能稍后提交，重试前应重新读取并核对当前状态。
 
 插件启动的每个 dsh 进程（建 profile、`--dump-config` 行检查、起桥、`--version` 探测）都经 `spawnDsh`（`server/dsh-spawn.ts`）启动，它用 `resolveDshSpawn` 定出最终的 `command` / `args` / `env`。非 Windows 平台原样透传。Windows 上 npm 只为 `dsh` 生成 `dsh.cmd` / `dsh.ps1` 包装脚本：Node 不经 shell 不按 PATHEXT 找 `.cmd`、也拒绝直接 spawn `.cmd`，`.ps1` 包装脚本在 stdin 为管道时等 EOF 才启动。命令解析到这类包装脚本（显式路径，或按大小写不敏感的 `PATH` 查找、同目录无 `dsh.exe`/`dsh.com`）时，按包装脚本所在布局改为执行它内部执行的命令：
 
@@ -114,8 +137,8 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - `compaction/start` 与 `compaction/end` 显示为同一张压缩卡片（进行中 → 完成），`compaction/summary` 提供被压缩的 token 数；由命令发起的压缩标记为手动，失败另显示错误通知。
 - Paseo 的 system prompt 在 agent `setup` 中以 agent 作用域的 `systemPrompt.section`（order 10100）追加；tool policy 预先批准的 `mcp__<server>__<tool>` 在桥接的审批钩子中直接允许，其他工具照常询问。
 - 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。
-- 同一条助手消息和思考使用稳定 item id，向 Paseo 发送累计快照，由宿主切出网络增量。
-- 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。
+- 流式增量逐片发送，每片只携带本次新增文本与独立 item id，正文分片共用块级 `messageId`，由宿主的相邻合并拼接成同一条消息，避免重复传输累计全文。宿主把同一 id 的文本视为累计快照并按前缀切差额，非累计分片复用同一 id 会丢失重复缩进或相同前缀分片。定稿消息只补发流式尚未覆盖的尾部，并与流式分片共用 `messageId`。
+- 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。`subagent` 与 `subagent_fork` 工具调用映射为 `sub_agent` 工具卡片（带预设或类型、描述及从工具结果提取的 `childSessionId`）。协商出 `session.subsession` 时，桥接按 `session/created` 与 `subagent/catalog` 跟踪归属当前根会话的子会话，过滤 `fork` 继承的前缀事件（`seq < inheritedEventCount`），在拿到 `subagent/descriptor` 或首个子会话事件时发出 `restoration: "parent"` 的子会话 `session.opened`（关联父工具调用 `toolCallId`、预设标题与任务描述），并转发子会话自己的 `timeline.item` 与 `session.turn`；历史回放按 `session.open` 返回的 `subagents` 快照恢复子会话时间线与终态。未协商 `session.subsession` 的宿主只保留父时间线上的 `sub_agent` 工具卡片。子会话投影剥离 DSH 自动追加的父 agent 回传指引尾部，并将父会话通过 `send_message` 发往子会话的中继消息还原为子会话用户气泡；子会话的 token 用量不覆盖根会话的用量读数。工具结果里的图片由桥接进程读出并写成内容寻址的文件，插件为每张图发一条 markdown 图片助手消息，Paseo 据此显示内联图片并提供打开已保存图片的入口。
 - DSH 会话投影 `tokenUsage` 或 `contextPressure` 变化时，桥接发 `session.usage` 通知，插件转为 Paseo 的 usage 事件：未命中缓存的输入、缓存命中输入与输出 token 是会话累计值，另带上下文已用与上限 token。上下文已用优先取 `contextPressure` 的 `projectedTokens`（dsh 0.2.1 起随压缩的影子价格下调，压缩结束即更新），字段不存在时回退到最近一次请求的 `pressureTokens`。全零的初始值与未变的值不发送；DSH 不提供 `sessionProjections` 服务时不上报用量。
 - 只将真实用户来源的消息显示为用户气泡，运行时注入的上下文和技能目录不冒充用户输入。
 - 每个已开始的回合有且仅有一个完成、失败或取消终态。失败终态携带 DSH `turn/end` 记录的 LLM 失败信息（消息、错误码、HTTP 状态与 request id）。

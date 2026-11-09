@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
-import { parseRequest } from "./bridge.js";
+import { apply, parseRequest } from "./bridge.js";
 import { BridgeService, missingHostSurface, savedModel, validateAnswers } from "./service.js";
 import type {
   HostAgent,
   HostContext,
   HostEvents,
   HostServices,
+  HostSession,
 } from "./host.js";
 import type {
   BridgeNotifications,
@@ -141,10 +143,13 @@ function fixture(
     },
     effect: () => undefined,
   };
-  const bridge = new BridgeService(ctx, (method, params) =>
-    notifications.push({ method, params }),
+  const bridge = new BridgeService(
+    ctx,
+    (method, params) => notifications.push({ method, params }),
+    "/tmp/paseo-dsh-test-images",
   );
   return {
+    ctx,
     bridge,
     notifications,
     followups,
@@ -483,7 +488,11 @@ test("the handshake lists host services and methods the DSH does not provide", a
   const ctx = { get: (name: string) => services[name], on: () => () => {}, effect: () => undefined };
   const missing = missingHostSurface(ctx as unknown as HostContext);
   assert.deepEqual(missing, ["agents.resume", "llm"]);
-  const bridge = new BridgeService(ctx as unknown as HostContext, () => undefined);
+  const bridge = new BridgeService(
+    ctx as unknown as HostContext,
+    () => undefined,
+    "/tmp/paseo-dsh-test-images",
+  );
   const result = await bridge.handle("bridge.initialize");
   assert.deepEqual(result.missing, missing);
   assert.deepEqual(result.catalog.models, []);
@@ -783,4 +792,428 @@ test("session.can_stop_runtime observes subagent admission while schedule lookup
     await f.bridge.handle("session.can_stop_runtime", { sessionId: "s-1" }),
     { canStop: true },
   );
+});
+
+test("tool images defer complete notification params while ordinary events stay plain", async () => {
+  const f = fixture({
+    attachments: {
+      saveImage: async () => ({}),
+      saveFile: async () => ({}),
+      readImage: async () => ({ ref: {}, data: new Uint8Array([1]) }),
+    },
+  });
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "images" });
+
+  const listener = f.listener("session/event");
+  const ordinary = { type: "turn/start", seq: 8, time: 999, data: { turn: 1 } };
+  listener(f.agent.session, ordinary);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.event",
+    params: { sessionId: "images", event: ordinary, images: [] },
+  });
+  listener(f.agent.session, {
+    type: "tool/result",
+    seq: 9,
+    time: 1_000,
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "tool",
+        toolCallId: "call-1",
+        source: { kind: "tool", callId: "call-1" },
+        content: [
+          { type: "text", text: "<type>image</type>" },
+          {
+            type: "image",
+            attachment: {
+              attachmentId: `sha256:${"a".repeat(64)}`,
+              mediaType: "image/png",
+              bytes: 1,
+              width: 1,
+              height: 1,
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  const notification = f.notifications.at(-1)!;
+  assert.equal(notification.method, "session.event");
+  assert.ok(notification.params instanceof Promise);
+  const params = await notification.params as BridgeNotifications["session.event"];
+  assert.equal(params.sessionId, "images");
+  assert.equal(params.event.seq, 9);
+  assert.ok(Array.isArray(params.images));
+  assert.equal(params.images.length, 1);
+  await f.bridge.shutdown();
+});
+
+test("bridge output resolves image params before serializing and before a later RPC response", { timeout: 5_000 }, async (t) => {
+  let releaseImage!: () => void;
+  const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
+  let listCalled!: () => void;
+  const listing = new Promise<void>((resolve) => { listCalled = resolve; });
+  const f = fixture({
+    attachments: {
+      saveImage: async () => ({}),
+      saveFile: async () => ({}),
+      readImage: async () => { await imageGate; return { ref: {}, data: new Uint8Array([1]) }; },
+    },
+    sessionQuery: {
+      listSessions: async () => { listCalled(); return []; },
+      readSession: async () => { throw new Error("Unexpected read"); },
+      observeSession: async () => { throw new Error("Unexpected observation"); },
+    },
+  });
+  // Reuse the host fixture with apply's own BridgeService and output path.
+  await f.bridge.shutdown();
+  const imagesDir = await mkdtemp(join(tmpdir(), "paseo-bridge-output-"));
+  const input = new PassThrough();
+  const records: Array<{ id?: number; method?: string; params?: BridgeNotifications["session.event"] }> = [];
+  let opened!: () => void;
+  const openResponse = new Promise<void>((resolve) => { opened = resolve; });
+  let listed!: () => void;
+  const listResponse = new Promise<void>((resolve) => { listed = resolve; });
+  const output = new Writable({
+    write(chunk, _encoding, done) {
+      const record = JSON.parse(chunk.toString());
+      records.push(record);
+      if (record.id === 1) opened();
+      if (record.id === 2) listed();
+      done();
+    },
+  });
+  const stdin = Object.getOwnPropertyDescriptor(process, "stdin")!;
+  const stdout = Object.getOwnPropertyDescriptor(process, "stdout")!;
+  const argv = process.argv;
+  let ready!: () => void;
+  let dispose: (() => void | Promise<void>) | undefined;
+  t.after(async () => {
+    releaseImage();
+    try {
+      await dispose?.();
+    } finally {
+      Object.defineProperty(process, "stdin", stdin);
+      Object.defineProperty(process, "stdout", stdout);
+      process.argv = argv;
+      input.destroy();
+      output.destroy();
+      await rm(imagesDir, { recursive: true, force: true });
+    }
+  });
+  Object.defineProperty(process, "stdin", { configurable: true, value: input });
+  Object.defineProperty(process, "stdout", { configurable: true, value: output });
+  // The synthetic host has no installed DSH module closure to resolve.
+  process.argv = [];
+  await apply({
+    ...f.ctx,
+    get: ((name: keyof HostServices) => {
+      if (name === "appReady") return { onReady: (listener: () => void) => { ready = listener; return () => undefined; } };
+      if (name === "appExit") return () => undefined;
+      return f.ctx.get(name);
+    }) as HostContext["get"],
+    effect: (callback) => { dispose = callback(); },
+  }, { imagesDir });
+  process.argv = argv;
+  ready();
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session.open", params: { sessionId: "images", cwd: "/tmp" } })}\n`);
+  await openResponse;
+
+  f.listener("session/event")(f.agent.session, {
+    type: "tool/result", seq: 9, time: 1_000,
+    data: { message: { role: "tool", content: [{
+      type: "image",
+      attachment: { attachmentId: `sha256:${"e".repeat(64)}`, mediaType: "image/png", bytes: 1, width: 1, height: 1 },
+    }] } },
+  });
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session.list", params: {} })}\n`);
+  await listing;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(records.some((record) => record.id === 2), false);
+  assert.equal(records.some((record) => record.method === "session.event"), false);
+
+  releaseImage();
+  await listResponse;
+  const event = records.at(-2)!;
+  assert.equal(event.method, "session.event");
+  assert.equal(event.params?.sessionId, "images");
+  assert.equal(event.params?.event.seq, 9);
+  assert.ok(Array.isArray(event.params?.images));
+  assert.deepEqual(event.params.images, [{ index: 0, status: "ready", path: join(imagesDir, `${"e".repeat(64)}.png`) }]);
+  assert.equal(records.at(-1)?.id, 2);
+});
+
+test("session.read materializes tool-result images onto historical events", async () => {
+  const historicalEvent: DshSessionEvent = {
+    type: "tool/result",
+    seq: 12,
+    time: 1_000,
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "tool",
+        toolCallId: "call-history",
+        source: { kind: "tool", callId: "call-history" },
+        content: [
+          { type: "text", text: "<type>image</type>" },
+          {
+            type: "image",
+            attachment: {
+              attachmentId: `sha256:${"b".repeat(64)}`,
+              mediaType: "image/png",
+              bytes: 1,
+              width: 1,
+              height: 1,
+              name: "history.png",
+            },
+          },
+        ],
+      },
+    },
+  };
+  const f = fixture({
+    attachments: {
+      saveImage: async () => ({}),
+      saveFile: async () => ({}),
+      readImage: async () => ({ ref: {}, data: new Uint8Array([1]) }),
+    },
+    sessionQuery: {
+      listSessions: async () => [],
+      readSession: async (sessionId) => ({
+        session: { id: sessionId, createdAt: 1, cwd: "/tmp" },
+        events: [historicalEvent],
+        inheritedEventCount: 0,
+      }),
+      observeSession: async () => ({
+        projections: { values: { agentPreset: "standard" } },
+        [Symbol.dispose]: () => undefined,
+      }),
+    },
+  });
+
+  const snapshot = await f.bridge.handle("session.read", { sessionId: "resumed-1" });
+  assert.equal(snapshot.events.length, 1);
+  assert.equal(snapshot.events[0]?.images?.length, 1);
+  assert.equal(snapshot.events[0]?.images?.[0]?.status, "ready");
+  if (snapshot.events[0]?.images?.[0]?.status === "ready") {
+    assert.equal(snapshot.events[0].images[0].name, "history.png");
+  }
+  await f.bridge.shutdown();
+});
+
+test("tracks subagent child sessions, filters inherited fork events and collects subagent snapshots on resume", async () => {
+  const childEvents: DshSessionEvent[] = [
+    {
+      type: "user/message",
+      seq: 0,
+      time: 1,
+      data: { id: "inherited-parent-msg", source: { kind: "user" }, content: [{ type: "text", text: "parent seed" }] },
+    },
+    {
+      type: "session/end-seed",
+      seq: 1,
+      time: 2,
+      data: { inherited: true },
+    },
+    {
+      type: "agent-preset/selected",
+      seq: 2,
+      time: 3,
+      data: { agentPreset: "explore" },
+    },
+    {
+      type: "subagent/descriptor",
+      seq: 3,
+      time: 4,
+      data: { version: 3, mode: "continuable", provider: "fork", label: "Inspect auth" },
+    },
+    {
+      type: "user/message",
+      seq: 4,
+      time: 5,
+      data: { id: "child-msg", source: { kind: "user" }, content: [{ type: "text", text: "Check auth.ts" }] },
+    },
+  ];
+  const rootHistory: DshSessionEvent[] = [
+    {
+      type: "subagent/catalog",
+      seq: 0,
+      time: 10,
+      data: { version: 0, childId: "child-persisted", childCreatedAt: 10, mode: "continuable", label: "Inspect auth" },
+    },
+  ];
+  let projectionHook: ((session: HostSession, key: string) => void) | undefined;
+  const f = fixture({
+    sessionProjections: {
+      snapshot: () => ({ values: { tokenUsage: { uncachedInputTokens: 120, outputTokens: 30 } } }),
+      onChanged: (listener) => {
+        projectionHook = (session, key) => listener(session, key, undefined, 1);
+        return () => undefined;
+      },
+    },
+    sessionQuery: {
+      listSessions: async () => [],
+      readSession: async (sessionId) => {
+        if (sessionId === "root-resume") {
+          return {
+            session: { id: "root-resume", createdAt: 1, cwd: "/tmp" },
+            events: rootHistory,
+            inheritedEventCount: 0,
+          };
+        }
+        if (sessionId === "child-persisted") {
+          return {
+            session: {
+              id: "child-persisted",
+              createdAt: 2,
+              cwd: "/tmp/sub",
+              parentSession: "root-resume",
+              agentPreset: "standard",
+            },
+            events: childEvents,
+            inheritedEventCount: 1,
+          };
+        }
+        throw new Error(`Unexpected session read: ${sessionId}`);
+      },
+      observeSession: async () => ({
+        projections: { values: { agentPreset: "standard" } },
+        [Symbol.dispose]: () => undefined,
+      }),
+    },
+  });
+  f.ctx.get("agents").resume = async (options) => {
+    const handle = await f.ctx.get("agents").create({
+      ...options,
+      sessionId: options.resumeSessionId,
+    });
+    handle.agent.session.snapshotEvents = () => rootHistory;
+    return handle;
+  };
+
+  const opened = await f.bridge.handle("session.open", {
+    sessionId: "root-resume",
+    resume: true,
+    cwd: "/tmp",
+  });
+  assert.equal(opened.subagents?.length, 1);
+  assert.deepEqual(opened.subagents?.[0], {
+    sessionId: "child-persisted",
+    parentSessionId: "root-resume",
+    cwd: "/tmp/sub",
+    agentPreset: "explore",
+    label: "Inspect auth",
+    provider: "fork",
+    events: childEvents.slice(1),
+  });
+
+  const liveChildSession: HostSession = {
+    id: "child-live",
+    header: {
+      id: "child-live",
+      createdAt: 20,
+      cwd: "/tmp",
+      parentSession: "root-resume",
+      agentPreset: "coder",
+    },
+    inheritedEventCount: 2,
+    snapshotEvents: () => [],
+    requestHeader: () => undefined,
+    append: () => undefined,
+  };
+  f.listener("session/created")(liveChildSession);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.child",
+    params: {
+      sessionId: "child-live",
+      parentSessionId: "root-resume",
+      cwd: "/tmp",
+      agentPreset: "coder",
+    },
+  });
+
+  // Inherited seed events (seq < inheritedEventCount) are suppressed; child-owned events forward.
+  f.listener("session/event")(liveChildSession, {
+    type: "user/message",
+    seq: 1,
+    time: 21,
+    data: { id: "seed", source: { kind: "user" }, content: [] },
+  });
+  assert.notEqual(f.notifications.at(-1)?.method, "session.event");
+
+  const childOwnEvent: DshSessionEvent = {
+    type: "subagent/descriptor",
+    seq: 2,
+    time: 22,
+    data: { version: 3, mode: "continuable", provider: "fork", label: "Write tests" },
+  };
+  f.listener("session/event")(liveChildSession, childOwnEvent);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.event",
+    params: { sessionId: "child-live", event: childOwnEvent, images: [] },
+  });
+
+  // Child token usage must not publish as root usage.
+  const countBeforeUsage = f.notifications.length;
+  projectionHook?.(liveChildSession, "tokenUsage");
+  assert.equal(f.notifications.length, countBeforeUsage);
+
+  // Closing the root session stops forwarding child events.
+  await f.bridge.handle("session.close", { sessionId: "root-resume" });
+  const countAfterClose = f.notifications.length;
+  f.listener("session/event")(liveChildSession, {
+    type: "turn/start",
+    seq: 3,
+    time: 23,
+    data: { turn: 1 },
+  });
+  assert.equal(f.notifications.length, countAfterClose);
+  await f.bridge.shutdown();
+});
+
+test("rejects restored child snapshots with a different persisted parent", async () => {
+  const rootHistory: DshSessionEvent[] = [{
+    type: "subagent/catalog",
+    seq: 0,
+    time: 1,
+    data: { version: 0, childId: "unrelated-child", childCreatedAt: 1, mode: "continuable" },
+  }];
+  const f = fixture({
+    sessionQuery: {
+      listSessions: async () => [],
+      readSession: async (sessionId) => ({
+        session: {
+          id: sessionId,
+          createdAt: 1,
+          cwd: "/tmp",
+          ...(sessionId === "unrelated-child" ? { parentSession: "different-root" } : {}),
+        },
+        events: sessionId === "root-resume" ? rootHistory : [],
+        inheritedEventCount: 0,
+      }),
+      observeSession: async () => ({
+        projections: { values: { agentPreset: "standard" } },
+        [Symbol.dispose]: () => undefined,
+      }),
+    },
+  });
+  f.ctx.get("agents").resume = async (options) => {
+    const handle = await f.ctx.get("agents").create({
+      ...options,
+      sessionId: options.resumeSessionId,
+    });
+    handle.agent.session.snapshotEvents = () => rootHistory;
+    return handle;
+  };
+
+  const opened = await f.bridge.handle("session.open", {
+    sessionId: "root-resume",
+    resume: true,
+    cwd: "/tmp",
+  });
+  assert.deepEqual(opened.subagents, undefined);
+  await f.bridge.shutdown();
 });

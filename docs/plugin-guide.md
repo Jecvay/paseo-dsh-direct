@@ -30,7 +30,7 @@ Paseo 编译器检查客户端、服务端和共享模块边界。分层 TypeScr
 1. `send()` 接收请求，结果通过 `onEvent()` 发出；响应携带对应的 request id。
 2. `catalog` 描述创建会话前的模型与模式选择；`session.config` 表示该会话实际提交的配置。
 3. 用户消息回填 `clientMessageId`，与 `session.prompt_result` 对应。
-4. 正文与思考使用稳定 item id 和累计文本快照。Paseo 根据前后快照切片，不应向同一个 item 发互不关联的 token。
+4. 正文与思考逐片发送新增文本，每片使用独立 item id；正文分片共用块级 `messageId`，由 Paseo 合并相邻分片。定稿只补发尚未流出的尾部；没有流式记录的历史消息发送全文。
 5. 每个 started turn 恰好有一个终态；进程崩溃也必须终结活动回合、工具和交互。
 6. Provider 只声明实际实现的能力；不支持的输入明确失败，不静默丢弃图片、配置或交互。
 7. `session.can_stop_runtime` 仅在协商出该能力时处理。成功回复同名事件，带原 `requestId`、`sessionId` 与布尔值 `canStop`；失败回复 `request.failed`，不回复 `request.completed`。查询不停止进程、不取消任务、不修改会话。
@@ -122,7 +122,7 @@ PASEO_014_E2E=1 PASEO_014_NODE_MODULES=/abs/preinstalled/node_modules npx --no-i
 
 DSH 会话写锁由原生运行时拥有。不要删除 `.lock` 文件来强行恢复正在另一个客户端使用的会话，也不要把生成的新 session id 当成恢复原会话的替代。
 
-手工部署与生产实测按照根 [AGENTS.md](../AGENTS.md) 记入 `.agents/ops-log.md`；那是待蒸馏的临时材料，长期结论要整理进本文档。发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。
+手工部署与生产实测按照根 [AGENTS.md](../AGENTS.md) 记入本地 `.agents/ops-log.md`，文件由 Git 忽略、按需创建；agent 自行将长期结论核实、脱敏后整理进本文档，只提交长期产物。发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。
 
 ## 官方参考
 

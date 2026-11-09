@@ -12,6 +12,7 @@ import {
   DISABLED_SURFACE_ROWS,
   dumpedRowIds,
   ensureDshProfile,
+  launchDshBridge,
   missingSurfaceRows,
   parseBridgeLine,
   resolveDshExecutable,
@@ -74,6 +75,26 @@ describe("ensureDshProfile", () => {
     await chmod(executable, 0o755);
     return { root, home, log, executable, env: { ...process.env, DSH_HOME: home } };
   }
+
+  it("aborts profile creation and waits until its child has exited", async () => {
+    const f = await fixture();
+    const record = path.join(f.root, "profile-child.json");
+    await writeFile(f.executable, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(record)}, String(process.pid));\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
+    const controller = new AbortController();
+    try {
+      const creating = ensureDshProfile({ executable: f.executable, profile: DEFAULT_PROFILE, env: f.env, signal: controller.signal });
+      while (true) {
+        try { await stat(record); break; }
+        catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+      }
+      controller.abort();
+      await assert.rejects(creating, { name: "AbortError" });
+      const pid = Number((await readFile(record, "utf8")).trim());
+      assert.throws(() => process.kill(pid, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH");
+    } finally {
+      await rm(f.root, { recursive: true, force: true });
+    }
+  });
 
   it("creates the default profile once from the web template", async () => {
     const f = await fixture();
@@ -154,6 +175,21 @@ describe("profile row guard", () => {
     await run(new Error("exit 1"));
     await run("  \n");
   });
+
+  it("does not swallow cancellation when the profile dump fails", async () => {
+    const controller = new AbortController();
+    await assert.rejects(assertSurfaceRowsPresent({
+      launch,
+      profile: "paseo",
+      env: {},
+      signal: controller.signal,
+      dshVersionOf: async () => "",
+      dump: async () => {
+        controller.abort();
+        throw new Error("terminated");
+      },
+    }), { name: "AbortError" });
+  });
 });
 
 describe("parseBridgeLine", () => {
@@ -178,6 +214,109 @@ describe("parseBridgeLine", () => {
 
   it("skips JSON that is not a protocol object", () => {
     for (const line of ["null", "42", '"log"', "[]", "true"]) assert.equal(parseBridgeLine(line), undefined);
+  });
+});
+
+describe("bridge ready deadline", () => {
+  async function fixture(mode: "delayed" | "never" | "exit") {
+    const root = await mkdtemp(path.join(tmpdir(), "paseo-ready-test-"));
+    const home = path.join(root, "home");
+    const record = path.join(root, "child.json");
+    await mkdir(path.join(home, "profiles", "fixture"), { recursive: true });
+    const script = `
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const args = process.argv.slice(1);
+      if (args.includes('--dump-config')) {
+        console.log(${JSON.stringify(DISABLED_SURFACE_ROWS.map(id => `- id: ${id}`).join("\n"))});
+        process.exit(0);
+      }
+      const patch = args[args.indexOf('--patch') + 1];
+      fs.writeFileSync(process.env.FIXTURE_RECORD, JSON.stringify({ pid: process.pid, directory: path.dirname(patch) }));
+      if (process.env.FIXTURE_MODE === 'exit') process.exit(7);
+      const send = value => console.log(JSON.stringify(value));
+      require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+        const request = JSON.parse(line);
+        if (request.method === 'bridge.initialize') {
+          // Initialization may take longer than the already completed ready wait.
+          setTimeout(() => send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, catalog: { models: [], presets: [] }, capabilities: {} } }), 1_700);
+        } else if (request.method === 'bridge.shutdown') {
+          process.exit(0);
+        }
+      });
+      if (process.env.FIXTURE_MODE !== 'never') setTimeout(() => send({ jsonrpc: '2.0', method: 'bridge.ready', params: {} }), 400);
+    `;
+    const bridges: Awaited<ReturnType<typeof launchDshBridge>>[] = [];
+    const open = async (startupTimeoutMs: number) => {
+      const bridge = await launchDshBridge({
+        bridgeSource: "",
+        profile: "fixture",
+        startupTimeoutMs,
+        providerLaunch: {
+          command: process.execPath,
+          args: ["-e", script, "--"],
+          env: { ...process.env, DSH_HOME: home, FIXTURE_RECORD: record, FIXTURE_MODE: mode } as Record<string, string>,
+        },
+      });
+      bridges.push(bridge);
+      return bridge;
+    };
+    const dispose = async () => Promise.allSettled(bridges.map((bridge) => bridge.close()));
+    const assertCleaned = async () => {
+      const child = JSON.parse(await readFile(record, "utf8")) as { pid: number; directory: string };
+      assert.throws(() => process.kill(child.pid, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH");
+      await assert.rejects(stat(child.directory), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    };
+    return { root, open, bridges, dispose, assertCleaned };
+  }
+
+  it("allows delayed ready with a wider deadline and keeps initialization independent", async () => {
+    const f = await fixture("delayed");
+    try {
+      await assert.rejects(f.open(200), /did not become ready within 200ms/);
+      await f.assertCleaned();
+      const bridge = await f.open(2_000);
+      try { assert.equal(bridge.initialized.protocolVersion, 1); }
+      finally { await bridge.close(); }
+      await f.assertCleaned();
+    } finally { await f.dispose(); await rm(f.root, { recursive: true, force: true }); }
+  });
+
+  it("aborts a long never-ready startup and removes its child and temporary directory", async () => {
+    const f = await fixture("never");
+    const controller = new AbortController();
+    try {
+      const opening = launchDshBridge({
+        bridgeSource: "",
+        profile: "fixture",
+        startupTimeoutMs: 600_000,
+        signal: controller.signal,
+        providerLaunch: {
+          command: process.execPath,
+          args: ["-e", `const fs=require('node:fs');const path=require('node:path');const p=process.argv.slice(1);if(p.includes('--dump-config')){console.log(${JSON.stringify(DISABLED_SURFACE_ROWS.map(id => `- id: ${id}`).join("\\n"))});process.exit(0)}const patch=p[p.indexOf('--patch')+1];fs.writeFileSync(process.env.FIXTURE_RECORD,JSON.stringify({pid:process.pid,directory:path.dirname(patch)}));setInterval(()=>{},1000);`, "--"],
+          env: { ...process.env, DSH_HOME: path.join(f.root, "home"), FIXTURE_RECORD: path.join(f.root, "child.json") } as Record<string, string>,
+        },
+      });
+      while (true) {
+        try { await stat(path.join(f.root, "child.json")); break; }
+        catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+      }
+      const child = JSON.parse(await readFile(path.join(f.root, "child.json"), "utf8")) as { pid: number; directory: string };
+      const abortedAt = Date.now();
+      controller.abort();
+      await assert.rejects(opening, { name: "AbortError" });
+      assert.ok(Date.now() - abortedAt < 1_000, "abort should not wait for the startup deadline");
+      assert.throws(() => process.kill(child.pid, 0), (error: NodeJS.ErrnoException) => error.code === "ESRCH");
+      await assert.rejects(stat(child.directory), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+    } finally { await f.dispose(); await rm(f.root, { recursive: true, force: true }); }
+  });
+
+  it("reports an early exit instead of waiting for the ready deadline", async () => {
+    const f = await fixture("exit");
+    try {
+      await assert.rejects(f.open(5_000), /exited with code 7/);
+      await f.assertCleaned();
+    } finally { await f.dispose(); await rm(f.root, { recursive: true, force: true }); }
   });
 });
 

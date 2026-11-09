@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Issue 修改图解模板：问题路径、改动与结果</title>
+  <desc id="desc">这是一张待替换的示意模板。上方展示问题路径，下方展示修复路径，底部展示验证状态和等待本人确认。请按真实问题重画节点与连线。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#536277"/></marker>
+    <marker id="bad-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#b7513e"/></marker>
+    <marker id="good-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#226c59"/></marker>
+    <style>
+      text { font-family: "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif; fill: #203043; }
+      .title { font-size: 44px; font-weight: 700; }
+      .section { font-size: 30px; font-weight: 700; }
+      .node { font-size: 29px; font-weight: 600; text-anchor: middle; }
+      .small { font-size: 23px; fill: #536277; }
+      .line { fill: none; stroke: #536277; stroke-width: 4; marker-end: url(#arrow); }
+      .bad { fill: none; stroke: #b7513e; stroke-width: 4; marker-end: url(#bad-arrow); }
+      .good { fill: none; stroke: #226c59; stroke-width: 4; marker-end: url(#good-arrow); }
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="#f6f7f9"/>
+  <text class="title" x="70" y="85">Issue #编号 · 这次改变了什么</text>
+  <text class="small" x="70" y="130">示意模板：请替换为实际问题、链路与证据</text>
+
+  <rect x="60" y="175" width="1480" height="270" rx="24" fill="#fff" stroke="#dce1e8" stroke-width="2"/>
+  <text class="section" x="90" y="225">问题路径</text>
+  <rect x="100" y="275" width="270" height="110" rx="16" fill="#edf0f5" stroke="#a9b4c2" stroke-width="2"/>
+  <text class="node" x="235" y="338">用户操作</text>
+  <path class="line" d="M375 330 H470"/>
+  <rect x="490" y="275" width="270" height="110" rx="16" fill="#fff1eb" stroke="#b7513e" stroke-width="3"/>
+  <text class="node" x="625" y="324">发生问题</text>
+  <text class="small" text-anchor="middle" x="625" y="360">填入实际原因</text>
+  <path class="bad" d="M765 330 H860"/>
+  <rect x="880" y="275" width="270" height="110" rx="16" fill="#fff1eb" stroke="#b7513e" stroke-width="2"/>
+  <text class="node" x="1015" y="338">用户受影响</text>
+  <path d="M1160 330 H1215" stroke="#b7513e" stroke-width="4"/>
+  <path d="M1225 300 L1285 360 M1285 300 L1225 360" stroke="#b7513e" stroke-width="7" stroke-linecap="round"/>
+  <text class="small" x="1320" y="338">未达预期</text>
+
+  <rect x="60" y="475" width="1480" height="290" rx="24" fill="#fff" stroke="#dce1e8" stroke-width="2"/>
+  <text class="section" x="90" y="525">修改后的路径</text>
+  <rect x="100" y="585" width="270" height="110" rx="16" fill="#edf0f5" stroke="#a9b4c2" stroke-width="2"/>
+  <text class="node" x="235" y="648">同样的操作</text>
+  <path class="line" d="M375 640 H470"/>
+  <rect x="490" y="585" width="270" height="110" rx="16" fill="#e8f5ef" stroke="#226c59" stroke-width="4"/>
+  <text class="node" x="625" y="634">这次修改</text>
+  <text class="small" text-anchor="middle" x="625" y="670">填入关键动作</text>
+  <path class="good" d="M765 640 H860"/>
+  <rect x="880" y="585" width="270" height="110" rx="16" fill="#e8f5ef" stroke="#226c59" stroke-width="2"/>
+  <text class="node" x="1015" y="648">预期结果</text>
+  <path class="good" d="M1160 640 H1250"/>
+  <text class="node" x="1380" y="648">用户收益</text>
+
+  <rect x="60" y="800" width="1480" height="140" rx="24" fill="#eef2f7"/>
+  <text class="section" x="90" y="850">候选状态</text>
+  <rect x="325" y="825" width="300" height="80" rx="14" fill="#fff" stroke="#a9b4c2" stroke-width="2"/>
+  <text class="node" x="475" y="874">验证：待填写</text>
+  <path class="line" d="M635 865 H730"/>
+  <rect x="750" y="825" width="300" height="80" rx="14" fill="#fff8e8" stroke="#9b742b" stroke-width="2"/>
+  <text class="node" x="900" y="874">等本人确认</text>
+  <path class="line" d="M1060 865 H1155"/>
+  <rect x="1175" y="825" width="300" height="80" rx="14" fill="#fff" stroke="#a9b4c2" stroke-width="2" stroke-dasharray="8 6"/>
+  <text class="node" x="1325" y="874">批准后交付</text>
+</svg>

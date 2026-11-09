@@ -9,18 +9,22 @@ import type {
   BridgeUsage,
   DshSessionEvent,
   InteractionRequest,
+  JsonObject,
   ModelSelection,
   QuestionAnswer,
   QuestionItem,
   SessionOpenParams,
   SessionOpenResult,
   SessionSummary,
+  SubagentSessionSnapshot,
   PromptPart,
   SlashCommand,
 } from "../../shared/bridge-protocol.js";
 import { SubagentSettings } from "./subagent-settings.js";
 import { canStopSessionRuntime, SubagentRunTracker } from "./runtime-safety.js";
 import { slashLine } from "../../shared/bridge-protocol.js";
+import type { ToolImageOutcome } from "../../shared/bridge-protocol.js";
+import { materializeToolImages } from "./tool-images.js";
 import type {
   ApprovalOutcome,
   HostAgent,
@@ -32,9 +36,10 @@ import type {
   ModelSelectionRef,
 } from "./host.js";
 
+/** Queue complete params immediately, resolving deferred payloads before writing. */
 type Notify = <K extends keyof BridgeNotifications>(
   method: K,
-  params: BridgeNotifications[K],
+  params: BridgeNotifications[K] | Promise<BridgeNotifications[K]>,
 ) => void;
 interface PendingInteraction {
   request: InteractionRequest;
@@ -134,7 +139,10 @@ export class BridgeService {
   private readonly owned = new Map<string, RecordEntry>();
   private readonly opening = new Map<string, Promise<SessionOpenResult>>();
   private readonly closing = new Map<string, Promise<void>>();
+  private readonly roots = new Set<string>();
   private readonly tracked = new Set<string>();
+  private readonly childrenByRoot = new Map<string, Set<string>>();
+  private readonly inheritedEventCount = new Map<string, number>();
   private readonly parent = new Map<string, string>();
   private readonly commandAborts = new Map<string, AbortController>();
   private readonly preapproved = new Map<string, ReadonlySet<string>>();
@@ -153,6 +161,7 @@ export class BridgeService {
   constructor(
     private readonly ctx: HostContext,
     private readonly notify: Notify,
+    private readonly imagesDir: string,
     private readonly profile = "paseo",
     private readonly helpers?: HostHelpers,
   ) {
@@ -160,17 +169,64 @@ export class BridgeService {
     this.subscriptions.push(
       ctx.on("session/created", (session) => {
         if (session.header.parentSession) {
-          this.parent.set(
-            String(session.id),
-            String(session.header.parentSession),
-          );
+          const sessionId = String(session.id);
+          const parentSessionId = String(session.header.parentSession);
+          this.parent.set(sessionId, parentSessionId);
+          const rootId = this.rootForId(parentSessionId);
+          if (rootId) {
+            const alreadyTracked = this.tracked.has(sessionId);
+            this.trackChildSession(
+              rootId,
+              sessionId,
+              parentSessionId,
+              session.inheritedEventCount,
+            );
+            if (!alreadyTracked) {
+              const ownEvents = session
+                .snapshotEvents()
+                .slice(session.inheritedEventCount ?? 0);
+              const meta = subagentEventMeta(
+                ownEvents,
+                session.header.agentPreset,
+              );
+              notify("session.child", {
+                sessionId,
+                parentSessionId,
+                cwd: session.header.cwd ?? "",
+                ...(meta.agentPreset ? { agentPreset: meta.agentPreset } : {}),
+                ...(meta.label ? { label: meta.label } : {}),
+                ...(meta.provider ? { provider: meta.provider } : {}),
+              });
+            }
+          }
         }
       }),
     );
     this.subscriptions.push(
       ctx.on("session/event", (session, event) => {
-        if (this.tracked.has(String(session.id)))
-          notify("session.event", { sessionId: String(session.id), event });
+        const sessionId = String(session.id);
+        if (!this.tracked.has(sessionId)) return;
+        const inherited =
+          this.inheritedEventCount.get(sessionId) ??
+          session.inheritedEventCount ??
+          0;
+        if (event.seq < inherited) return;
+        // Queue the complete pending payload now so a later RPC response cannot
+        // overtake this event while its images are being materialized.
+        if (event.type !== "tool/result") {
+          notify("session.event", { sessionId, event, images: [] });
+          return;
+        }
+        const message = imageMessageOf(event);
+        if (message === undefined) {
+          notify("session.event", { sessionId, event, images: [] });
+          return;
+        }
+        notify("session.event", this.materializeImages(message).then((images) => ({
+          sessionId,
+          event,
+          images,
+        })));
       }),
     );
     this.subscriptions.push(
@@ -311,10 +367,10 @@ export class BridgeService {
     return measured ? usage : undefined;
   }
 
-  /** Publish one tracked session's usage, skipping an unchanged fold. */
+  /** Publish one root session's usage, skipping an unchanged fold. */
   private publishUsage(session: HostSession): void {
     const sessionId = String(session.id);
-    if (!this.tracked.has(sessionId)) return;
+    if (!this.roots.has(sessionId)) return;
     const usage = this.readUsage(session);
     if (!usage) return;
     const signature = JSON.stringify(usage);
@@ -334,12 +390,42 @@ export class BridgeService {
     let id: string | undefined = sessionId;
     const seen = new Set<string>();
     while (id && !seen.has(id)) {
-      if (this.tracked.has(id)) return id;
+      if (this.roots.has(id)) return id;
       seen.add(id);
       id = this.parent.get(id) ??
         (id === agent?.id ? agent.session.header.parentSession : undefined);
     }
     return undefined;
+  }
+
+  private trackChildSession(
+    rootId: string,
+    sessionId: string,
+    parentSessionId: string,
+    inheritedEventCount?: number,
+  ): void {
+    this.parent.set(sessionId, parentSessionId);
+    if (typeof inheritedEventCount === "number" && inheritedEventCount >= 0) {
+      this.inheritedEventCount.set(sessionId, inheritedEventCount);
+    }
+    this.tracked.add(sessionId);
+    let children = this.childrenByRoot.get(rootId);
+    if (!children) {
+      children = new Set();
+      this.childrenByRoot.set(rootId, children);
+    }
+    children.add(sessionId);
+  }
+
+  private clearRootChildren(rootId: string): void {
+    const children = this.childrenByRoot.get(rootId);
+    if (!children) return;
+    this.childrenByRoot.delete(rootId);
+    for (const childId of children) {
+      this.tracked.delete(childId);
+      this.lastUsage.delete(childId);
+      this.inheritedEventCount.delete(childId);
+    }
   }
 
   private ask(
@@ -505,11 +591,16 @@ export class BridgeService {
       case "session.list":
         result = { sessions: await this.listSessions(listParams(params)) };
         break;
-      case "session.read":
-        result = await this.ctx
+      case "session.read": {
+        const snapshot = await this.ctx
           .get("sessionQuery")
           .readSession(nonempty(params.sessionId, "sessionId"));
+        result = {
+          ...snapshot,
+          events: await this.withEventImages(snapshot.events),
+        };
         break;
+      }
       case "session.open":
         result = await this.open(validateOpen(params));
         break;
@@ -617,6 +708,32 @@ export class BridgeService {
         throw new Error(`Unsupported bridge method: ${String(method)}`);
     }
     return result as BridgeMethods[K]["result"];
+  }
+
+  /**
+   * Images for one tool result. A failure here must not cost the tool card or the
+   * rest of the turn, so every outcome is reported per block and the promise
+   * never rejects.
+   */
+  private materializeImages(message: JsonObject): Promise<ToolImageOutcome[]> {
+    return materializeToolImages(this.ctx, this.imagesDir, message).catch(
+      (): ToolImageOutcome[] => [],
+    );
+  }
+
+  /** Attach materialized tool-result image outcomes to historical events for replay. */
+  private async withEventImages(
+    events: readonly DshSessionEvent[],
+  ): Promise<DshSessionEvent[]> {
+    return Promise.all(
+      events.map(async (event) => {
+        if (event.type !== "tool/result") return event;
+        const message = imageMessageOf(event);
+        if (message === undefined) return event;
+        const images = await this.materializeImages(message);
+        return images.length > 0 ? { ...event, images } : event;
+      }),
+    );
   }
 
   /** Store images and files as durable DSH attachments, in prompt order. */
@@ -824,6 +941,7 @@ export class BridgeService {
       return Promise.reject(new Error("cwd must be absolute"));
     if (params.model !== undefined && selection(params.model) === undefined)
       return Promise.reject(new Error("Invalid model selection"));
+    this.roots.add(id);
     this.tracked.add(id);
     if (params.preapprovedTools?.length)
       this.preapproved.set(id, new Set(params.preapprovedTools));
@@ -833,7 +951,9 @@ export class BridgeService {
       () => this.opening.delete(id),
       () => {
         this.opening.delete(id);
+        this.roots.delete(id);
         this.tracked.delete(id);
+        this.clearRootChildren(id);
         this.preapproved.delete(id);
         this.lastUsage.delete(id);
         this.subagentRuns.clearRoot(id);
@@ -908,6 +1028,10 @@ export class BridgeService {
         preset: preset.id,
         selection: modelRef,
       });
+      const events = await this.withEventImages(
+        handle.agent.session.snapshotEvents(),
+      );
+      const subagents = await this.readSubagentSnapshots(id, events);
       return {
         sessionId: id,
         cwd: handle.agent.session.header.cwd ?? params.cwd,
@@ -916,12 +1040,70 @@ export class BridgeService {
         permissionPreset: this.ctx
           .get("permissionPresets")
           ?.current(handle.agent.session),
-        events: handle.agent.session.snapshotEvents(),
+        events,
+        ...(subagents.length > 0 ? { subagents } : {}),
       };
     } catch (error) {
       await handle.dispose();
       throw error;
     }
+  }
+
+  private async readSubagentSnapshots(
+    rootId: string,
+    rootEvents: readonly DshSessionEvent[],
+  ): Promise<SubagentSessionSnapshot[]> {
+    const query = this.ctx.get("sessionQuery");
+    const subagents: SubagentSessionSnapshot[] = [];
+    const seen = new Set<string>([rootId]);
+    const collectFrom = async (
+      parentSessionId: string,
+      parentEvents: readonly DshSessionEvent[],
+    ): Promise<void> => {
+      for (const ref of discoveredChildRefs(parentEvents)) {
+        if (seen.has(ref.childId)) continue;
+        seen.add(ref.childId);
+        let snapshot;
+        try {
+          snapshot = await query.readSession(ref.childId);
+        } catch {
+          continue;
+        }
+        if (
+          snapshot.session.id !== ref.childId ||
+          snapshot.session.parentSession !== parentSessionId
+        ) {
+          continue;
+        }
+        const ownEvents = snapshot.events.slice(
+          snapshot.inheritedEventCount ?? 0,
+        );
+        const meta = subagentEventMeta(
+          ownEvents,
+          snapshot.session.agentPreset,
+          ref.label,
+        );
+        this.trackChildSession(
+          rootId,
+          ref.childId,
+          parentSessionId,
+          snapshot.inheritedEventCount,
+        );
+        const events = await this.withEventImages(ownEvents);
+        subagents.push({
+          sessionId: ref.childId,
+          parentSessionId,
+          cwd: snapshot.session.cwd ?? "",
+          ...(meta.agentPreset ? { agentPreset: meta.agentPreset } : {}),
+          ...(meta.label ? { label: meta.label } : {}),
+          ...(meta.provider ? { provider: meta.provider } : {}),
+          events,
+        });
+        await collectFrom(ref.childId, ownEvents);
+      }
+    };
+    await collectFrom(rootId, rootEvents);
+    return subagents;
   }
 
   private async setPermissionPreset(
@@ -1001,7 +1183,9 @@ export class BridgeService {
       const record = this.owned.get(id);
       if (record) await record.handle.dispose();
       this.owned.delete(id);
+      this.roots.delete(id);
       this.tracked.delete(id);
+      this.clearRootChildren(id);
       this.preapproved.delete(id);
       this.lastUsage.delete(id);
       this.subagentRuns.clearRoot(id);
@@ -1060,6 +1244,99 @@ export function validateAnswers(
 }
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+function subagentEventMeta(
+  events: readonly DshSessionEvent[],
+  headerPreset?: string,
+  fallbackLabel?: string,
+): { agentPreset?: string; label?: string; provider?: string } {
+  let agentPreset = headerPreset;
+  let label = fallbackLabel;
+  let provider: string | undefined;
+  for (const event of events) {
+    if (
+      event.type === "agent-preset/selected" &&
+      typeof event.data.agentPreset === "string" &&
+      event.data.agentPreset
+    ) {
+      agentPreset = event.data.agentPreset;
+    }
+    if (event.type === "subagent/descriptor") {
+      if (typeof event.data.label === "string" && event.data.label) {
+        label = event.data.label;
+      }
+      if (typeof event.data.provider === "string" && event.data.provider) {
+        provider = event.data.provider;
+      }
+    }
+  }
+  return { agentPreset, label, provider };
+}
+
+function discoveredChildRefs(
+  events: readonly DshSessionEvent[],
+): Array<{ childId: string; label?: string }> {
+  const byId = new Map<string, { childId: string; label?: string }>();
+  const externalIds = new Set<string>();
+  for (const event of events) {
+    if (event.type === "subagent/catalog") {
+      const childId =
+        typeof event.data.childId === "string" && event.data.childId.trim()
+          ? event.data.childId.trim()
+          : undefined;
+      if (!childId) continue;
+      if (event.data.mode === "external") {
+        externalIds.add(childId);
+        byId.delete(childId);
+        continue;
+      }
+      const label =
+        typeof event.data.label === "string" && event.data.label.trim()
+          ? event.data.label.trim()
+          : undefined;
+      const existing = byId.get(childId);
+      byId.set(childId, { childId, label: label ?? existing?.label });
+      continue;
+    }
+    if (event.type === "tool/result") {
+      const text = toolResultText(event);
+      const match = /^started subagent\s+([^\s"]+)/i.exec(text.trim());
+      const childId = match?.[1];
+      if (childId && !externalIds.has(childId) && !byId.has(childId)) {
+        byId.set(childId, { childId });
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
+function toolResultText(event: DshSessionEvent): string {
+  const message = record(event.data.message ?? event.data);
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      const item = record(block);
+      return typeof item.text === "string" ? item.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * The tool message of a `tool/result` event, when it carries content blocks.
+ * Returns undefined for the legacy layout, where the payload is spread over
+ * `data` instead of nested under `message`.
+ */
+function imageMessageOf(event: DshSessionEvent): JsonObject | undefined {
+  const data = event.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
+  const message = (data as Record<string, unknown>).message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return undefined;
+  const content = (message as Record<string, unknown>).content;
+  return Array.isArray(content) ? (message as JsonObject) : undefined;
+}
 
 function validateContent(value: unknown): PromptPart[] {
   if (!Array.isArray(value) || value.length === 0)

@@ -8,11 +8,15 @@ Provider 在 Paseo 中显示为 `DeepSeek Harness`，标识为 `dsh-pi`。手机
 
 会话历史从 Paseo 的 Import session 入口导入；已有会话继续使用原生 DSH 标识。手机端使用同一个 Daemon 安装的插件，不需要另外安装 DSH 或 npm 包。
 
-DSH 原生子代理的内部消息不直接投影成独立聊天气泡，插件也不据此创建 Paseo 子会话面板。
+DSH 原生子代理在父会话时间线里呈现为 `sub_agent` 启动卡片；协商出 `session.subsession` 时，子会话通过 Paseo 原生 Subagents 轨道与子代理面板展示自身时间线和回合状态，子代理与父会话之间的内部回传指引及跨 agent 中继前缀不会直接暴露为父会话聊天气泡。
 
 ## 设置页
 
-插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `Settings`）。`Connection` 区域的 `Executable`、`Profile` 和 `Startup timeout` 通过 SDK 的 `useSettings(DSH_SETTINGS)` 读写 DSH 启动命令、profile 与桥接启动的等待秒数（1..600，留空用默认 15 秒），留空表示不设置，环境变量优先。设置定义在 `shared/settings.ts`，改动对新会话生效。设置的取值如何参与选择见 [服务端架构](server-architecture.md)。
+插件在 Paseo 设置里注册 `DeepSeek Harness` 页（`client/settings-screen.tsx`，图标 `Settings`）。`Connection` 区域通过 SDK 的 `useSettings(DSH_SETTINGS)` 读写 `Executable`、`Profile` 和 `Startup timeout`，设置定义在 `shared/settings.ts`，保存范围是当前宿主。`Executable`、`Profile` 留空表示不设置，对应环境变量优先。
+
+`Startup timeout` 是桥接就绪等待，接受 1–600 整数秒，留空或纯空白用默认 15 秒，没有环境变量覆盖。非法值只忽略这一项，其他字段照常生效。保存后对所有新桥接生效，涵盖会话创建/恢复、目录/历史发现和子代理设置读写；运行中的桥接不变。该窗口只覆盖 spawn 到 `bridge.ready`，前置 profile 创建（60 秒）、配置检查（20 秒）和后续 `bridge.initialize`（30 秒）各有独立时限；较长等待也可能延长连接关闭等待。600 秒是策略上限。
+
+Paseo 0.11、0.14、0.15.3 对 Provider connect 和普通插件 RPC 设有 30 秒外层时限，设置更长的桥接等待不保证目录发现或子代理设置操作能等待同样长的时间。RPC 超时不保证取消底层任务，子代理设置保存可能稍后提交；重试前应重新读取并核对状态。已连接的 `session.open` 事件路径没有同类计时器。设置选择顺序及固定版本源码依据见[服务端架构](server-architecture.md#桥接就绪等待与宿主时限)。
 
 `Subagents` 区域通过插件 RPC 读取当前 DSH profile 的模型目录和原生子代理设置。设置页显示启用状态、已选与可用模型数量；点击 `Edit models` 打开宿主弹窗。宽屏使用居中对话框，窄屏使用底部抽屉，编辑内容在弹窗内滚动。关闭弹窗保留搜索条件和未保存的选择，摘要提示未保存的修改；加载失败、配置冲突与不可用模型等提示在设置页和编辑区均可见。客户端未提供 `Modal` 或 `Modal.Content` 时，使用默认收起的内联编辑区，点击 `Edit models` 展开、`Close editor` 收起。
 

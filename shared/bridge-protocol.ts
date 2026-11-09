@@ -15,6 +15,8 @@ export interface DshSessionEvent {
   data: JsonObject;
   surfaceOp?: "append" | { op: "replace"; startSeq: number; endSeq: number };
   sourceEventSeqs?: number[];
+  /** Materialized tool-result images attached by the bridge for replay snapshots. */
+  images?: ToolImageOutcome[];
 }
 export type DshStreamFrame =
   | {
@@ -45,6 +47,16 @@ export type DshStreamFrame =
             seq: number;
           };
     };
+/**
+ * One image a tool result produced, already written to a file the plugin can
+ * hand to Paseo. `index` is the position of the image block in the tool
+ * message's content, so the plugin can keep the order the model saw.
+ */
+export type ToolImageOutcome =
+  | { index: number; status: "ready"; path: string; name?: string }
+  | { index: number; status: "failed"; code: string; message: string }
+  | { index: number; status: "unavailable" };
+
 export interface SessionSummary {
   id: string;
   createdAt: number;
@@ -107,6 +119,15 @@ export interface SessionOpenParams {
   /** Tool names approved without asking, e.g. `mcp__paseo__create_agent`. */
   preapprovedTools?: string[];
 }
+export interface SubagentSessionSnapshot {
+  sessionId: string;
+  parentSessionId: string;
+  cwd: string;
+  agentPreset?: string;
+  label?: string;
+  provider?: string;
+  events: DshSessionEvent[];
+}
 export interface SessionOpenResult {
   sessionId: string;
   cwd: string;
@@ -114,6 +135,7 @@ export interface SessionOpenResult {
   preset?: string;
   permissionPreset?: string;
   events: DshSessionEvent[];
+  subagents?: SubagentSessionSnapshot[];
 }
 export interface QuestionItem {
   id: string;
@@ -239,10 +261,27 @@ export interface BridgeUsage {
 }
 export interface BridgeNotifications {
   "bridge.ready": { protocolVersion: 1 };
-  "session.event": { sessionId: string; event: DshSessionEvent };
+  /**
+   * `images` carries the tool-result images the bridge already materialized on
+   * disk. It is present on every event so the plugin never has to infer whether
+   * a given event type can carry images.
+   */
+  "session.event": {
+    sessionId: string;
+    event: DshSessionEvent;
+    images: ToolImageOutcome[];
+  };
   "session.stream": { sessionId: string; frame: DshStreamFrame };
   "session.status": { sessionId: string; status: "idle" | "running" };
   "session.usage": { sessionId: string; usage: BridgeUsage };
+  "session.child": {
+    sessionId: string;
+    parentSessionId: string;
+    cwd: string;
+    agentPreset?: string;
+    label?: string;
+    provider?: string;
+  };
   "interaction.request": InteractionRequest;
   "interaction.closed": { requestId: string; sessionId: string };
 }

@@ -97,6 +97,7 @@ describe("startup timeout", () => {
     assert.deepEqual(parseStartupTimeoutSeconds(undefined), {});
     assert.deepEqual(parseStartupTimeoutSeconds(""), {});
     assert.deepEqual(parseStartupTimeoutSeconds("  "), {});
+    assert.deepEqual(parseStartupTimeoutSeconds("1"), { milliseconds: 1_000 });
     assert.deepEqual(parseStartupTimeoutSeconds(" 45 "), { milliseconds: 45_000 });
     assert.deepEqual(parseStartupTimeoutSeconds("600"), { milliseconds: 600_000 });
   });
@@ -129,5 +130,6 @@ describe("startup timeout", () => {
     assert.equal(configured.startupTimeoutMs, undefined);
     assert.equal(lines.length, 1);
     assert.match(lines[0]!, /startup timeout/i);
+    assert.ok(!lines[0]!.includes("nope"), "diagnostics must not echo invalid setting text");
   });
 });
