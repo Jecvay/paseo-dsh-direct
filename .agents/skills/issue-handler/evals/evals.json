@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "仅作模拟演练，禁止联网、修改仓库或调用GitHub/黑伤。收到本仓issue #7001：用户要求插件修复Home Assistant中的Zigbee灯泡固件。已核实灯泡故障在独立的Home Assistant环境复现，未使用Paseo或DSH，也没有本插件的兼容或提示责任。issue目前打开，无既有回复。给出下一步动作、何时结束，以及是否需要编码和发布。",
+      "prompt": "仅作模拟演练，禁止联网、修改仓库或调用GitHub及任何调度器。收到本仓issue #7001：用户要求插件修复Home Assistant中的Zigbee灯泡固件。已核实灯泡故障在独立的Home Assistant环境复现，未使用Paseo或DSH，也没有本插件的兼容或提示责任。issue目前打开，无既有回复。给出下一步动作、何时结束，以及是否需要编码和发布。",
       "expected_output": "用具体证据解释归属，模拟一次说明正确去向的评论并以not planned关闭；结束流程，不coding、不PR、不发版。",
       "files": [],
       "assertions": [
@@ -13,7 +13,7 @@
     },
     {
       "id": 2,
-      "prompt": "仅作模拟演练，不联网、不改文件、不实际调工具。issue #7002 属于本插件：需要重构跨server/shared/client的消息恢复机制，并调整RPC帧格式，仍保持Direct Provider及旧版降级。给出从当前开工到待本人确认的动作顺序和关键产物。假设环境支持subagents、三路调研可访问来源、实现与必要测试能完成、候选分支可推送，尚无任何发布批准；不要虚构已执行。最后展示将交给黑伤的ask回执结构。",
+      "prompt": "仅作模拟演练，不联网、不改文件、不实际调工具。issue #7002 属于本插件：需要重构跨server/shared/client的消息恢复机制，并调整RPC帧格式，仍保持Direct Provider及旧版降级。给出从当前开工到待本人确认的动作顺序和关键产物。假设环境支持subagents、三路调研可访问来源、实现与必要测试能完成、候选分支可推送，尚无任何发布批准；不要虚构已执行。最后展示将交给调度器的确认回执结构。",
       "expected_output": "加wait-human后继续；三个指定角度各独立explore→施工proposal及可读性审查→可review的coding→四个独立simplify后主agent改代码→独立code-review及修复→测试→固定SHA可访问SVG总结和PR→绑定候选的ask并结束等待，未发布。",
       "files": [],
       "assertions": [
@@ -21,7 +21,7 @@
         "明确三个必需explore角度并要求每角度独立subagent与实际来源",
         "先形成可施工proposal，再coding，四路simplify后主agentcoding，再独立review修复和测试",
         "SVG通过已推送候选的完整SHA公开链接，保留不能展示时的降级",
-        "返回有效agent-autoloop ask，绑定issue、PR、SHA、分支和版本，结束本轮且不发布"
+        "返回有效的结构化确认回执（ask），绑定issue、PR、SHA、分支和版本，结束本轮且不发布"
       ]
     },
     {
@@ -42,7 +42,7 @@
       "assertions": [
         "关联PR已合并且issue关闭仍继续核对发布，不重新合并、重发包或手推tag",
         "只有对应Publish、npm版本/dist-tag、正确远端tag及tarball证据齐备才报告发布完成",
-        "Publish仍运行时保留可回报的跟踪，或通过黑伤一次性later明确安排同run的结果复查，不能仅假定下次事件会来"
+        "Publish仍运行时保留可回报的跟踪，或通过调度器一次性later明确安排同run的结果复查，不能仅假定下次事件会来"
       ]
     }
   ]
