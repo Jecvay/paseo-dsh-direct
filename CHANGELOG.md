@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.19
+
+- Coalesce streamed assistant text, reasoning, and tool-call updates per session across root and subagent sessions using a leading-edge plus 120 ms window (`server/stream-coalescer.ts`), preventing parallel subagent broadcasts from flooding WebSocket/relay clients (Refs #94).
+- Defer `tool-call-delta` argument JSON parsing until flush (`materializeToolCall`) while preserving `sub_agent` `childSessionId` links, block adjacency, settled message tails, and causal flushes before durable events, subagent correlation, interactions, turn ends, and session teardown.
+- Keep Paseo 0.11 and later supported without changing `client/`, `shared/`, or the DSH bridge protocol.
+- Verified with build, all four typecheck targets, 280 passing tests (two environment-gated skips), notes and documentation gates, and `git diff --check`. Live Paseo Web UI + Relay validation remains for user acceptance after release.
+
 ## 0.2.18
 
 - Allow the bridge ready wait to be configured in host settings as 1–600 whole seconds, with the existing 15-second default. Apply changes to newly started bridges and preserve executable/profile settings when the timeout text is invalid (#91, contributed by @yuchi0531).
