@@ -1111,4 +1111,95 @@ describe("TimelineProjector stream payloads", () => {
     assert.equal(item.type, "assistant_message");
     assert.equal(item.type === "assistant_message" ? item.text : "", "Complete");
   });
+
+  it("defers tool_call JSON parsing until materializeToolCall and preserves subagent childSessionId", () => {
+    const projector = new TimelineProjector("paseo-1");
+    projector.projectStream({ type: "start", attemptId: "a1", revision: 0, turn: 1, step: 1 });
+
+    // Partial chunks under deferToolDetail skip parsing until materialized.
+    const partial = projector.projectStream(
+      {
+        type: "chunk",
+        attemptId: "a1",
+        revision: 1,
+        index: 0,
+        time: 1_000,
+        chunk: { type: "tool-call-delta", index: 0, id: "call-sub", name: "subagent", argumentsDelta: '{"description":' },
+      },
+      { deferToolDetail: true },
+    );
+    assert.equal(partial.length, 1);
+    const placeholder = timelineItem(partial[0]!);
+    assert.equal(placeholder.type, "tool_call");
+    if (placeholder.type === "tool_call") {
+      assert.equal(placeholder.detail.type, "unknown");
+    }
+
+    const completeDelta = projector.projectStream(
+      {
+        type: "chunk",
+        attemptId: "a1",
+        revision: 2,
+        index: 1,
+        time: 1_001,
+        chunk: { type: "tool-call-delta", index: 0, id: "call-sub", argumentsDelta: '"Audit"}' },
+      },
+      { deferToolDetail: true },
+    );
+    assert.equal(completeDelta.length, 1);
+
+    const materialized = projector.materializeToolCall("call-sub", "2026-11-14T00:00:01.000Z");
+    assert.ok(materialized && materialized.type === "timeline.item");
+    assert.equal(materialized.timestamp, "2026-11-14T00:00:01.000Z");
+    const matItem = timelineItem(materialized);
+    assert.equal(matItem.type, "tool_call");
+    if (matItem.type === "tool_call") {
+      assert.equal(matItem.detail.type, "sub_agent");
+      if (matItem.detail.type === "sub_agent") {
+        assert.equal(matItem.detail.description, "Audit");
+      }
+    }
+    // Second materialize call without new deltas is a no-op.
+    assert.equal(projector.materializeToolCall("call-sub"), undefined);
+
+    // Attach childSessionId, then receive another deferred delta and rematerialize: childSessionId stays intact.
+    assert.ok(projector.attachSubagentChild("call-sub", "child-1"));
+    projector.projectStream(
+      {
+        type: "chunk",
+        attemptId: "a1",
+        revision: 3,
+        index: 2,
+        time: 1_002,
+        chunk: { type: "tool-call-delta", index: 0, id: "call-sub", argumentsDelta: "" },
+      },
+      { deferToolDetail: true },
+    );
+    const rematerialized = projector.materializeToolCall("call-sub");
+    assert.ok(rematerialized);
+    const rematItem = timelineItem(rematerialized);
+    assert.equal(rematItem.type === "tool_call" && rematItem.detail.type === "sub_agent" ? rematItem.detail.childSessionId : undefined, "child-1");
+
+    // A deferred tool settled directly by tool/result auto-materializes before applying output.
+    projector.projectStream(
+      {
+        type: "chunk",
+        attemptId: "a1",
+        revision: 4,
+        index: 3,
+        time: 1_003,
+        chunk: { type: "tool-call-delta", index: 1, id: "call-bash", name: "bash", argumentsDelta: '{"command":"pwd"}' },
+      },
+      { deferToolDetail: true },
+    );
+    const settled = projector.projectEvent({
+      type: "tool/result",
+      seq: 1,
+      time: 1_004,
+      data: { message: { toolCallId: "call-bash", content: [{ type: "text", text: "/repo" }] } },
+    });
+    const bashItem = timelineItem(settled[0]!);
+    assert.equal(bashItem.type === "tool_call" && bashItem.detail.type === "shell" ? bashItem.detail.command : undefined, "pwd");
+    assert.equal(bashItem.type === "tool_call" && bashItem.detail.type === "shell" ? bashItem.detail.output : undefined, "/repo");
+  });
 });

@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" width="1600" height="1000" role="img" aria-label="子代理流式事件合并节流：问题、变化与结果">
+  <title>Issue #94 子代理流式事件合并节流</title>
+  <desc>上半部展示逐 token 广播导致 Web 客户端断线；下半部展示插件服务端按会话合并节流后，发送帧率大幅下降、连接保持稳定。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1000" fill="#f8fafc"/>
+  <text x="60" y="70" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="42" font-weight="700" fill="#0f172a">Issue #94：子代理逐 token 广播淹没 Web 客户端</text>
+  <text x="60" y="110" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="24" fill="#475569">根因：插件子会话流式帧逐条直发，Paseo 宿主的 60ms 合并只覆盖主会话，绕过子会话</text>
+
+  <!-- Problem half -->
+  <text x="60" y="175" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="30" font-weight="700" fill="#b91c1c">修改前</text>
+
+  <!-- DSH box -->
+  <rect x="60" y="200" width="300" height="140" rx="14" fill="#fef2f2" stroke="#b91c1c" stroke-width="3"/>
+  <text x="210" y="250" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="28" font-weight="700" fill="#7f1d1d">DSH 多个子代理</text>
+  <text x="210" y="290" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#7f1d1d">text / reasoning / tool</text>
+  <text x="210" y="320" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#7f1d1d">逐 token delta</text>
+
+  <!-- Plugin box -->
+  <rect x="470" y="200" width="330" height="140" rx="14" fill="#ffffff" stroke="#b91c1c" stroke-width="3"/>
+  <text x="635" y="250" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="26" font-weight="700" fill="#7f1d1d">插件 server/provider.ts</text>
+  <text x="635" y="292" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#7f1d1d">每片立即 emit / emitChildEvent</text>
+  <text x="635" y="322" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#b91c1c">无合并、无节流</text>
+
+  <!-- Daemon/WS box -->
+  <rect x="910" y="200" width="300" height="140" rx="14" fill="#ffffff" stroke="#b91c1c" stroke-width="3"/>
+  <text x="1060" y="250" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="26" font-weight="700" fill="#7f1d1d">Paseo Daemon</text>
+  <text x="1060" y="290" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#7f1d1d">子会话路径绕过</text>
+  <text x="1060" y="320" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#7f1d1d">AgentStreamCoalescer</text>
+
+  <!-- Web client box -->
+  <rect x="1320" y="200" width="220" height="140" rx="14" fill="#fef2f2" stroke="#b91c1c" stroke-width="3"/>
+  <text x="1430" y="250" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="26" font-weight="700" fill="#7f1d1d">Web / App</text>
+  <text x="1430" y="290" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#7f1d1d">≈550 帧/秒</text>
+  <text x="1430" y="320" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#b91c1c">心跳超时断线</text>
+
+  <line x1="360" y1="270" x2="465" y2="270" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="800" y1="270" x2="905" y2="270" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="1210" y1="270" x2="1315" y2="270" stroke="#b91c1c" stroke-width="3" marker-end="url(#arrowRed)"/>
+
+  <!-- Consequences -->
+  <rect x="60" y="375" width="700" height="130" rx="12" fill="#fff7ed" stroke="#c2410c" stroke-width="2"/>
+  <text x="90" y="416" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="24" font-weight="700" fill="#9a3412">现象</text>
+  <text x="90" y="452" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#9a3412">发送队列积压 → 导入会话 9 个 provider 全部报错</text>
+  <text x="90" y="484" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#9a3412">daemon RSS 2.3GB → 2.74GB，日志每 1–2 分钟写满 10MB</text>
+
+  <rect x="800" y="375" width="740" height="130" rx="12" fill="#fff7ed" stroke="#c2410c" stroke-width="2"/>
+  <text x="830" y="416" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="24" font-weight="700" fill="#9a3412">放大因素</text>
+  <text x="830" y="452" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#9a3412">每片 tool-call-delta 都 JSON.parse 累计参数（O(n²)）</text>
+  <text x="830" y="484" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#9a3412">宿主 snapshots Map 每个 token 永久多一条记录</text>
+
+  <!-- divider -->
+  <line x1="60" y1="535" x2="1540" y2="535" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="10 8"/>
+
+  <!-- Change half -->
+  <text x="60" y="592" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="30" font-weight="700" fill="#15803d">修改后</text>
+
+  <rect x="60" y="618" width="300" height="164" rx="14" fill="#ffffff" stroke="#15803d" stroke-width="3"/>
+  <text x="210" y="672" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="26" font-weight="700" fill="#14532d">DSH 多个子代理</text>
+  <text x="210" y="714" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#14532d">逐 token delta</text>
+  <text x="210" y="748" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#14532d">（内容不变）</text>
+
+  <rect x="470" y="618" width="470" height="164" rx="14" fill="#f0fdf4" stroke="#15803d" stroke-width="4"/>
+  <text x="705" y="662" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="26" font-weight="700" fill="#14532d">新增 StreamCoalescer</text>
+  <text x="705" y="700" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#14532d">首片直发 + 120ms 窗口，按会话桶合并</text>
+  <text x="705" y="732" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#14532d">文本/思考拼接 · 工具只留最新 · 延迟解析参数</text>
+  <text x="705" y="762" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#15803d">边界前强制 flush，保证顺序与定稿尾部</text>
+
+  <rect x="1050" y="618" width="260" height="164" rx="14" fill="#ffffff" stroke="#15803d" stroke-width="3"/>
+  <text x="1180" y="672" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="26" font-weight="700" fill="#14532d">Paseo Daemon</text>
+  <text x="1180" y="714" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#14532d">子会话广播降至</text>
+  <text x="1180" y="748" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="22" fill="#15803d">≈25–30 帧/秒</text>
+
+  <rect x="1400" y="618" width="140" height="164" rx="14" fill="#f0fdf4" stroke="#15803d" stroke-width="3"/>
+  <text x="1470" y="676" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="24" font-weight="700" fill="#14532d">Web / App</text>
+  <text x="1470" y="718" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#15803d">连接稳定</text>
+  <text x="1470" y="750" text-anchor="middle" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#15803d">不再断线</text>
+
+  <line x1="360" y1="700" x2="465" y2="700" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="940" y1="700" x2="1045" y2="700" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
+  <line x1="1310" y1="700" x2="1395" y2="700" stroke="#15803d" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+  <!-- coverage -->
+  <rect x="60" y="820" width="760" height="130" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="90" y="862" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="24" font-weight="700" fill="#166534">已验证</text>
+  <text x="90" y="898" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#166534">build / 四路 typecheck / 280 项测试 / notes 与 docs 门禁</text>
+  <text x="90" y="928" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#166534">高频并发子代理合并、边界顺序、关闭清理、无定时器泄漏</text>
+
+  <rect x="840" y="820" width="700" height="130" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>
+  <text x="870" y="862" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="24" font-weight="700" fill="#334155">未验证 / 待确认</text>
+  <text x="870" y="898" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#334155">真实 Paseo Web UI + Relay 长时间高并发体验需发布后人工验收</text>
+  <text x="870" y="928" font-family="'WenQuanYi Zen Hei','Noto Sans CJK SC','PingFang SC','Microsoft YaHei',sans-serif" font-size="21" fill="#334155">≥15 个并行子代理的极端场景可后续加连接级背压</text>
+</svg>

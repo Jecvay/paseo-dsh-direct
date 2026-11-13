@@ -42,6 +42,7 @@ import type { DshConfigured } from "./dsh-config.js";
 import { detectDshVersion } from "./dsh-version.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
 import { displayText, toPromptParts } from "./prompt-content.js";
+import { StreamCoalescer, type StreamCoalesceConfig } from "./stream-coalescer.js";
 import { TimelineProjector } from "./timeline.js";
 import { classifyTurnEnd, type TurnTerminal } from "./turn-end.js";
 import { objectValue } from "./values.js";
@@ -85,6 +86,8 @@ interface DshProviderOptions {
   command?: string;
   /** Detects the local dsh version for the startup compatibility check; defaults to spawning `<exe> --version`. */
   detectDshVersion?: DetectVersion;
+  /** Overrides for the streamed-update coalescer; tests inject a fake clock and short window. */
+  streamCoalesce?: StreamCoalesceConfig;
 }
 
 /** A prompt or command RPC in flight; it owns any turn DSH starts before the RPC returns. */
@@ -129,6 +132,7 @@ interface SessionState {
   bridge: DshBridge;
   releaseBridgeListeners: Array<() => void>;
   projector: TimelineProjector;
+  coalescer: StreamCoalescer;
   subsessionsEnabled: boolean;
   pluginCardsEnabled: boolean;
   children: Map<string, ChildSessionState>;
@@ -190,6 +194,7 @@ export function createDshProvider(options: DshProviderOptions): ProviderRegistra
         negotiateProviderCapabilities(request.capabilities, supported),
         options.detectDshVersion ?? detectDshVersion,
         providerLaunch?.env,
+        options.streamCoalesce ?? {},
       );
     },
   };
@@ -227,6 +232,7 @@ function createConnection(
   capabilities: readonly string[],
   detectVersion: DetectVersion,
   launchEnv: Readonly<Record<string, string>> | undefined,
+  streamCoalesce: StreamCoalesceConfig = {},
 ): ProviderConnection {
   const listeners = new Set<(event: ProviderEvent) => void>();
   const sessions = new Map<string, SessionState>();
@@ -269,7 +275,7 @@ function createConnection(
         if (closed) return;
         await dispatch(input, {
           discoveryBridge, createBridge, sessions, emit, capabilities, detectVersion, launchEnv,
-          openingBridges, closeBridge, isClosed: () => closed,
+          openingBridges, closeBridge, isClosed: () => closed, streamCoalesce,
         });
       }).catch((error) => failInput(input, error, emit)).finally(() => {
         if (operationSession) operationSession.pendingOperations -= 1;
@@ -290,6 +296,7 @@ function createConnection(
       for (const session of sessions.values()) {
         session.closed = true;
         session.releaseBridgeListeners.forEach((release) => release());
+        session.coalescer.dispose();
         bridges.add(session.bridge);
       }
       sessions.clear();
@@ -328,6 +335,7 @@ function listenToSessionBridge(
     session.bridge.on("session.event", ({ sessionId, event, images }) => {
       if (isCurrentSession(sessionId)) {
         session.activityRevision += 1;
+        session.coalescer.flush(session.nativeId);
         if (event.type === "subagent/catalog") {
           handleSubagentCatalogEvent(session, session.nativeId, event, emit);
           return;
@@ -385,6 +393,7 @@ function listenToSessionBridge(
       const child = !session.closed ? session.children.get(sessionId) : undefined;
       if (!child) return;
       session.activityRevision += 1;
+      session.coalescer.flush(child.nativeId);
       if (
         event.type === "agent-preset/selected" &&
         typeof event.data.agentPreset === "string" &&
@@ -453,21 +462,21 @@ function listenToSessionBridge(
     session.bridge.on("session.stream", ({ sessionId, frame }) => {
       if (isCurrentSession(sessionId)) {
         session.activityRevision += 1;
-        for (const projected of session.projector.projectStream(frame)) {
-          observeProjectedSubagentCalls(session, session.nativeId, projected, emit);
-          emit(projected);
+        for (const projected of session.projector.projectStream(frame, { deferToolDetail: true })) {
+          session.coalescer.enqueue(session.nativeId, projected);
         }
+        if (frame.type === "end") session.coalescer.flush(session.nativeId);
         return;
-      }
-      const child = !session.closed ? session.children.get(sessionId) : undefined;
+      }      const child = !session.closed ? session.children.get(sessionId) : undefined;
       if (!child) return;
       session.activityRevision += 1;
-      const projected = child.projector.projectStream(frame);
+      const projected = child.projector.projectStream(frame, { deferToolDetail: true });
       if (projected.length > 0) ensureChildOpened(session, child, emit);
+      if (!session.subsessionsEnabled) return;
       for (const item of projected) {
-        observeProjectedSubagentCalls(session, child.nativeId, item, emit);
-        emitChildEvent(session, child, item, emit);
+        session.coalescer.enqueue(child.nativeId, item);
       }
+      if (frame.type === "end") session.coalescer.flush(child.nativeId);
     }),
     session.bridge.on("session.status", ({ sessionId, status }) => {
       if (isCurrentSession(sessionId)) {
@@ -476,6 +485,7 @@ function listenToSessionBridge(
           if (session.dispatch) session.dispatch.sawRunning = true;
           return;
         }
+        session.coalescer.flush(session.nativeId);
         const terminal: TurnTerminal = { state: session.cancelRequested ? "canceled" : "completed" };
         if (session.activeTurnId) finishTurn(session, terminal, emit);
         else if (session.dispatch?.sawRunning && !session.dispatch.deferred) {
@@ -487,6 +497,7 @@ function listenToSessionBridge(
       if (!child) return;
       session.activityRevision += 1;
       if (status === "running") return;
+      session.coalescer.flush(child.nativeId);
       if (child.activeTurnId) {
         finishChildTurn(
           session,
@@ -509,6 +520,7 @@ function listenToSessionBridge(
     session.bridge.on("interaction.request", (interaction) => {
       if (!isCurrentSession(interaction.sessionId)) return;
       session.activityRevision += 1;
+      session.coalescer.flush(session.nativeId);
       session.pendingInteractions.set(interaction.requestId, interaction);
       emit({
         type: "session.permission",
@@ -537,6 +549,7 @@ function failSession(
   if (session.closed) return;
   session.closed = true;
   session.releaseBridgeListeners.forEach((release) => release());
+  flushAndDisposeSessionCoalescer(session);
   for (const permissionId of session.pendingInteractions.keys()) {
     emit({ type: "session.permission_resolved", sessionId: session.paseoId, permissionId });
   }
@@ -590,6 +603,7 @@ interface DispatchState {
   openingBridges: Set<DshBridge>;
   closeBridge(bridge: DshBridge): Promise<void>;
   isClosed(): boolean;
+  streamCoalesce: StreamCoalesceConfig;
 }
 
 async function dispatch(input: ProviderInput, state: DispatchState): Promise<void> {
@@ -722,6 +736,7 @@ async function openSession(
       bridge,
       releaseBridgeListeners: [],
       projector: new TimelineProjector(input.sessionId, pluginCardsEnabled),
+      coalescer: createSessionCoalescer(() => session!, state.emit, state.streamCoalesce),
       subsessionsEnabled,
       pluginCardsEnabled,
       children: new Map(),
@@ -747,6 +762,7 @@ async function openSession(
     if (session) {
       session.closed = true;
       session.releaseBridgeListeners.forEach((release) => release());
+      session.coalescer.dispose();
       state.sessions.delete(input.sessionId);
     }
     await state.closeBridge(bridge);
@@ -1112,6 +1128,7 @@ async function closeSession(
   session.pendingInteractions.clear();
   session.closed = true;
   session.releaseBridgeListeners.forEach((release) => release());
+  flushAndDisposeSessionCoalescer(session);
   try {
     await session.bridge.request("session.close", { sessionId: session.nativeId });
   } finally {
@@ -1296,6 +1313,7 @@ function correlateChildWithParentCall(
   child: ChildSessionState,
   emit?: (event: ProviderEvent) => void,
 ): void {
+  if (emit && !child.toolCallId) session.coalescer.flush(child.parentNativeId);
   if (!child.toolCallId) {
     const calls = session.pendingSubagentCalls.get(child.parentNativeId) ?? [];
     const exact = calls.find((candidate) => candidate.childSessionId === child.nativeId);
@@ -1337,8 +1355,11 @@ function ensureChildOpened(
   emit: (event: ProviderEvent) => void,
   force = false,
 ): void {
+  if (session.closed) return;
   child.admitted = true;
-  correlateChildWithParentCall(session, child, emit);
+  if (!child.opened || !child.toolCallId) {
+    correlateChildWithParentCall(session, child, emit);
+  }
   if (child.opened || !session.subsessionsEnabled) return;
   if (!force && hasAmbiguousPendingSubagentCall(session, child)) return;
   if (child.parentNativeId !== session.nativeId) {
@@ -1367,7 +1388,44 @@ function ensureChildOpened(
   for (const buffered of child.pendingEvents.splice(0)) {
     emit(buffered);
   }
+  session.coalescer.flush(child.nativeId);
   flushWaitingChildren(session, child.nativeId, emit);
+}
+
+function createSessionCoalescer(
+  getSession: () => SessionState,
+  emit: (event: ProviderEvent) => void,
+  config: StreamCoalesceConfig,
+): StreamCoalescer {
+  return new StreamCoalescer({
+    ...config,
+    onFlush: (key, event) => {
+      const session = getSession();
+      const child = key === session.nativeId ? undefined : session.children.get(key);
+      if (key !== session.nativeId && (!child || !session.subsessionsEnabled)) return;
+      const projector = child ? child.projector : session.projector;
+      const targetNativeId = child ? child.nativeId : session.nativeId;
+      const materialized =
+        event.type === "timeline.item" && event.item.type === "tool_call"
+          ? (projector.latestToolCall(event.item.callId, event.timestamp) ?? event)
+          : event;
+      observeProjectedSubagentCalls(session, targetNativeId, materialized, emit);
+      if (child) emitChildEvent(session, child, materialized, emit);
+      else emit(materialized);
+    },
+  });
+}
+
+function flushAndDisposeSessionCoalescer(session: SessionState): void {
+  session.coalescer.flush(session.nativeId);
+  for (const child of session.children.values()) {
+    if (child.opened && session.subsessionsEnabled) {
+      session.coalescer.flush(child.nativeId);
+    } else {
+      session.coalescer.discard(child.nativeId);
+    }
+  }
+  session.coalescer.dispose();
 }
 
 function emitChildEvent(
