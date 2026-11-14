@@ -15,11 +15,20 @@ import { classifyTurnEnd } from "./turn-end.js";
 import { arrayValue, numberValue, objectValue, stringValue } from "./values.js";
 
 export type SessionEvent = Extract<ProviderEvent, { sessionId: string }>;
+export type ToolCallItem = Extract<ProviderTimelineItem, { type: "tool_call" }>;
+export const STREAM_BLOCK_SEPARATOR = "#";
+
+export function streamBlockPrefix(id: string): string | undefined {
+  const hash = id.lastIndexOf(STREAM_BLOCK_SEPARATOR);
+  return hash > 0 ? id.slice(0, hash) : undefined;
+}
 
 /** Converts DSH durable events and transient stream frames into Paseo timeline items. */
 export class TimelineProjector {
   private readonly compactions = new Map<string, { trigger: "auto" | "manual"; preTokens?: number }>();
-  private readonly tools = new Map<string, Extract<ProviderTimelineItem, { type: "tool_call" }>>();
+  private readonly tools = new Map<string, ToolCallItem>();
+  private readonly dirtyTools = new Set<string>();
+  private readonly attachedSubagentChildren = new Map<string, string>();
   private readonly settledAttempts = new Map<string, number>();
   private readonly settlementOrdinals = new Map<number, number>();
   private readonly liveAttempts = new Map<
@@ -104,7 +113,7 @@ export class TimelineProjector {
     }
   }
 
-  projectStream(frame: DshStreamFrame): SessionEvent[] {
+  projectStream(frame: DshStreamFrame, options?: { deferToolDetail?: boolean }): SessionEvent[] {
     if (frame.type === "start") {
       const key = stepKey(frame.turn, frame.step);
       const ordinal = this.settledAttempts.get(key) ?? 0;
@@ -145,8 +154,13 @@ export class TimelineProjector {
         timeline(
           this.paseoSessionId,
           type === "assistant_message"
-            ? { type, id: `${blockId}#${frame.revision}:${frame.index}`, messageId: blockId, text: delta }
-            : { type, id: `${blockId}#${frame.revision}:${frame.index}`, text: delta },
+            ? {
+                type,
+                id: `${blockId}${STREAM_BLOCK_SEPARATOR}${frame.revision}:${frame.index}`,
+                messageId: blockId,
+                text: delta,
+              }
+            : { type, id: `${blockId}${STREAM_BLOCK_SEPARATOR}${frame.revision}:${frame.index}`, text: delta },
           toTimestamp(frame.time),
         ),
       ];
@@ -156,22 +170,40 @@ export class TimelineProjector {
       const existing = this.tools.get(callId);
       const argumentDelta = stringValue(chunk.argumentsDelta) ?? "";
       const argumentsText =
-        (existing?.metadata && stringValue(existing.metadata.argumentsText)) ?? "";
+        ((existing?.metadata && stringValue(existing.metadata.argumentsText)) ?? "") + argumentDelta;
       const name = stringValue(chunk.name) ?? existing?.name ?? "tool";
-      const item: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
-        type: "tool_call",
-        id: `tool:${callId}`,
-        callId,
-        name,
-        status: "running",
-        error: null,
-        detail: toolDetail(name, parseArguments(argumentsText + argumentDelta)),
-        metadata: { argumentsText: argumentsText + argumentDelta },
-      };
-      this.tools.set(callId, item);
-      return [timeline(this.paseoSessionId, item, toTimestamp(frame.time))];
+      return [
+        this.upsertRunningToolCall(callId, name, argumentsText, argumentsText, {
+          defer: options?.deferToolDetail === true,
+          timestamp: toTimestamp(frame.time),
+        }),
+      ];
     }
     return [];
+  }
+
+  /**
+   * Parses accumulated streamed arguments for a deferred `tool_call` once per flush
+   * instead of on every `tool-call-delta`. Returns `undefined` when no deferred update is pending.
+   */
+  materializeToolCall(callId: string, timestamp?: string): SessionEvent | undefined {
+    if (!this.dirtyTools.delete(callId)) return undefined;
+    const existing = this.tools.get(callId);
+    if (!existing) return undefined;
+    const argumentsText =
+      (existing.metadata && stringValue(existing.metadata.argumentsText)) ?? "";
+    const detail = this.buildToolDetail(callId, existing.name, parseArguments(argumentsText));
+    const item: ToolCallItem = { ...existing, detail };
+    this.tools.set(callId, item);
+    return timeline(this.paseoSessionId, item, timestamp);
+  }
+
+  /** Returns the authoritative current `tool_call` event (materializing if deferred). */
+  latestToolCall(callId: string, timestamp?: string): SessionEvent | undefined {
+    const materialized = this.materializeToolCall(callId, timestamp);
+    if (materialized) return materialized;
+    const existing = this.tools.get(callId);
+    return existing ? timeline(this.paseoSessionId, existing, timestamp) : undefined;
   }
 
   failRunningTools(message: string): SessionEvent[] {
@@ -179,10 +211,22 @@ export class TimelineProjector {
   }
 
   attachSubagentChild(callId: string, childSessionId: string): SessionEvent | undefined {
+    const alreadyAttached = this.attachedSubagentChildren.get(callId) === childSessionId;
+    this.attachedSubagentChildren.set(callId, childSessionId);
+    const materialized = this.materializeToolCall(callId);
+    if (
+      !alreadyAttached &&
+      materialized?.type === "timeline.item" &&
+      materialized.item.type === "tool_call" &&
+      materialized.item.detail.type === "sub_agent" &&
+      materialized.item.detail.childSessionId === childSessionId
+    ) {
+      return materialized;
+    }
     const existing = this.tools.get(callId);
     if (!existing || existing.detail.type !== "sub_agent") return undefined;
     if (existing.detail.childSessionId === childSessionId) return undefined;
-    const updated: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
+    const updated: ToolCallItem = {
       ...existing,
       detail: { ...existing.detail, childSessionId },
     };
@@ -242,9 +286,11 @@ export class TimelineProjector {
   /** Marks every running tool card failed; used at turn end and bridge failure. */
   private settleRunningTools(message: string, timestamp?: string): SessionEvent[] {
     const events: SessionEvent[] = [];
-    for (const [callId, item] of this.tools) {
-      if (item.status !== "running") continue;
-      const failed: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
+    for (const [callId, current] of this.tools) {
+      if (current.status !== "running") continue;
+      this.materializeToolCall(callId);
+      const item = this.tools.get(callId) ?? current;
+      const failed: ToolCallItem = {
         ...item,
         status: "failed",
         error: message,
@@ -253,6 +299,38 @@ export class TimelineProjector {
       events.push(timeline(this.paseoSessionId, failed, timestamp));
     }
     return events;
+  }
+
+  private buildToolDetail(callId: string, name: string, args: JsonObject): ProviderToolCallDetail {
+    return preserveSubagentChild(toolDetail(name, args), this.attachedSubagentChildren.get(callId));
+  }
+
+  private upsertRunningToolCall(
+    callId: string,
+    name: string,
+    argumentsText: string,
+    rawArgs: unknown,
+    options: { defer?: boolean; timestamp?: string } = {},
+  ): SessionEvent {
+    const existing = this.tools.get(callId);
+    const defer = options.defer === true;
+    const detail = defer
+      ? (existing?.detail ?? ({ type: "unknown", input: {}, output: {} } as const))
+      : this.buildToolDetail(callId, name, parseArguments(rawArgs));
+    const item: ToolCallItem = {
+      type: "tool_call",
+      id: `tool:${callId}`,
+      callId,
+      name,
+      status: "running",
+      error: null,
+      detail,
+      metadata: { argumentsText },
+    };
+    if (defer) this.dirtyTools.add(callId);
+    else this.dirtyTools.delete(callId);
+    this.tools.set(callId, item);
+    return timeline(this.paseoSessionId, item, options.timestamp);
   }
 
   private notice(
@@ -416,19 +494,9 @@ export class TimelineProjector {
       } else if (type === "tool-call") {
         const callId = stringValue(block.id) ?? stringValue(block.toolCallId) ?? `${messageId}:${index}`;
         const name = stringValue(block.name) ?? "tool";
-        const args = parseArguments(block.arguments);
-        const item: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
-          type: "tool_call",
-          id: `tool:${callId}`,
-          callId,
-          name,
-          status: "running",
-          error: null,
-          detail: toolDetail(name, args),
-          metadata: { argumentsText: stringifyValue(block.arguments) },
-        };
-        this.tools.set(callId, item);
-        projected.push(timeline(this.paseoSessionId, item, timestamp));
+        projected.push(
+          this.upsertRunningToolCall(callId, name, stringifyValue(block.arguments), block.arguments, { timestamp }),
+        );
       }
     });
     // No session.usage here: Paseo replaces `lastUsage` whole, and a per-message
@@ -476,19 +544,15 @@ export class TimelineProjector {
   private projectToolCall(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
     const callId = stringValue(event.data.callId) ?? `event:${event.seq}`;
     const name = stringValue(event.data.name) ?? "tool";
-    const args = parseArguments(event.data.arguments);
-    const item: Extract<ProviderTimelineItem, { type: "tool_call" }> = {
-      type: "tool_call",
-      id: `tool:${callId}`,
-      callId,
-      name,
-      status: "running",
-      error: null,
-      detail: toolDetail(name, args),
-      metadata: { argumentsText: stringifyValue(event.data.arguments) },
-    };
-    this.tools.set(callId, item);
-    return [timeline(this.paseoSessionId, item, timestamp)];
+    return [
+      this.upsertRunningToolCall(
+        callId,
+        name,
+        stringifyValue(event.data.arguments),
+        event.data.arguments,
+        { timestamp },
+      ),
+    ];
   }
 
   private projectToolResult(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
@@ -510,21 +574,25 @@ export class TimelineProjector {
       stringValue(block?.toolCallId) ??
       stringValue(block?.tool_call_id);
     if (!callId) return [];
-    const existing = this.tools.get(callId) ?? {
-      type: "tool_call" as const,
+    this.materializeToolCall(callId);
+    const existing: ToolCallItem = this.tools.get(callId) ?? {
+      type: "tool_call",
       id: `tool:${callId}`,
       callId,
       name: "tool",
-      status: "running" as const,
+      status: "running",
       error: null,
-      detail: { type: "unknown" as const, input: {}, output: {} },
+      detail: { type: "unknown", input: {}, output: {} },
     };
     const payload = block?.content ?? message.content;
     const output = contentText(payload) || stringifyValue(payload);
     const isError =
       message.isError === true || event.data.isError === true || block?.isError === true;
     const detail = withOutput(existing.detail, output);
-    const item: Extract<ProviderTimelineItem, { type: "tool_call" }> = isError
+    if (detail.type === "sub_agent" && detail.childSessionId) {
+      this.attachedSubagentChildren.set(callId, detail.childSessionId);
+    }
+    const item: ToolCallItem = isError
       ? { ...existing, detail, status: "failed", error: output || "Tool failed" }
       : { ...existing, detail, status: "completed", error: null };
     this.tools.set(callId, item);
@@ -556,6 +624,14 @@ function timeline(
   timestamp?: string,
 ): SessionEvent {
   return { type: "timeline.item", sessionId, item, ...(timestamp ? { timestamp } : {}) };
+}
+
+function preserveSubagentChild(
+  detail: ProviderToolCallDetail,
+  childSessionId: string | undefined,
+): ProviderToolCallDetail {
+  if (!childSessionId || detail.type !== "sub_agent" || detail.childSessionId) return detail;
+  return { ...detail, childSessionId };
 }
 
 function toolDetail(name: string, args: JsonObject): ProviderToolCallDetail {

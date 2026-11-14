@@ -137,7 +137,9 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - `compaction/start` 与 `compaction/end` 显示为同一张压缩卡片（进行中 → 完成），`compaction/summary` 提供被压缩的 token 数；由命令发起的压缩标记为手动，失败另显示错误通知。
 - Paseo 的 system prompt 在 agent `setup` 中以 agent 作用域的 `systemPrompt.section`（order 10100）追加；tool policy 预先批准的 `mcp__<server>__<tool>` 在桥接的审批钩子中直接允许，其他工具照常询问。
 - 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。
-- 流式增量逐片发送，每片只携带本次新增文本与独立 item id，正文分片共用块级 `messageId`，由宿主的相邻合并拼接成同一条消息，避免重复传输累计全文。宿主把同一 id 的文本视为累计快照并按前缀切差额，非累计分片复用同一 id 会丢失重复缩进或相同前缀分片。定稿消息只补发流式尚未覆盖的尾部，并与流式分片共用 `messageId`。
+- 流式增量只携带本次新增文本与独立 item id，正文分片共用块级 `messageId`，由宿主的相邻合并拼接成同一条消息，避免重复传输累计全文。宿主把同一 id 的文本视为累计快照并按前缀切差额，非累计分片复用同一 id 会丢失重复缩进或相同前缀分片。定稿消息只补发流式尚未覆盖的尾部，并与流式分片共用 `messageId`。
+  - `server/stream-coalescer.ts` 按会话桶做前沿直发 + 120 ms 窗口合并，根会话与子会话共用：`assistant_message` 按同 `messageId` 拼接、`reasoning` 按同块前缀拼接、`tool_call` 按 `callId` 只留最新状态，并把参数 JSON 解析延迟到 flush 时（`TimelineProjector.materializeToolCall`）。
+  - 流结束、持久事件、状态切换、交互请求、子代理关联与会话关闭/故障前先强制排空对应会话的缓冲；未打开的子会话流只缓存在 `pendingEvents`，会话关闭或桥接失败时直接丢弃。
 - 工具状态映射为原生工具卡片，审批和用户问答通过原生交互事件传递。`subagent` 与 `subagent_fork` 工具调用映射为 `sub_agent` 工具卡片（带预设或类型、描述及从工具结果提取的 `childSessionId`）。协商出 `session.subsession` 时，桥接按 `session/created` 与 `subagent/catalog` 跟踪归属当前根会话的子会话，过滤 `fork` 继承的前缀事件（`seq < inheritedEventCount`），在拿到 `subagent/descriptor` 或首个子会话事件时发出 `restoration: "parent"` 的子会话 `session.opened`（关联父工具调用 `toolCallId`、预设标题与任务描述），并转发子会话自己的 `timeline.item` 与 `session.turn`；历史回放按 `session.open` 返回的 `subagents` 快照恢复子会话时间线与终态。未协商 `session.subsession` 的宿主只保留父时间线上的 `sub_agent` 工具卡片。子会话投影剥离 DSH 自动追加的父 agent 回传指引尾部，并将父会话通过 `send_message` 发往子会话的中继消息还原为子会话用户气泡；子会话的 token 用量不覆盖根会话的用量读数。工具结果里的图片由桥接进程读出并写成内容寻址的文件，插件为每张图发一条 markdown 图片助手消息，Paseo 据此显示内联图片并提供打开已保存图片的入口。
 - DSH 会话投影 `tokenUsage` 或 `contextPressure` 变化时，桥接发 `session.usage` 通知，插件转为 Paseo 的 usage 事件：未命中缓存的输入、缓存命中输入与输出 token 是会话累计值，另带上下文已用与上限 token。上下文已用优先取 `contextPressure` 的 `projectedTokens`（dsh 0.2.1 起随压缩的影子价格下调，压缩结束即更新），字段不存在时回退到最近一次请求的 `pressureTokens`。全零的初始值与未变的值不发送；DSH 不提供 `sessionProjections` 服务时不上报用量。
 - 只将真实用户来源的消息显示为用户气泡，运行时注入的上下文和技能目录不冒充用户输入。

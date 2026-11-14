@@ -6,6 +6,7 @@ import type { DshBridge, SessionLaunch } from "./bridge-client.js";
 import { DEFAULT_PROFILE } from "./bridge-client.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
 import { createDshProvider } from "./provider.js";
+import { createFakeClock } from "../scripts/test-fake-clock.js";
 import { versionLine } from "./version-line.js";
 
 function escapeRegExp(value: string): string {
@@ -2189,5 +2190,400 @@ test("opens a buffered parent before its already-finished nested subagent", asyn
     assert.deepEqual(grandchildEvents.filter((event) => event.type === "session.turn").map((event) => event.state), ["started", "completed"]);
   } finally {
     await connection.close();
+  }
+});
+
+test("coalesces high-frequency parallel subagent streams and settles exact text and tool args", async () => {
+  const clock = createFakeClock(10_000);
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({
+    createBridge: async () => bridge,
+    detectDshVersion: noVersionWarning,
+    streamCoalesce: { windowMs: 120, timers: clock.timers, now: clock.now },
+  });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+
+  try {
+    await connection.send({
+      type: "session.open",
+      requestId: "open-burst",
+      sessionId: "paseo-root",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+
+    const childIds = ["child-1", "child-2", "child-3"];
+    for (const [idx, childId] of childIds.entries()) {
+      const callId = `call-sub-${idx}`;
+      bridge.notify("session.event", {
+        sessionId: "native-new",
+        event: {
+          type: "tool/call",
+          seq: idx,
+          time: 10,
+          data: { callId, name: "subagent", arguments: JSON.stringify({ description: `Worker ${idx}` }) },
+        },
+        images: [],
+      });
+      bridge.notify("session.child", { sessionId: childId, parentSessionId: "native-new", cwd: "/repo" });
+      bridge.notify("session.event", {
+        sessionId: childId,
+        event: { type: "subagent/descriptor", seq: 0, time: 11, data: { mode: "continuable", label: `Worker ${idx}` } },
+        images: [],
+      });
+      bridge.notify("session.event", {
+        sessionId: childId,
+        event: { type: "turn/start", seq: 1, time: 12, data: { turn: 1 } },
+        images: [],
+      });
+      bridge.notify("session.stream", {
+        sessionId: childId,
+        frame: { type: "start", attemptId: `att-${idx}`, revision: 0, turn: 1, step: 1 },
+      });
+    }
+
+    const beforeBurstIndex = events.length;
+    // Simulate 1 second of 550+ frames/s across 3 parallel subagents (text + reasoning + write tool args).
+    const writeChunks = ['{"file_path":"/repo/out.ts","content":"', ...Array.from({ length: 58 }, (_, k) => `line${k};`), '"}'];
+    for (let step = 0; step < 180; step++) {
+      for (const [idx, childId] of childIds.entries()) {
+        if (step < 60) {
+          bridge.notify("session.stream", {
+            sessionId: childId,
+            frame: {
+              type: "chunk",
+              attemptId: `att-${idx}`,
+              revision: 1,
+              index: step,
+              time: clock.now(),
+              chunk: { type: "reasoning-delta", index: 0, text: `r${step}` },
+            },
+          });
+        } else if (step < 120) {
+          bridge.notify("session.stream", {
+            sessionId: childId,
+            frame: {
+              type: "chunk",
+              attemptId: `att-${idx}`,
+              revision: 1,
+              index: step,
+              time: clock.now(),
+              chunk: { type: "text-delta", index: 1, text: `  t${step}` },
+            },
+          });
+        } else {
+          const argPart = writeChunks[step - 120] ?? "";
+          bridge.notify("session.stream", {
+            sessionId: childId,
+            frame: {
+              type: "chunk",
+              attemptId: `att-${idx}`,
+              revision: 1,
+              index: step,
+              time: clock.now(),
+              chunk: {
+                type: "tool-call-delta",
+                index: 2,
+                id: `tool-${idx}`,
+                name: step === 120 ? "write" : undefined,
+                argumentsDelta: argPart,
+              },
+            },
+          });
+        }
+      }
+      clock.advanceBy(6);
+    }
+
+    clock.advanceBy(120);
+    const burstEvents = events.slice(beforeBurstIndex).filter((e) => e.type === "timeline.item");
+    // 540 input frames across 3 parallel subagents over ~1.1s coalesce down to <= 40 emitted frames.
+    assert.ok(burstEvents.length <= 45, `expected coalesced burst <= 45 frames, got ${burstEvents.length}`);
+
+    for (const [idx, childId] of childIds.entries()) {
+      const childItems = burstEvents.filter(
+        (e): e is Extract<ProviderEvent, { type: "timeline.item" }> =>
+          e.type === "timeline.item" && e.sessionId === childId,
+      );
+      const reasoningText = childItems
+        .filter((e) => e.item.type === "reasoning")
+        .map((e) => (e.item.type === "reasoning" ? e.item.text : ""))
+        .join("");
+      const assistantText = childItems
+        .filter((e) => e.item.type === "assistant_message")
+        .map((e) => (e.item.type === "assistant_message" ? e.item.text : ""))
+        .join("");
+      const expectedReasoning = Array.from({ length: 60 }, (_, s) => `r${s}`).join("");
+      const expectedAssistant = Array.from({ length: 60 }, (_, s) => `  t${60 + s}`).join("");
+      assert.equal(reasoningText, expectedReasoning);
+      assert.equal(assistantText, expectedAssistant);
+      const lastTool = childItems.filter((e) => e.item.type === "tool_call").at(-1);
+      assert.ok(lastTool && lastTool.item.type === "tool_call");
+      assert.equal(lastTool.item.detail.type, "write");
+      if (lastTool.item.detail.type === "write") {
+        assert.equal(lastTool.item.detail.filePath, "/repo/out.ts");
+        assert.equal(
+          lastTool.item.detail.content,
+          Array.from({ length: 58 }, (_, k) => `line${k};`).join(""),
+        );
+      }
+
+      // Settled assistant/message only emits unstreamed tail after flush.
+      bridge.notify("session.event", {
+        sessionId: childId,
+        event: {
+          type: "assistant/message",
+          seq: 10,
+          time: clock.now(),
+          data: {
+            turn: 1,
+            step: 1,
+            message: {
+              id: `msg-${idx}`,
+              content: [
+                { type: "reasoning", text: expectedReasoning },
+                { type: "text", text: `${expectedAssistant} [tail]` },
+              ],
+            },
+          },
+        },
+        images: [],
+      });
+      const tailEvents = events
+        .filter(
+          (e): e is Extract<ProviderEvent, { type: "timeline.item" }> =>
+            e.type === "timeline.item" && e.sessionId === childId && e.item.type === "assistant_message",
+        )
+        .map((e) => (e.item.type === "assistant_message" ? e.item.text : ""));
+      assert.equal(tailEvents.at(-1), " [tail]");
+    }
+    assert.equal(clock.pendingCount(), 0);
+  } finally {
+    await connection.close();
+    assert.equal(clock.pendingCount(), 0);
+  }
+});
+
+test("flushes parent subagent call before correlation and enforces ordering and timer cleanup on boundaries", async () => {
+  const clock = createFakeClock(10_000);
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({
+    createBridge: async () => bridge,
+    detectDshVersion: noVersionWarning,
+    streamCoalesce: { windowMs: 120, timers: clock.timers, now: clock.now },
+  });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+
+  try {
+    await connection.send({
+      type: "session.open",
+      requestId: "open-boundaries",
+      sessionId: "paseo-root",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+
+    // 1. The first text delta flushes immediately (leading edge); the following
+    // tool-call-delta then sits inside the 120 ms window.
+    bridge.notify("session.stream", {
+      sessionId: "native-new",
+      frame: { type: "start", attemptId: "root-a1", revision: 0, turn: 1, step: 1 },
+    });
+    bridge.notify("session.stream", {
+      sessionId: "native-new",
+      frame: { type: "chunk", attemptId: "root-a1", revision: 1, index: 0, time: clock.now(), chunk: { type: "text-delta", index: 0, text: "Spawning" } },
+    });
+    clock.advanceBy(10);
+    bridge.notify("session.stream", {
+      sessionId: "native-new",
+      frame: {
+        type: "chunk",
+        attemptId: "root-a1",
+        revision: 2,
+        index: 1,
+        time: clock.now(),
+        chunk: {
+          type: "tool-call-delta",
+          index: 1,
+          id: "parent-sub-call",
+          name: "subagent",
+          argumentsDelta: '{"description":"Buffered task","prompt":"Go"}',
+        },
+      },
+    });
+    // Still buffered because within 120ms window.
+    assert.equal(clock.pendingCount(), 1);
+
+    // Child opens immediately; correlateChildWithParentCall must flush parent first so child gets toolCallId & description.
+    bridge.notify("session.child", { sessionId: "child-corr", parentSessionId: "native-new", cwd: "/repo" });
+    // The child's turn/start reaches ensureChildOpened -> correlateChildWithParentCall,
+    // which flushes the buffered parent tool-call-delta before attaching the child.
+    bridge.notify("session.event", {
+      sessionId: "child-corr",
+      event: { type: "turn/start", seq: 0, time: clock.now(), data: { turn: 1 } },
+      images: [],
+    });
+    const childOpened = events.find(
+      (e): e is Extract<ProviderEvent, { type: "session.opened" }> =>
+        e.type === "session.opened" && e.sessionId === "child-corr",
+    );
+    assert.ok(childOpened);
+    // After correlation, the parent call must have flushed, so parent pendingCount is 0.
+    assert.equal(clock.pendingCount(), 0);
+    assert.equal(childOpened.toolCallId, "parent-sub-call");
+    assert.equal(childOpened.description, "Buffered task");
+
+    // 2. Child streams a tool-call-delta, then tool/result arrives within window: no late timer flips completed back to running.
+    bridge.notify("session.stream", {
+      sessionId: "child-corr",
+      frame: { type: "start", attemptId: "c-a1", revision: 0, turn: 1, step: 1 },
+    });
+    bridge.notify("session.stream", {
+      sessionId: "child-corr",
+      frame: { type: "chunk", attemptId: "c-a1", revision: 1, index: 0, time: clock.now(), chunk: { type: "text-delta", index: 0, text: "Lead" } },
+    });
+    clock.advanceBy(10);
+    bridge.notify("session.stream", {
+      sessionId: "child-corr",
+      frame: {
+        type: "chunk",
+        attemptId: "c-a1",
+        revision: 2,
+        index: 1,
+        time: clock.now(),
+        chunk: { type: "tool-call-delta", index: 1, id: "child-bash", name: "bash", argumentsDelta: '{"command":"ls"}' },
+      },
+    });
+    bridge.notify("session.event", {
+      sessionId: "child-corr",
+      event: {
+        type: "tool/result",
+        seq: 1,
+        time: clock.now(),
+        data: { message: { toolCallId: "child-bash", content: [{ type: "text", text: "ok" }] } },
+      },
+      images: [],
+    });
+    clock.advanceBy(200);
+    const bashItems = events.filter(
+      (e): e is Extract<ProviderEvent, { type: "timeline.item" }> =>
+        e.type === "timeline.item" && e.sessionId === "child-corr" && e.item.type === "tool_call" && e.item.callId === "child-bash",
+    );
+    assert.deepEqual(
+      bashItems.map((e) => (e.item.type === "tool_call" ? e.item.status : null)),
+      ["running", "completed"],
+    );
+
+    // 3. Buffered text on child flushes on session.close before session.turn(canceled) and leaves zero timers.
+    bridge.notify("session.stream", {
+      sessionId: "child-corr",
+      frame: { type: "chunk", attemptId: "c-a1", revision: 3, index: 2, time: clock.now(), chunk: { type: "text-delta", index: 0, text: "BeforeClose" } },
+    });
+    clock.advanceBy(10);
+    bridge.notify("session.stream", {
+      sessionId: "child-corr",
+      frame: { type: "chunk", attemptId: "c-a1", revision: 4, index: 3, time: clock.now(), chunk: { type: "text-delta", index: 0, text: "Closing" } },
+    });
+    assert.equal(clock.pendingCount(), 1);
+    await connection.send({ type: "session.close", requestId: "close-1", sessionId: "paseo-root" });
+    await tick();
+    await tick();
+    assert.equal(clock.pendingCount(), 0);
+    const childEventsAfter = events.filter((e) => "sessionId" in e && e.sessionId === "child-corr");
+    const lastTextIdx = childEventsAfter.findLastIndex(
+      (e) => e.type === "timeline.item" && e.item.type === "assistant_message" && e.item.text === "Closing",
+    );
+    const canceledIdx = childEventsAfter.findLastIndex(
+      (e) => e.type === "session.turn" && e.state === "canceled",
+    );
+    assert.ok(lastTextIdx >= 0 && canceledIdx > lastTextIdx);
+
+    const countAtClose = events.length;
+    clock.advanceBy(500);
+    assert.equal(events.length, countAtClose);
+  } finally {
+    await connection.close();
+    assert.equal(clock.pendingCount(), 0);
+  }
+});
+
+test("keeps buffered ambiguous child events gated until opened and discards unopened buffers on failure", async () => {
+  const clock = createFakeClock(10_000);
+  const bridge = new FakeBridge();
+  const provider = createDshProvider({
+    createBridge: async () => bridge,
+    detectDshVersion: noVersionWarning,
+    streamCoalesce: { windowMs: 120, timers: clock.timers, now: clock.now },
+  });
+  const connection = await provider.connect({
+    versions: [1],
+    capabilities: ["prompt.message", "session.persistence", "session.subsession"],
+  });
+  const events: ProviderEvent[] = [];
+  connection.onEvent((event) => events.push(event));
+
+  try {
+    await connection.send({
+      type: "session.open",
+      requestId: "open-ambig",
+      sessionId: "paseo-root",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+
+    for (const callId of ["ambig-1", "ambig-2"]) {
+      bridge.notify("session.event", {
+        sessionId: "native-new",
+        event: {
+          type: "tool/call",
+          seq: 1,
+          time: clock.now(),
+          data: { callId, name: "subagent", arguments: JSON.stringify({ description: "Same task" }) },
+        },
+        images: [],
+      });
+    }
+    bridge.notify("session.child", { sessionId: "child-unopened", parentSessionId: "native-new", cwd: "/repo" });
+    bridge.notify("session.event", {
+      sessionId: "child-unopened",
+      event: { type: "subagent/descriptor", seq: 0, time: clock.now(), data: { mode: "continuable", label: "Same task" } },
+      images: [],
+    });
+    bridge.notify("session.stream", {
+      sessionId: "child-unopened",
+      frame: { type: "chunk", attemptId: "u-a1", revision: 0, index: 0, time: clock.now(), chunk: { type: "text-delta", index: 0, text: "First" } },
+    });
+    clock.advanceBy(10);
+    bridge.notify("session.stream", {
+      sessionId: "child-unopened",
+      frame: { type: "chunk", attemptId: "u-a1", revision: 1, index: 1, time: clock.now(), chunk: { type: "text-delta", index: 0, text: "Second" } },
+    });
+    // Even after the coalescer window elapses, ambiguous child must not leak events before session.opened.
+    clock.advanceBy(120);
+    assert.equal(events.some((e) => "sessionId" in e && e.sessionId === "child-unopened"), false);
+
+    // Bridge crash drops unopened child buffers and clears timers without emitting ghost child events.
+    bridge.fail(new Error("bridge died"));
+    assert.equal(clock.pendingCount(), 0);
+    assert.equal(events.some((e) => "sessionId" in e && e.sessionId === "child-unopened"), false);
+  } finally {
+    await connection.close();
+    assert.equal(clock.pendingCount(), 0);
   }
 });
