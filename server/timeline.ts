@@ -681,6 +681,9 @@ function toolDetail(name: string, args: JsonObject): ProviderToolCallDetail {
   if (normalized === "web_fetch") {
     return { type: "fetch", url: stringValue(args.url) ?? "" };
   }
+  if (normalized === "exit_plan_mode") {
+    return { type: "plan", text: stringValue(args.plan) ?? "" };
+  }
   if (normalized === "subagent" || normalized === "subagent_fork") {
     const subAgentType =
       stringValue(args.agent_preset) ??

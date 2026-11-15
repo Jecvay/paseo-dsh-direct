@@ -116,6 +116,14 @@ PASEO_014_E2E=1 PASEO_014_NODE_MODULES=/abs/preinstalled/node_modules npx --no-i
 
 测试使用临时 Paseo 与 DSH home，以及仅监听 loopback 的脚本模型服务，不请求远端模型。具体断言以 `scripts/paseo-014.e2e.test.ts` 为准，实测范围记录在 [兼容性说明](compatibility.md)。未设置 `PASEO_014_E2E=1` 时跳过该测试；单元测试通过不代表这项集成验证已完成。
 
+计划审核的隔离集成测试使用预先安装的 Paseo 0.15.4 与 dsh 0.2.2-rc.1 或 0.2.2-rc.3，覆盖完整正文、批准后退出计划模式、继续规划后重提、中断及历史恢复。仅 Linux 运行，不调用远端模型，不修改当前 daemon 或用户 profile。先构建，再将以下路径替换为实际安装位置；dsh 使用真实可执行文件，不使用依赖用户 home 配置的版本管理器 shim：
+
+```bash
+PASEO_PLAN_REVIEW_E2E=1 PASEO_PLAN_REVIEW_SERVER=/abs/preinstalled/@getpaseo/server PASEO_DSH_EXECUTABLE=/abs/preinstalled/dsh npx --no-install tsx --test scripts/plan-review.e2e.test.ts
+```
+
+`PASEO_PLAN_REVIEW_SERVER` 指向服务端包目录，测试由其依赖解析配套客户端。测试在临时 home 中启动独立宿主及 DSH，使用 loopback 脚本模型；未设置开关时跳过。此验收覆盖宿主数据和真实工具往返，不包括浏览器或手机渲染。
+
 ## 测试数据
 
 单元测试使用合成协议帧、临时目录和可控的子进程。真实 profile 检查只读查询既有历史；模型、工具、中断和恢复测试使用专用会话。

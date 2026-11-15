@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.20
+
+- Show the complete Markdown from DSH `exit_plan_mode` in Paseo's native plan tool card, including live updates and restored history (Refs #96).
+- Show binary `plan-review` questions as native plan approvals. Return the original DSH choice for Approve and Keep planning; keep actual interruption and cancellation separate. Preserve the generic UI for other question groups and keep Paseo 0.11 supported.
+- Report canceled questions using DSH's native cancellation error shape so interrupting plan review ends the turn instead of calling the model again with a generic tool error.
+- Verify real Paseo 0.15.4 with DSH 0.2.2-rc.1 and rc.3 using an isolated loopback model: complete plans, approval, revised proposals, interruption without another model call, and history replay. Build, typechecks, 302 passing tests and documentation gates pass. Real browser and physical mobile plan rendering remain unverified.
+
 ## 0.2.19
 
 - Coalesce streamed assistant text, reasoning, and tool-call updates per session across root and subagent sessions using a leading-edge plus 120 ms window (`server/stream-coalescer.ts`), preventing parallel subagent broadcasts from flooding WebSocket/relay clients (Refs #94).

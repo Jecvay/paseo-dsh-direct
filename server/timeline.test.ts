@@ -409,6 +409,53 @@ function cards(projector: TimelineProjector, events: DshSessionEvent[]) {
   );
 }
 
+describe("TimelineProjector plan text", () => {
+  const plan = "# Plan\n\n- 写入 `hello.txt`\n\n```text\nhi\n```\n";
+  const call = ev(1, "tool/call", { callId: "plan-call", name: "exit_plan_mode", arguments: JSON.stringify({ plan }) });
+  const result = ev(2, "tool/result", { toolCallId: "plan-call", content: [{ type: "text", text: "Approved" }] });
+  function toolItem(event: ProviderEvent | undefined) {
+    assert.ok(event?.type === "timeline.item" && event.item.type === "tool_call");
+    return event.item;
+  }
+
+  it("keeps complete Markdown through the live call, result, and fresh history replay", () => {
+    for (const projector of [new TimelineProjector("live"), new TimelineProjector("replay")]) {
+      assert.deepEqual(toolItem(projector.projectEvent(call)[0]).detail, { type: "plan", text: plan });
+      const completed = toolItem(projector.projectEvent(result)[0]);
+      assert.equal(completed.status, "completed");
+      assert.deepEqual(completed.detail, { type: "plan", text: plan });
+    }
+  });
+
+  it("does not show raw JSON while streamed plan arguments are incomplete", () => {
+    const projector = new TimelineProjector("stream");
+    const frame = (index: number, argumentsDelta: string) => ({
+      type: "chunk" as const, attemptId: "plan-attempt", revision: 0, index, time: 1,
+      chunk: { type: "tool-call-delta", index: 0, id: "plan-call", name: "exit_plan_mode", argumentsDelta },
+    });
+    const json = JSON.stringify({ plan });
+    const split = Math.floor(json.length / 2);
+    assert.deepEqual(toolItem(projector.projectStream(frame(0, json.slice(0, split)))[0]).detail, { type: "plan", text: "" });
+    projector.projectStream(frame(1, json.slice(split)), { deferToolDetail: true });
+    assert.deepEqual(toolItem(projector.materializeToolCall("plan-call")).detail, { type: "plan", text: plan });
+    assert.deepEqual(toolItem(projector.projectEvent(call)[0]).detail, { type: "plan", text: plan });
+  });
+
+  it("handles settled assistant tool blocks and matches only the built-in tool", () => {
+    const projector = new TimelineProjector("settled");
+    const [settled] = projector.projectEvent(ev(1, "assistant/message", {
+      turn: 1, step: 0, message: { id: "plan-message", content: [{ type: "tool-call", id: "plan-call", name: "exit_plan_mode", arguments: { plan } }] },
+    }));
+    assert.deepEqual(toolItem(settled).detail, { type: "plan", text: plan });
+    for (const name of ["mcp__example__exit_plan_mode", "exit_plan_mode_extra"]) {
+      const [other] = projector.projectEvent(ev(2, "tool/call", { callId: name, name, arguments: { plan } }));
+      assert.equal(toolItem(other).detail.type, "unknown");
+    }
+    const [invalid] = projector.projectEvent(ev(3, "tool/call", { callId: "invalid", name: "exit_plan_mode", arguments: { plan: 42 } }));
+    assert.deepEqual(toolItem(invalid).detail, { type: "plan", text: "" });
+  });
+});
+
 describe("TimelineProjector plugin cards", () => {
   it("emits plan-mode cards only when the value changes", () => {
     const projector = new TimelineProjector("s", true);

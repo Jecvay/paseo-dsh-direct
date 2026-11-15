@@ -1193,6 +1193,116 @@ describe("dsh provider question answers", () => {
   }
 });
 
+describe("plan review permissions", () => {
+  const planText = "# 计划\n\n- Create `hello.txt`\n\n```text\nhi\n```\n";
+  const question: QuestionItem = {
+    id: "review-plan", question: "Ready to implement?", detail: planText,
+    options: [{ label: "Approve" }, { label: "Keep planning" }],
+    intent: { kind: "plan-review", approve: "Approve" },
+  };
+
+  async function setup(questions: QuestionItem[] = [question]) {
+    const discovery = new FakeBridge();
+    const runtime = new FakeBridge(new Set(), true);
+    const provider = createDshProvider({ createBridge: async (launch) => launch ? runtime : discovery, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: ["permission"] });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await openTestSession(connection);
+    runtime.notify("interaction.request", {
+      sessionId: "native-new", requestId: "plan-review", kind: "questions", questions,
+    });
+    return { connection, runtime, events };
+  }
+
+  it("shows complete Markdown in the native plan permission with original labels", async () => {
+    const localized: QuestionItem = {
+      ...question,
+      options: [{ label: "继续规划" }, { label: "批准" }],
+      intent: { kind: "plan-review", approve: "批准" },
+    };
+    const { connection, events } = await setup([localized]);
+    try {
+      const permission = events.find((event) => event.type === "session.permission");
+      assert.ok(permission?.type === "session.permission");
+      assert.deepEqual(permission.request, {
+        id: "plan-review", name: "exit_plan_mode", kind: "plan", title: question.question,
+        input: { plan: planText }, detail: { type: "plan", text: planText }, metadata: { planText },
+        actions: [
+          { id: "approve-plan", label: "批准", behavior: "allow", variant: "primary", intent: "implement" },
+          { id: "keep-planning", label: "继续规划", behavior: "deny", variant: "secondary", intent: "dismiss" },
+        ],
+      });
+    } finally { await connection.close(); }
+  });
+
+  const responses: Array<{
+    name: string;
+    response: Extract<ProviderInput, { type: "session.permission" }>["response"];
+    selected?: string;
+  }> = [
+    { name: "approves the original option", response: { behavior: "allow", selectedActionId: "approve-plan" }, selected: "Approve" },
+    { name: "supports allow without an action id", response: { behavior: "allow" }, selected: "Approve" },
+    { name: "keeps planning without cancelling or injecting the UI denial text", response: { behavior: "deny", selectedActionId: "keep-planning", message: "Denied by user" }, selected: "Keep planning" },
+    { name: "lets interruption override the keep-planning button", response: { behavior: "deny", selectedActionId: "keep-planning", interrupt: true } },
+    { name: "cancels an ordinary denial", response: { behavior: "deny" } },
+    { name: "does not approve an unknown action", response: { behavior: "allow", selectedActionId: "unknown" } },
+    { name: "does not approve an allow response with the deny action id", response: { behavior: "allow", selectedActionId: "keep-planning" } },
+    { name: "does not approve a deny response with the approve action id", response: { behavior: "deny", selectedActionId: "approve-plan" } },
+  ];
+  for (const { name, response, selected } of responses) {
+    it(name, async () => {
+      const { connection, runtime, events } = await setup();
+      try {
+        const reply: Extract<ProviderInput, { type: "session.permission" }> = {
+          type: "session.permission", sessionId: "paseo-1", permissionId: "plan-review", response,
+        };
+        await connection.send(reply);
+        await tick();
+        assert.deepEqual(runtime.calls.find((call) => call.method === "interaction.respond")?.params,
+          selected
+            ? { requestId: "plan-review", answers: [{ id: question.id, selected: [selected] }] }
+            : { requestId: "plan-review", outcome: "rejected" });
+        assert.equal(events.filter((event) => event.type === "session.permission_resolved").length, 1);
+        // A late duplicate must not approve or settle a newer interaction.
+        await connection.send(reply);
+        await tick();
+        assert.equal(runtime.calls.filter((call) => call.method === "interaction.respond").length, 1);
+        assert.equal(events.filter((event) => event.type === "session.permission_resolved").length, 1);
+      } finally { await connection.close(); }
+    });
+  }
+
+  const fallbackCases = [
+    { name: "ordinary questions", questions: [{ ...question, intent: undefined }] },
+    { name: "missing Markdown", questions: [{ ...question, detail: undefined }] },
+    { name: "blank Markdown", questions: [{ ...question, detail: "  \n" }] },
+    { name: "multiple questions", questions: [question, { id: "other", question: "Other?" }] },
+    { name: "multiple selections", questions: [{ ...question, multiSelect: true }] },
+    { name: "an absent approval label", questions: [{ ...question, intent: { kind: "plan-review" as const, approve: "Wrong" } }] },
+    { name: "duplicate labels", questions: [{ ...question, options: [{ label: "Approve" }, { label: "Approve" }] }] },
+    { name: "an empty option", questions: [{ ...question, options: [{ label: "Approve" }, { label: " " }] }] },
+    { name: "more than two choices", questions: [{ ...question, options: [...question.options!, { label: "Other" }] }] },
+  ];
+  for (const { name, questions } of fallbackCases) {
+    it(`preserves the generic question UI for ${name}`, async () => {
+      const { connection, runtime, events } = await setup(questions);
+      try {
+        const permission = events.find((event) => event.type === "session.permission");
+        assert.ok(permission?.type === "session.permission");
+        assert.equal(permission.request.kind, "question");
+        assert.equal((permission.request.input?.questions as unknown[])?.length, questions.length);
+        const answers = Object.fromEntries(questions.map((item) => [item.header ?? item.id, "Use 8080, keep TLS"]));
+        await connection.send({ type: "session.permission", sessionId: "paseo-1", permissionId: "plan-review", response: { behavior: "allow", updatedInput: { answers } } });
+        await tick();
+        assert.deepEqual(runtime.calls.find((call) => call.method === "interaction.respond")?.params, {
+          requestId: "plan-review", answers: questions.map((item) => ({ id: item.id, selected: [], custom: "Use 8080, keep TLS" })),
+        });
+      } finally { await connection.close(); }
+    });
+  }
+});
+
 describe("dsh catalog cache key", () => {
   const keyFor = (configured: { executable?: string; profile?: string }, request: Parameters<NonNullable<ReturnType<typeof createDshProvider>["getCatalogCacheKey"]>>[0] = { scope: "global" }) =>
     createDshProvider({
