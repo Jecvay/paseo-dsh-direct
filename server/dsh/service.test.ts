@@ -302,7 +302,9 @@ test("approval answers settle once; closing also withdraws pending questions", a
     { agent: f.agent, questions: [{ id: "q", question: "Choose" }] },
     async () => ({ answers: [] }),
   );
-  const cancelled = assert.rejects(question, /cancelled/);
+  const cancelled = assert.rejects(question, {
+    name: "UserQuestionError", code: "ASK_CANCELLED", message: "Question cancelled",
+  });
   const questionRequest = f.notifications
     .filter((item) => item.method === "interaction.request")
     .at(-1)!.params as BridgeNotifications["interaction.request"];
@@ -320,6 +322,27 @@ test("approval answers settle once; closing also withdraws pending questions", a
   await abandoned;
   assert.equal(f.disposeCount, 1);
   await f.bridge.shutdown();
+});
+
+test("aborted questions preserve the native cancellation error before and during the wait", async () => {
+  const f = fixture();
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "owned" });
+  try {
+    for (const alreadyAborted of [true, false]) {
+      const controller = new AbortController();
+      if (alreadyAborted) controller.abort();
+      const question = f.listener("user-questions/request")(
+        { agent: f.agent, signal: controller.signal, questions: [{ id: "q", question: "Choose" }] },
+        async () => ({ answers: [] }),
+      );
+      const cancelled = assert.rejects(question, {
+        name: "UserQuestionError", code: "ASK_CANCELLED", message: "Question cancelled",
+      });
+      controller.abort();
+      await cancelled;
+    }
+    assert.equal(f.notifications.filter((item) => item.method === "interaction.closed").length, 1);
+  } finally { await f.bridge.shutdown(); }
 });
 
 test("input validation rejects malformed RPC values without acquiring a session", async () => {

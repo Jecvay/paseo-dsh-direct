@@ -439,7 +439,7 @@ export class BridgeService {
     ) {
       return request.kind === "approval"
         ? Promise.resolve("cancelled")
-        : Promise.reject(new Error("Question cancelled"));
+        : Promise.reject(cancelledQuestion());
     }
     return new Promise((resolve, reject) => {
       const abort = () => finish();
@@ -454,7 +454,7 @@ export class BridgeService {
         });
         if (value !== undefined) resolve(value);
         else if (request.kind === "approval") resolve("cancelled");
-        else reject(new Error("Question cancelled"));
+        else reject(cancelledQuestion());
       };
       this.interactions.set(request.requestId, { request, finish });
       signal?.addEventListener("abort", abort, { once: true });
@@ -1210,6 +1210,15 @@ export class BridgeService {
       return {};
     })());
   }
+}
+
+function cancelledQuestion(): Error {
+  // userQuestions.ask restores this native error shape before plan-mode handles
+  // it. A plain Error is treated as a tool failure and calls the model again.
+  return Object.assign(new Error("Question cancelled"), {
+    name: "UserQuestionError",
+    code: "ASK_CANCELLED",
+  });
 }
 
 export function validateAnswers(

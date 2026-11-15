@@ -136,7 +136,7 @@ stdio 使用按换行分帧的 JSON-RPC 2.0。stdout 承载协议，诊断写入
 - 回放历史时，`turn/end` 的失败原因显示为错误条目；`max-tokens`、`blocked`、`interrupted` 结束的回合在直播与回放中都显示为警告通知。
 - `compaction/start` 与 `compaction/end` 显示为同一张压缩卡片（进行中 → 完成），`compaction/summary` 提供被压缩的 token 数；由命令发起的压缩标记为手动，失败另显示错误通知。
 - Paseo 的 system prompt 在 agent `setup` 中以 agent 作用域的 `systemPrompt.section`（order 10100）追加；tool policy 预先批准的 `mcp__<server>__<tool>` 在桥接的审批钩子中直接允许，其他工具照常询问。
-- 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。
+- 计划模式以设置开关呈现（会话存在 `/plan` 命令时）：开关执行 DSH `/plan` 或 `/plan off`，开关状态跟随 `plan/mode` 事件，包括计划被批准后 DSH 自行退出。`exit_plan_mode` 的 `plan` 参数投影为原生 Markdown 计划工具卡，实时与历史回放使用同一映射。单个、非多选、正文非空且有两个不同有效选项的 `plan-review` 问题使用原生计划审批，正文通过 `input.plan`、`metadata.planText` 和计划 detail 传递，批准标签由 `intent.approve` 指定。Approve 与 Keep planning 分别回复 DSH 原批准选项与另一选项；明确中断、普通拒绝和未知动作取消问题。桥接使用 DSH 原生问答取消错误格式，使计划工具结束当前回合，不将取消当成工具故障再次调用模型。其他问题组保留普通问答 UI；原生计划卡不另加文字反馈输入框。
 - 流式增量只携带本次新增文本与独立 item id，正文分片共用块级 `messageId`，由宿主的相邻合并拼接成同一条消息，避免重复传输累计全文。宿主把同一 id 的文本视为累计快照并按前缀切差额，非累计分片复用同一 id 会丢失重复缩进或相同前缀分片。定稿消息只补发流式尚未覆盖的尾部，并与流式分片共用 `messageId`。
   - `server/stream-coalescer.ts` 按会话桶做前沿直发 + 120 ms 窗口合并，根会话与子会话共用：`assistant_message` 按同 `messageId` 拼接、`reasoning` 按同块前缀拼接、`tool_call` 按 `callId` 只留最新状态，并把参数 JSON 解析延迟到 flush 时（`TimelineProjector.materializeToolCall`）。
   - 流结束、持久事件、状态切换、交互请求、子代理关联与会话关闭/故障前先强制排空对应会话的缓冲；未打开的子会话流只缓存在 `pendingEvents`，会话关闭或桥接失败时直接丢弃。

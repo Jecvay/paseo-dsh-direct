@@ -15,6 +15,7 @@ import {
 } from "@getpaseo/plugin/server/provider";
 import type {
   BridgeCatalog,
+  BridgeMethods,
   DshSessionEvent,
   InteractionRequest,
   ModelSelection,
@@ -1052,12 +1053,30 @@ async function respondToPermission(
   const session = requireSession(state.sessions, input.sessionId);
   const interaction = session.pendingInteractions.get(input.permissionId);
   if (!interaction) throw new Error(`Unknown DSH interaction: ${input.permissionId}`);
-  const params = interaction.kind === "questions" && input.response.behavior === "allow"
-    ? { requestId: input.permissionId, answers: questionAnswers(interaction.questions ?? [], input.response) }
-    : {
-        requestId: input.permissionId,
-        outcome: input.response.behavior === "allow" ? "allowed-once" as const : "rejected" as const,
-      };
+  const plan = planReview(interaction);
+  let params: BridgeMethods["interaction.respond"]["params"];
+  if (plan) {
+    const response = input.response;
+    const approve = response.behavior === "allow" &&
+      (response.selectedActionId === undefined || response.selectedActionId === "approve-plan");
+    // Paseo sends the secondary plan action as deny. It is an answer to DSH's
+    // question, whereas an interruption or an ordinary deny cancels that question.
+    const keepPlanning = response.behavior === "deny" && !response.interrupt &&
+      response.selectedActionId === "keep-planning";
+    params = approve || keepPlanning
+      ? { requestId: input.permissionId, answers: [{
+          id: plan.question.id,
+          selected: [approve ? plan.approve : plan.keepPlanning],
+        }] }
+      : { requestId: input.permissionId, outcome: "rejected" };
+  } else {
+    params = interaction.kind === "questions" && input.response.behavior === "allow"
+      ? { requestId: input.permissionId, answers: questionAnswers(interaction.questions ?? [], input.response) }
+      : {
+          requestId: input.permissionId,
+          outcome: input.response.behavior === "allow" ? "allowed-once" : "rejected",
+        };
+  }
   await session.bridge.request("interaction.respond", params);
   if (session.pendingInteractions.delete(input.permissionId)) {
     state.emit({
@@ -1857,7 +1876,44 @@ function selectModel(
   return base ? { ...base, ...(reasoningEffort ? { reasoningEffort } : {}) } : undefined;
 }
 
+// DSH's built-in exit_plan_mode submits one binary review. More complex
+// question groups keep the generic UI so that no questions or choices are lost.
+function planReview(interaction: InteractionRequest) {
+  if (interaction.kind !== "questions" || interaction.questions?.length !== 1) return undefined;
+  const question = interaction.questions[0]!;
+  const options = question.options;
+  if (question.intent?.kind !== "plan-review" || question.multiSelect ||
+      !question.detail?.trim() || options?.length !== 2 ||
+      options.some((option) => !option.label.trim()) || options[0]!.label === options[1]!.label) {
+    return undefined;
+  }
+  const approve = question.intent.approve;
+  if (!options.some((option) => option.label === approve)) return undefined;
+  return {
+    question,
+    text: question.detail,
+    approve,
+    keepPlanning: options.find((option) => option.label !== approve)!.label,
+  };
+}
+
 function permissionRequest(interaction: InteractionRequest): ProviderPermissionRequest {
+  const plan = planReview(interaction);
+  if (plan) {
+    return {
+      id: interaction.requestId,
+      name: "exit_plan_mode",
+      kind: "plan",
+      title: plan.question.question,
+      input: { plan: plan.text },
+      detail: { type: "plan", text: plan.text },
+      metadata: { planText: plan.text },
+      actions: [
+        { id: "approve-plan", label: plan.approve, behavior: "allow", variant: "primary", intent: "implement" },
+        { id: "keep-planning", label: plan.keepPlanning, behavior: "deny", variant: "secondary", intent: "dismiss" },
+      ],
+    };
+  }
   if (interaction.kind === "questions") {
     return {
       id: interaction.requestId,
