@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
@@ -108,12 +109,22 @@ async function fixture(initial: DshSettingsValues) {
     launches.push(record);
     return record.bridge;
   };
+  const exits: number[] = [];
+  let resolveExit = () => {};
+  const exited = new Promise<void>((resolve) => { resolveExit = resolve; });
+  const hostProcess = Object.assign(new EventEmitter(), {
+    env: {},
+    platform: "linux",
+    stderr: { write: (line: string) => warnings.push(line) },
+    exit(code: number) {
+      exits.push(code);
+      resolveExit();
+    },
+  });
   const module = { exports: {} as { default: (server: PluginServerContext) => () => Promise<void> } };
   // Give the bundle an isolated process facade: no user env overrides or stderr output.
   const evaluate = new Function("require", "module", "exports", "process", "launchDshBridgeMock", await bundledEntry);
-  evaluate(require, module, module.exports, {
-    env: {}, platform: "linux", stderr: { write: (line: string) => warnings.push(line) },
-  }, launchDshBridgeMock);
+  evaluate(require, module, module.exports, hostProcess, launchDshBridgeMock);
   const dispose = module.exports.default({
     registerSettings(registered: SettingsDefinition) {
       assert.equal(registered.id, "dsh");
@@ -127,7 +138,7 @@ async function fixture(initial: DshSettingsValues) {
   } as unknown as PluginServerContext);
   assert.ok(provider);
   return {
-    launches, warnings, reads, discovery, settings,
+    launches, warnings, reads, discovery, settings, hostProcess, exits, exited,
     async connect() {
       const connection = await provider!.connect({ versions: [1], capabilities: [], launch: providerLaunch });
       connections.push(connection);
@@ -204,4 +215,22 @@ test("invalid timeout text only drops the timeout on both actual entry launch pa
   }
   assert.ok(f.warnings.length > 0);
   assert.ok(f.warnings.every((line) => line.includes("ignoring the startup timeout setting")));
+});
+
+test("host disconnect closes active provider connections and exits the worker", async () => {
+  const f = await fixture({});
+  await f.connect();
+  assert.equal(f.launches[0].closed, 0);
+  assert.equal(f.hostProcess.listenerCount("disconnect"), 1);
+  assert.equal(f.hostProcess.listenerCount("SIGTERM"), 1);
+  assert.equal(f.hostProcess.listenerCount("SIGINT"), 1);
+
+  f.hostProcess.emit("disconnect");
+  await f.exited;
+
+  assert.equal(f.launches[0].closed, 1);
+  assert.deepEqual(f.exits, [0]);
+  assert.equal(f.hostProcess.listenerCount("disconnect"), 0);
+  assert.equal(f.hostProcess.listenerCount("SIGTERM"), 0);
+  assert.equal(f.hostProcess.listenerCount("SIGINT"), 0);
 });

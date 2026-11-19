@@ -5,9 +5,11 @@ import { currentDshConfigured } from "./server/dsh-config.js";
 import { defaultDshCommand } from "./server/dsh-spawn.js";
 import { DSH_BRIDGE_SOURCE } from "./server/generated-bridge.js";
 import { createDshProvider } from "./server/provider.js";
-import type { ProviderLaunch } from "@getpaseo/plugin/server/provider";
+import type { ProviderConnection, ProviderLaunch } from "@getpaseo/plugin/server/provider";
 import { createSubagentSettingsAccess } from "./server/subagent-settings.js";
 import { readSubagentSettings, saveSubagentSettings } from "./shared/subagent-settings.js";
+
+const HOST_EXIT_EVENTS = ["disconnect", "SIGTERM", "SIGINT"] as const;
 
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(DSH_SETTINGS);
@@ -15,6 +17,8 @@ export default function contribute(server: PluginServerContext) {
   const configured = () => currentDshConfigured(process.env, settings);
   const startup = new AbortController();
   const startups = new Set<Promise<unknown>>();
+  const connections = new Set<ProviderConnection>();
+  const connects = new Set<Promise<ProviderConnection>>();
   const openBridge = (options: LaunchBridgeOptions) => {
     const task = launchDshBridge({ ...options, signal: startup.signal });
     startups.add(task);
@@ -42,19 +46,61 @@ export default function contribute(server: PluginServerContext) {
     await refreshLaunch(paseo);
     return subagents.save(input);
   });
-  server.registerProvider(
-    createDshProvider({
-      configured,
-      observeLaunch: (launch) => { providerLaunch = launch; },
-      command: defaultDshCommand(process.env),
-      createBridge: async (launch) => {
-        const { executable, profile, startupTimeoutMs } = await configured();
-        return openBridge({ ...launch, bridgeSource: DSH_BRIDGE_SOURCE, executable, profile, startupTimeoutMs });
-      },
-    }),
-  );
-  return async () => {
-    startup.abort();
-    await Promise.allSettled([subagents.dispose(), ...startups]);
+  const provider = createDshProvider({
+    configured,
+    observeLaunch: (launch) => { providerLaunch = launch; },
+    command: defaultDshCommand(process.env),
+    createBridge: async (launch) => {
+      startup.signal.throwIfAborted();
+      const { executable, profile, startupTimeoutMs } = await configured();
+      return openBridge({ ...launch, bridgeSource: DSH_BRIDGE_SOURCE, executable, profile, startupTimeoutMs });
+    },
+  });
+  server.registerProvider({
+    ...provider,
+    async connect(request) {
+      startup.signal.throwIfAborted();
+      const task = provider.connect(request).then(async (connection) => {
+        if (startup.signal.aborted) {
+          await connection.close();
+          startup.signal.throwIfAborted();
+        }
+        const tracked: ProviderConnection = {
+          ...connection,
+          close: () => connection.close().finally(() => { connections.delete(tracked); }),
+        };
+        connections.add(tracked);
+        return tracked;
+      });
+      connects.add(task);
+      try {
+        return await task;
+      } finally {
+        connects.delete(task);
+      }
+    },
+  });
+  let hostExited = false;
+  let shutdownTask: Promise<void> | undefined;
+  const ignoreClosedIpc = (error: NodeJS.ErrnoException) => {
+    if (error?.code !== "ERR_IPC_CHANNEL_CLOSED" && process.listenerCount("error") <= 1) throw error;
   };
+  const onHostExit = () => {
+    if (hostExited) return;
+    hostExited = true;
+    process.on("error", ignoreClosedIpc);
+    void shutdown().finally(() => { process.exit(0); });
+  };
+  const shutdown = () => (shutdownTask ??= (async () => {
+    startup.abort();
+    await Promise.allSettled([
+      subagents.dispose(),
+      ...startups,
+      ...connects,
+      ...Array.from(connections, (connection) => connection.close()),
+    ]);
+    for (const event of HOST_EXIT_EVENTS) process.off(event, onHostExit);
+  })());
+  for (const event of HOST_EXIT_EVENTS) process.on(event, onHostExit);
+  return shutdown;
 }

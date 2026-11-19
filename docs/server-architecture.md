@@ -175,6 +175,6 @@ Paseo 0.14 提供的每 agent 工具和会话打开钩子注入的 MCP server �
 
 连接关闭会等待已接收的会话启动请求与已取得的桥接完成清理；启动过程中取得的桥接同样关闭，并发关闭共享同一个清理 promise。空闲安全查询与这条清理路径分别负责何时允许关闭和关闭后释放资源。
 
-请求超时、协议失败和进程退出须结束挂起请求。关闭时先请求桥接释放 agent、等待持久化清理；无法正常退出的子进程采用有界终止。活动回合、工具和交互不能在进程退出后保留永久运行状态。
+请求超时、协议失败和进程退出须结束挂起请求。关闭时先请求桥接释放 agent、等待持久化清理；无法正常退出的子进程采用有界终止。活动回合、工具和交互不能在进程退出后保留永久运行状态。插件卸载、宿主 IPC 断开（`disconnect`）与终止信号（`SIGTERM`、`SIGINT`）共用 `index.server.ts` 的清理路径：取消未完成的桥接启动、收尾子代理设置桥接，并关闭全部活动或正在建立的 Provider 连接以释放会话写租约。宿主断开或收到终止信号时，插件 worker 在清理完成后主动退出；正常卸载只返回清理结果，交由宿主收尾（理由见 [断开清理决策](../.agents/notes/implemented/bug-fix/2026-11-19-close-bridges-on-worker-disconnect.md)）。
 
 空闲回收的取舍见 [安全停止决策](../.agents/notes/implemented/architecture/2026-10-31-paseo-idle-runtime-safety.md)，桥接与 profile 的其他理由见 `.agents/notes/implemented/`；行为验收见 [Alpha 验收规范](alpha-acceptance.md)。
