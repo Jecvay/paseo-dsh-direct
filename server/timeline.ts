@@ -85,7 +85,7 @@ export class TimelineProjector {
       case "user/message":
         return [
           ...this.projectCards(event, timestamp),
-          ...this.projectUserMessage(event, timestamp),
+          ...this.projectUserMessage(event, timestamp, options.clientMessageId),
         ];
       case "plan/mode":
       case "permission/preset":
@@ -441,7 +441,11 @@ export class TimelineProjector {
     };
   }
 
-  private projectUserMessage(event: DshSessionEvent, timestamp?: string): SessionEvent[] {
+  private projectUserMessage(
+    event: DshSessionEvent,
+    timestamp?: string,
+    clientMessageId?: string,
+  ): SessionEvent[] {
     const data = event.data;
     const source = objectValue(data.source);
     const isUser = source?.kind === "user";
@@ -457,7 +461,7 @@ export class TimelineProjector {
         : data.content;
     const text = userContentText(rawContent);
     if (!text) return [];
-    return [timeline(this.paseoSessionId, { type: "user_message", id, messageId: id, text }, timestamp)];
+    return [timeline(this.paseoSessionId, { type: "user_message", id, messageId: id, ...(clientMessageId ? { clientMessageId } : {}), text }, timestamp)];
   }
 
   private projectAssistantMessage(event: DshSessionEvent, timestamp?: string): SessionEvent[] {

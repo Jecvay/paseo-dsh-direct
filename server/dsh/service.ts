@@ -50,6 +50,15 @@ interface RecordEntry {
   model?: ModelSelection;
   preset?: string;
   selection: ModelSelectionRef;
+  /**
+   * Root-session steer inputs awaiting their committed `user/message`, keyed by
+   * the message UUID the bridge mints, which DSH echoes as the committed
+   * `user/message` id. The value is the host client ID to
+   * tag that one native event with. Entries are removed when the matching event
+   * is emitted, when DSH discards the queued message, or when the session closes,
+   * so a steer that never commits cannot alias a later message.
+   */
+  steerCorrelations: Map<string, string>;
 }
 
 function nonempty(value: unknown, field: string): string {
@@ -211,10 +220,22 @@ export class BridgeService {
           session.inheritedEventCount ??
           0;
         if (event.seq < inherited) return;
+        // Tag the committed steer message with the host client ID before any await,
+        // keeping the tag in the same notification payload as the event so a
+        // reordered RPC response cannot separate them.
+        const steerClientMessageId =
+          event.type === "user/message"
+            ? this.takeSteerCorrelation(sessionId, record(event.data).id)
+            : undefined;
         // Queue the complete pending payload now so a later RPC response cannot
         // overtake this event while its images are being materialized.
         if (event.type !== "tool/result") {
-          notify("session.event", { sessionId, event, images: [] });
+          notify("session.event", {
+            sessionId,
+            event,
+            images: [],
+            ...(steerClientMessageId ? { clientMessageId: steerClientMessageId } : {}),
+          });
           return;
         }
         const message = imageMessageOf(event);
@@ -227,6 +248,17 @@ export class BridgeService {
           event,
           images,
         })));
+      }),
+    );
+    this.subscriptions.push(
+      ctx.on("agent/inbox/discarded", ({ agent, message }) => {
+        // DSH emits this only when an ordinary removal or `clear()` drops pending
+        // input (claiming emits `agent/inbox/claimed` instead), so a discard is a
+        // steer that will never become a `user/message`. Drop its correlation so it
+        // cannot alias a later message on this session; guard the private payload.
+        const id = (message as { id?: unknown } | undefined)?.id;
+        if (typeof id !== "string") return;
+        this.owned.get(String(agent.id))?.steerCorrelations.delete(id);
       }),
     );
     this.subscriptions.push(
@@ -615,8 +647,26 @@ export class BridgeService {
           source: Object.freeze({ kind: "user" }),
           content: Object.freeze(content),
         });
-        if (method === "session.steer") agent.steer(message);
-        else agent.followup(message);
+        if (method === "session.steer") {
+          // Register before `agent.steer`: DSH may emit the committed `user/message`
+          // before this RPC returns, so a response-time mapping would miss it.
+          const clientMessageId =
+            typeof params.clientMessageId === "string" && params.clientMessageId
+              ? params.clientMessageId
+              : undefined;
+          // `admitContent` awaited above, so a concurrent close may already have
+          // removed the owned entry; register only while the session is still owned.
+          const entry = this.owned.get(String(agent.id));
+          if (clientMessageId && entry) entry.steerCorrelations.set(id, clientMessageId);
+          try {
+            agent.steer(message);
+          } catch (error) {
+            entry?.steerCorrelations.delete(id);
+            throw error;
+          }
+        } else {
+          agent.followup(message);
+        }
         result = { messageId: id };
         break;
       }
@@ -1027,6 +1077,7 @@ export class BridgeService {
         model,
         preset: preset.id,
         selection: modelRef,
+        steerCorrelations: new Map(),
       });
       const events = await this.withEventImages(
         handle.agent.session.snapshotEvents(),
@@ -1172,11 +1223,27 @@ export class BridgeService {
     });
   }
 
+  /**
+   * Return the host client ID registered for the root session's steer message and
+   * forget it, so one steer tags exactly one committed `user/message`.
+   */
+  private takeSteerCorrelation(
+    sessionId: string,
+    id: unknown,
+  ): string | undefined {
+    const entry = this.owned.get(sessionId);
+    if (!entry || typeof id !== "string") return undefined;
+    const clientMessageId = entry.steerCorrelations.get(id);
+    if (clientMessageId !== undefined) entry.steerCorrelations.delete(id);
+    return clientMessageId;
+  }
+
   private close(id: string): Promise<void> {
     const previous = this.closing.get(id);
     if (previous) return previous;
     const task = (async () => {
       await this.opening.get(id)?.catch(() => undefined);
+      this.owned.get(id)?.steerCorrelations.clear();
       this.commandAborts.get(id)?.abort();
       for (const pending of this.interactions.values())
         if (pending.request.sessionId === id) pending.finish();

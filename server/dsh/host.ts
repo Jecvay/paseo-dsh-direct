@@ -272,6 +272,11 @@ export interface HostEvents {
     agent: HostAgent;
     status: "idle" | "running";
   }) => void;
+  /** Live per-message notification for inbox removals; `message.id` is the native message id. */
+  "agent/inbox/discarded": (payload: {
+    agent: HostAgent;
+    message: { id: string };
+  }) => void;
   "approval/request": (
     request: {
       agent: HostAgent;

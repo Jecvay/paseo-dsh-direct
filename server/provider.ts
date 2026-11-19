@@ -333,7 +333,7 @@ function listenToSessionBridge(
       session.activityRevision += 1;
       ensureChildSession(session, info);
     }),
-    session.bridge.on("session.event", ({ sessionId, event, images }) => {
+    session.bridge.on("session.event", ({ sessionId, event, images, clientMessageId: steerClientMessageId }) => {
       if (isCurrentSession(sessionId)) {
         session.activityRevision += 1;
         session.coalescer.flush(session.nativeId);
@@ -382,7 +382,7 @@ function listenToSessionBridge(
         const clientMessageId =
           event.type === "command/run" && session.dispatch?.kind === "command"
             ? session.dispatch.clientMessageId
-            : undefined;
+            : steerClientMessageId;
         for (const projected of session.projector.projectEvent(event, { clientMessageId })) {
           observeProjectedSubagentCalls(session, session.nativeId, projected, emit);
           emit(projected);
@@ -845,7 +845,12 @@ async function promptSession(
 ): Promise<void> {
   const session = requireSession(state.sessions, input.sessionId);
   if (input.prompt.delivery === "steer") {
-    if (!session.activeTurnId) {
+    // Capture the turn before awaiting: the host compares the acknowledgement
+    // against the turn it asked to steer, so re-reading `activeTurnId` after the
+    // await (which a turn/end or new turn/start can change) would name the wrong
+    // turn and make the host treat an accepted steer as unavailable.
+    const turnId = session.activeTurnId;
+    if (!turnId) {
       emitPromptFailure(input, "There is no active DSH turn to steer", state.emit);
       return;
     }
@@ -856,8 +861,9 @@ async function promptSession(
     await session.bridge.request("session.steer", {
       sessionId: session.nativeId,
       content: toPromptParts(input.prompt.input.content),
+      clientMessageId: input.prompt.clientMessageId,
     });
-    emitPromptResult(input, { type: "steer", turnId: session.activeTurnId }, state.emit);
+    emitPromptResult(input, { type: "steer", turnId }, state.emit);
     return;
   }
   if (session.activeTurnId || session.dispatch) {

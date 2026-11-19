@@ -1,12 +1,18 @@
 # Changelog
 
+## 0.2.23
+
+- Fix steering a busy turn showing the same user message twice. Paseo records the accepted input, and the plugin also projected the DSH-native `user/message` without the host `clientMessageId`, so Paseo treated them as two messages. The bridge now registers the native message UUID and the host client ID before `agent.steer`, attaches the client ID to that one committed `user/message` notification, and the projector passes it through. Paseo merges the pair into one row and keeps the native `messageId`.
+- Correlate by native message ID only, so two identical steers stay two rows and an unrelated same-text message stays untagged. The correlation is never written into DSH history; replay from stored events still yields one row per input. A queued steer DSH discards drops its correlation, so it cannot alias a later message.
+- Capture the active turn ID before awaiting the steer request, so the acknowledgement names the turn the input joined even if it ends mid-request.
+- Update the plugin to 0.2.23 and reload it; no configuration change is needed.
+- Verified with build, all four typecheck targets, tests, notes and documentation gates, plus an isolated real Paseo 0.16.2 + DSH host run. Real client display of an existing agent after a live steer remains for user acceptance after release.
 ## 0.2.22
 
 - Reopen agents that failed to open after a Paseo crash or force-stop. When Paseo disconnects or shuts the plugin down, the plugin now closes its DSH sessions, so a stale `dsh` child no longer holds the session lock. Reopening the same agent after a Paseo restart should no longer fail with `already owned by an active write handle` (#99, contributed by @frederick-wang).
 - If cleanup after a crash or force-stop gets stuck, the plugin exits within 10 seconds instead of hanging. Normal plugin unload still shuts down cleanly.
 - Update the plugin to 0.2.22 and open those agents again. Reopening an agent after a real daemon crash has not been tested yet and remains for user acceptance after release.
 - Verified with build, all four typecheck targets, 324 tests (321 pass, 3 environment-gated skips), notes and documentation gates, and unit tests for disconnect, `SIGTERM`, `SIGINT`, repeated triggers, connections that finish during cleanup, the 10-second limit, and normal unload.
-
 ## 0.2.21
 
 - Open stored `dsh-pi` agents again when their history, prompts, or tool output contain U+2028 or U+2029. Before this release, opening such an agent showed `Couldn't refresh agent history.` and the history refresh timed out. The plugin now treats only LF (`\n`) as a message boundary; `node:readline` also split messages at those characters inside valid JSON strings.

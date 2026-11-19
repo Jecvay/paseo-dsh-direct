@@ -115,7 +115,7 @@ stdio 使用只按 LF 分帧的 JSON-RPC 2.0（行尾 CR 剥离，U+2028/U+2029 
 | `session.read` | 只读读取原生历史 |
 | `session.open` | 创建会话或通过 DSH 官方恢复接口接管会话 |
 | `session.prompt` | 将用户输入（文字、图片、文件）交给对应 agent |
-| `session.steer` | 向活动回合补充引导输入 |
+| `session.steer` | 向活动回合补充引导输入；可带 `clientMessageId`，桥接据此把提交该输入的 `user/message` 与宿主已提交消息关联 |
 | `session.configure` | 修改当前会话的模型、preset、思考与权限选择 |
 | `session.rename` | 设置原生会话标题 |
 | `session.commands` | 列出会话可用的 DSH 命令与用户可调用技能 |
@@ -126,12 +126,14 @@ stdio 使用只按 LF 分帧的 JSON-RPC 2.0（行尾 CR 剥离，U+2028/U+2029 
 | `interaction.respond` | 回复审批或用户问答 |
 | `bridge.shutdown` | 清理运行时并结束桥接 |
 
-持久事件、实时 assistant stream、agent 状态、用量和交互请求使用不同通知。持久事件负责重放和最终事实；实时流负责逐步显示正文、思考和工具参数，不能以历史日志通知替代。
+持久事件、实时 assistant stream、agent 状态、用量和交互请求使用不同通知。持久事件负责重放和最终事实；实时流负责逐步显示正文、思考和工具参数，不能以历史日志通知替代。`session.event` 通知在携带已关联 steer 输入时，信封上多一个可选的 `clientMessageId`；该字段只随通知传递，不写入 DSH 会话。
 
 ## Paseo 呈现契约
 
 - 模型和 preset 目录通过 Paseo `catalog` 提供；已提交的选择通过 `session.config` 回传。
 - 用户消息与 `session.prompt_result` 回填同一个 `clientMessageId`，以合并客户端乐观输入。
+- 工作中补充的输入（`session.steer`）也回填 `clientMessageId`：宿主先记录一条已提交消息，桥接在自己分配的消息 UUID 对应的原生 `user/message` 提交时于通知信封附上该 ID，两者合并为一条并保留原生 `messageId`，不产生第二条气泡。
+- 桥接在 `agent.steer` 之前登记该关联，因此原生事件早于 RPC 回执也能命中。排队后被 DSH 丢弃的输入不产生原生消息，其关联在 DSH 的 `agent/inbox/discarded` 通知或会话关闭时清除。关联只随桥接存活、不写入 DSH 会话；历史回放只含原生 ID，因此从历史重建的时间线每条输入仍只有一行。
 - 提示词内容按原顺序传给桥接：图片以 base64 经 `attachments.saveImage` 存为 DSH 图片块，上传文件由桥接按本机路径读取、经 `attachments.saveFile` 存为文件块；PR、issue、代码评审等上下文附件按 Paseo 的文字格式展开。当前模型的 `inputModalities` 不含图片时拒绝图片提示词。用户气泡以 `[image]`、`[file: 名称]` 标记附件。
 - 回放历史时，`turn/end` 的失败原因显示为错误条目；`max-tokens`、`blocked`、`interrupted` 结束的回合在直播与回放中都显示为警告通知。
 - `compaction/start` 与 `compaction/end` 显示为同一张压缩卡片（进行中 → 完成），`compaction/summary` 提供被压缩的 token 数；由命令发起的压缩标记为手动，失败另显示错误通知。

@@ -42,6 +42,8 @@ class FakeBridge implements DshBridge {
   };
   readonly calls: Array<{ method: keyof BridgeMethods; params: unknown; timeoutMs?: number }> = [];
   canStop = true;
+  /** When set, `session.steer` waits on it before returning, to exercise mid-request turn ends. */
+  steerGate?: Promise<void>;
   closeCount = 0;
   private listeners = new Map<string, Set<(params: unknown) => void>>();
   private failureListeners = new Set<(error: Error) => void>();
@@ -80,6 +82,10 @@ class FakeBridge implements DshBridge {
         this.notify("session.status", { sessionId: "native-new", status: "idle" });
       }
       return { messageId: "user-1" } as BridgeMethods[Name]["result"];
+    }
+    if (method === "session.steer") {
+      if (this.steerGate) await this.steerGate;
+      return { messageId: "native-steer" } as BridgeMethods[Name]["result"];
     }
     if (method === "session.list") return { sessions: this.listedSessions } as BridgeMethods[Name]["result"];
     if (method === "session.commands") {
@@ -253,6 +259,73 @@ describe("dsh provider", () => {
       "dsh-auto:started",
       "dsh-auto:completed",
     ]);
+    await connection.close();
+  });
+
+  it("forwards the steer client id and correlates the resulting native user message", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    const { connection, events } = await openSession(bridge);
+    await connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-start", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "start" }] } },
+    });
+    await tick();
+    await tick();
+    await connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-steer", delivery: "steer", input: { type: "message", content: [{ type: "text", text: "steer text" }] } },
+    });
+    await tick();
+    assert.deepEqual(bridge.calls.find((call) => call.method === "session.steer")?.params, {
+      sessionId: "native-new",
+      content: [{ type: "text", text: "steer text" }],
+      clientMessageId: "client-steer",
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "user/message", seq: 60, time: 6, data: { id: "native-steer", source: { kind: "user" }, content: [{ type: "text", text: "steer text" }] } },
+      images: [],
+      clientMessageId: "client-steer",
+    });
+    const steered = events
+      .filter((event) => event.type === "timeline.item" && event.item.type === "user_message")
+      .map((event) => (event.type === "timeline.item" ? event.item : undefined))
+      .find((item) => item && item.type === "user_message" && item.text === "steer text");
+    assert.deepEqual(steered, { type: "user_message", id: "native-steer", messageId: "native-steer", clientMessageId: "client-steer", text: "steer text" });
+    await connection.close();
+  });
+
+  it("names the turn captured before the steer request even if it ends mid-request", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    const { connection, events } = await openSession(bridge);
+    await connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-start", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "start" }] } },
+    });
+    await tick();
+    await tick();
+    const started = events.find((event) => event.type === "session.turn" && event.state === "started");
+    const activeTurn = started?.type === "session.turn" ? started.turnId : undefined;
+    assert.ok(activeTurn);
+
+    const gate = deferred<void>();
+    bridge.steerGate = gate.promise;
+    const steering = connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-steer", delivery: "steer", input: { type: "message", content: [{ type: "text", text: "steer text" }] } },
+    });
+    await tick();
+    // The turn ends while the steer request is still in flight.
+    bridge.notify("session.status", { sessionId: "native-new", status: "idle" });
+    gate.resolve();
+    await steering;
+    await tick();
+    const result = events.find((event) => event.type === "session.prompt_result" && event.clientMessageId === "client-steer");
+    assert.deepEqual(result?.type === "session.prompt_result" ? result.result : undefined, { type: "steer", turnId: activeTurn });
     await connection.close();
   });
 
@@ -1004,7 +1077,7 @@ async function openSession(bridge: FakeBridge) {
   const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
   const connection = await provider.connect({
     versions: [1],
-    capabilities: ["prompt.message", "prompt.command", "prompt.image", "session.persistence", "session.configure"],
+    capabilities: ["prompt.message", "prompt.command", "prompt.image", "session.persistence", "session.configure", "prompt.steer"],
   });
   const events: ProviderEvent[] = [];
   connection.onEvent((event) => events.push(event));
