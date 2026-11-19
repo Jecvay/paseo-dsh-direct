@@ -14,6 +14,8 @@ import {
   ensureDshProfile,
   launchDshBridge,
   missingSurfaceRows,
+  describeIgnoredFrame,
+  describeNullIdResponse,
   parseBridgeLine,
   resolveDshExecutable,
   resolveDshHome,
@@ -210,6 +212,32 @@ describe("parseBridgeLine", () => {
       undefined,
     );
     assert.equal(parseBridgeLine('{"truncated":'), undefined);
+  });
+
+  it("describes an ignored frame without copying its content", () => {
+    const secret = "PASEO_TEST_SECRET sk-1234567890 history text";
+    const described = describeIgnoredFrame(secret);
+    assert.equal(described.includes("PASEO_TEST_SECRET"), false);
+    assert.equal(described.includes("sk-1234567890"), false);
+    assert.match(described, new RegExp(`${secret.length} chars sha256:[0-9a-f]{12}$`));
+    // Same size, different content: the digest still separates the two lines.
+    assert.notEqual(describeIgnoredFrame("x".repeat(secret.length)), described);
+  });
+
+  it("describes a null-id bridge error by code without copying error.message", () => {
+    const response = parseBridgeLine(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: 'Unexpected token x in JSON: "PASEO_TEST_SECRET"' },
+      }),
+    ) as Record<string, unknown>;
+    assert.equal(
+      describeNullIdResponse(response),
+      "[paseo-dsh-direct] bridge rejected a request (code -32600)",
+    );
+    assert.equal(describeNullIdResponse({ id: null, error: { code: "PASEO_TEST_SECRET" } }), undefined);
+    assert.equal(describeNullIdResponse({ id: null }), undefined);
   });
 
   it("skips JSON that is not a protocol object", () => {
