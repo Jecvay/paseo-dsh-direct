@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" font-family="PingFang SC, Microsoft YaHei, Noto Sans CJK SC, Source Han Sans SC, sans-serif">
+  <title>工作中补充输入不再显示两条</title>
+  <desc>问题：补充输入时 Paseo 记录一条、插件又回传一条无关联的原生消息，出现两条气泡。修复：桥接在 agent.steer 前登记原生消息 UUID 与客户端 ID，原生消息提交时附带该 ID，Paseo 合并为一条并保留原生 messageId。已在隔离的真实 Paseo 0.16.2 与 DSH 上验证直播、历史重建与丢弃场景。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L12,6 L0,12 z" fill="#5b6470"/>
+    </marker>
+    <marker id="arrowBad" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L12,6 L0,12 z" fill="#b23b3b"/>
+    </marker>
+    <marker id="arrowGood" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L12,6 L0,12 z" fill="#2f7d4f"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1000" fill="#ffffff"/>
+
+  <text x="60" y="60" font-size="42" font-weight="bold" fill="#1f2733">工作中补充输入：从出现两条，到合并成一条</text>
+
+  <!-- 上半部：问题 -->
+  <text x="60" y="130" font-size="30" font-weight="bold" fill="#b23b3b">修复前：一次输入，两条气泡</text>
+
+  <rect x="60" y="170" width="230" height="96" rx="10" fill="#f4f6f8" stroke="#8a94a1" stroke-width="2"/>
+  <text x="175" y="212" font-size="26" text-anchor="middle" fill="#1f2733">用户在工作时</text>
+  <text x="175" y="244" font-size="26" text-anchor="middle" fill="#1f2733">补充一条输入</text>
+
+  <line x1="290" y1="218" x2="356" y2="218" stroke="#5b6470" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <rect x="360" y="170" width="330" height="96" rx="10" fill="#f4f6f8" stroke="#8a94a1" stroke-width="2"/>
+  <text x="525" y="206" font-size="24" text-anchor="middle" fill="#1f2733">Paseo 先记一条已提交消息</text>
+  <text x="525" y="240" font-size="22" text-anchor="middle" fill="#5b6470">带 clientMessageId，无原生 ID</text>
+
+  <line x1="690" y1="218" x2="756" y2="218" stroke="#5b6470" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <rect x="760" y="170" width="330" height="96" rx="10" fill="#f4f6f8" stroke="#8a94a1" stroke-width="2"/>
+  <text x="925" y="206" font-size="24" text-anchor="middle" fill="#1f2733">插件又回传 DSH 原生消息</text>
+  <text x="925" y="240" font-size="22" text-anchor="middle" fill="#5b6470">只有原生 ID，缺 clientMessageId</text>
+
+  <line x1="1090" y1="218" x2="1156" y2="218" stroke="#b23b3b" stroke-width="3" marker-end="url(#arrowBad)"/>
+
+  <rect x="1160" y="170" width="380" height="96" rx="10" fill="#fbecec" stroke="#b23b3b" stroke-width="2"/>
+  <text x="1350" y="206" font-size="26" text-anchor="middle" fill="#8f2b2b">时间线出现两条相同消息</text>
+  <text x="1350" y="240" font-size="22" text-anchor="middle" fill="#8f2b2b">原生 DSH 日志其实只有一条</text>
+
+  <rect x="360" y="300" width="1180" height="66" rx="8" fill="#f4f6f8" stroke="#c9cfd6" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="950" y="342" font-size="22" text-anchor="middle" fill="#5b6470">只在 agent 工作中补充输入时容易触发：普通发送本来就带回 clientMessageId，补充输入这一步漏了关联</text>
+
+  <line x1="60" y1="410" x2="1540" y2="410" stroke="#c9cfd6" stroke-width="2"/>
+
+  <!-- 下半部：修复 -->
+  <text x="60" y="470" font-size="30" font-weight="bold" fill="#2f7d4f">修复后：按原生消息 ID 精确关联，合并为一条</text>
+
+  <rect x="60" y="510" width="230" height="96" rx="10" fill="#f4f6f8" stroke="#8a94a1" stroke-width="2"/>
+  <text x="175" y="552" font-size="26" text-anchor="middle" fill="#1f2733">用户补充输入</text>
+  <text x="175" y="584" font-size="24" text-anchor="middle" fill="#5b6470">带上 clientMessageId</text>
+
+  <line x1="290" y1="558" x2="356" y2="558" stroke="#2f7d4f" stroke-width="3" marker-end="url(#arrowGood)"/>
+
+  <rect x="360" y="510" width="330" height="96" rx="10" fill="#eaf5ee" stroke="#2f7d4f" stroke-width="3"/>
+  <text x="525" y="546" font-size="24" text-anchor="middle" fill="#1f2733">桥接在 agent.steer 前登记</text>
+  <text x="525" y="580" font-size="22" text-anchor="middle" fill="#1f4d32">原生消息 UUID → clientMessageId</text>
+
+  <line x1="690" y1="558" x2="756" y2="558" stroke="#2f7d4f" stroke-width="3" marker-end="url(#arrowGood)"/>
+
+  <rect x="760" y="510" width="330" height="96" rx="10" fill="#eaf5ee" stroke="#2f7d4f" stroke-width="3"/>
+  <text x="925" y="546" font-size="24" text-anchor="middle" fill="#1f2733">原生消息提交时附带</text>
+  <text x="925" y="580" font-size="22" text-anchor="middle" fill="#1f4d32">同一个 clientMessageId</text>
+
+  <line x1="1090" y1="558" x2="1156" y2="558" stroke="#2f7d4f" stroke-width="3" marker-end="url(#arrowGood)"/>
+
+  <rect x="1160" y="510" width="380" height="96" rx="10" fill="#eaf5ee" stroke="#2f7d4f" stroke-width="3"/>
+  <text x="1350" y="546" font-size="26" text-anchor="middle" fill="#1f4d32">Paseo 合并为一条</text>
+  <text x="1350" y="580" font-size="22" text-anchor="middle" fill="#1f4d32">保留原生 messageId</text>
+
+  <rect x="360" y="646" width="380" height="84" rx="10" fill="#f7f9fa" stroke="#8a94a1" stroke-width="2"/>
+  <text x="550" y="680" font-size="22" text-anchor="middle" fill="#1f2733">同文本的两次发送</text>
+  <text x="550" y="710" font-size="22" text-anchor="middle" fill="#5b6470">各一条 · 按 UUID 关联</text>
+
+  <rect x="770" y="646" width="380" height="84" rx="10" fill="#f7f9fa" stroke="#8a94a1" stroke-width="2"/>
+  <text x="960" y="680" font-size="22" text-anchor="middle" fill="#1f2733">排队后被丢弃的输入</text>
+  <text x="960" y="710" font-size="22" text-anchor="middle" fill="#5b6470">清除关联 · 不产生原生消息</text>
+
+  <rect x="1180" y="646" width="360" height="84" rx="10" fill="#f7f9fa" stroke="#8a94a1" stroke-width="2"/>
+  <text x="1360" y="680" font-size="22" text-anchor="middle" fill="#1f2733">从历史重建时间线</text>
+  <text x="1360" y="710" font-size="22" text-anchor="middle" fill="#5b6470">每条输入仍只有一行</text>
+
+  <rect x="60" y="770" width="1480" height="180" rx="12" fill="#fbfcfd" stroke="#c9cfd6" stroke-width="2"/>
+  <text x="90" y="812" font-size="24" font-weight="bold" fill="#1f2733">验证与状态</text>
+  <text x="90" y="850" font-size="22" fill="#2f7d4f">已在隔离的真实 Paseo 0.16.2 + DSH 0.2.2-rc.1 上通过：两次补充输入各一条；历史重建仍各一条；被丢弃的输入不重复。</text>
+  <text x="90" y="884" font-size="22" fill="#1f2733">通过构建、四路类型检查、单元与集成测试、文档与笔记门禁。Paseo 0.11 仅源码核对，未运行（环境无已构建版本）。</text>
+  <text x="90" y="918" font-size="22" fill="#8a5a00">当前为候选修复，等待维护者批准合并与发布；发布前不影响你已安装的版本。</text>
+
+  <rect x="90" y="968" width="18" height="18" fill="#eaf5ee" stroke="#2f7d4f" stroke-width="3"/>
+  <text x="118" y="984" font-size="20" fill="#5b6470">框内加粗描边＝本次改动点</text>
+  <rect x="360" y="968" width="18" height="18" fill="#f4f6f8" stroke="#8a94a1" stroke-width="2"/>
+  <text x="388" y="984" font-size="20" fill="#5b6470">浅灰描边＝保持不变</text>
+</svg>
