@@ -41,6 +41,7 @@ function fixture(
   }> = [];
   let disposeCount = 0;
   const followups: unknown[] = [];
+  const steerMessages: Array<{ id: string }> = [];
   let created: HostAgent | undefined;
   let createGate = Promise.resolve();
   const models = { provider: "configured", model: "test" };
@@ -69,7 +70,9 @@ function fixture(
           followup: (message) => {
             followups.push(message);
           },
-          steer: () => undefined,
+          steer: (message) => {
+            steerMessages.push(message as { id: string });
+          },
           cancel: () => undefined,
           whenIdle: async () => {
             const activityDone = Promise.resolve();
@@ -153,6 +156,7 @@ function fixture(
     bridge,
     notifications,
     followups,
+    steerMessages,
     get agent() {
       return created!;
     },
@@ -1315,5 +1319,92 @@ test("rejects restored child snapshots with a different persisted parent", async
     cwd: "/tmp",
   });
   assert.deepEqual(opened.subagents, undefined);
+  await f.bridge.shutdown();
+});
+
+test("tags the committed steer user/message with the host client id exactly once", async () => {
+  const f = fixture();
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "s-steer" });
+  const listener = f.listener("session/event");
+
+  const result = await f.bridge.handle("session.steer", {
+    sessionId: "s-steer",
+    content: [{ type: "text", text: "one" }],
+    clientMessageId: "client-one",
+  });
+  const firstId = f.steerMessages.at(-1)!.id;
+  assert.equal(result.messageId, firstId);
+  const event = { type: "user/message", seq: 5, time: 1, data: { id: firstId, source: { kind: "user" }, content: [{ type: "text", text: "one" }] } };
+  listener(f.agent.session, event as never);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.event",
+    params: { sessionId: "s-steer", event, images: [], clientMessageId: "client-one" },
+  });
+
+  // The correlation is consumed: a repeated projection of the same event is untagged.
+  listener(f.agent.session, event as never);
+  assert.deepEqual(f.notifications.at(-1), {
+    method: "session.event",
+    params: { sessionId: "s-steer", event, images: [] },
+  });
+  await f.bridge.shutdown();
+});
+
+test("keeps identical steer texts separate and leaves an unsteered user message untagged", async () => {
+  const f = fixture();
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "s-steer" });
+  const listener = f.listener("session/event");
+  await f.bridge.handle("session.steer", { sessionId: "s-steer", content: [{ type: "text", text: "same" }], clientMessageId: "c-a" });
+  const a = f.steerMessages.at(-1)!.id;
+  await f.bridge.handle("session.steer", { sessionId: "s-steer", content: [{ type: "text", text: "same" }], clientMessageId: "c-b" });
+  const b = f.steerMessages.at(-1)!.id;
+  assert.notEqual(a, b);
+
+  // An unrelated native user message that shares the text is not tagged.
+  const plain = { type: "user/message", seq: 7, time: 2, data: { id: "native-plain", source: { kind: "user" }, content: [{ type: "text", text: "same" }] } };
+  listener(f.agent.session, plain as never);
+  assert.deepEqual(f.notifications.at(-1), { method: "session.event", params: { sessionId: "s-steer", event: plain, images: [] } });
+
+  for (const [nativeId, clientMessageId] of [
+    [a, "c-a"],
+    [b, "c-b"],
+  ] as const) {
+    const event = { type: "user/message", seq: 8, time: 3, data: { id: nativeId, source: { kind: "user" }, content: [{ type: "text", text: "same" }] } };
+    listener(f.agent.session, event as never);
+    assert.equal((f.notifications.at(-1)!.params as { clientMessageId?: string }).clientMessageId, clientMessageId);
+  }
+  await f.bridge.shutdown();
+});
+
+test("forgets a steer correlation when DSH discards the queued message", async () => {
+  const f = fixture();
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "s-steer" });
+  const listener = f.listener("session/event");
+  const commit = (id: string, text: string, seq: number) => {
+    const event = { type: "user/message", seq, time: seq, data: { id, source: { kind: "user" }, content: [{ type: "text", text }] } };
+    listener(f.agent.session, event as never);
+    return { event, clientMessageId: (f.notifications.at(-1)!.params as { clientMessageId?: string }).clientMessageId };
+  };
+
+  // Positive control: a steer whose correlation is intact is tagged.
+  await f.bridge.handle("session.steer", { sessionId: "s-steer", content: [{ type: "text", text: "keep" }], clientMessageId: "c-keep" });
+  assert.equal(commit(f.steerMessages.at(-1)!.id, "keep", 8).clientMessageId, "c-keep");
+
+  // A steer DSH discarded before committing is never tagged.
+  await f.bridge.handle("session.steer", { sessionId: "s-steer", content: [{ type: "text", text: "drop" }], clientMessageId: "c-drop" });
+  const droppedId = f.steerMessages.at(-1)!.id;
+  f.listener("agent/inbox/discarded")({ agent: f.agent, message: { id: droppedId } });
+  assert.equal(commit(droppedId, "drop", 9).clientMessageId, undefined);
+  await f.bridge.shutdown();
+});
+
+test("leaves a steer without a clientMessageId untagged", async () => {
+  const f = fixture();
+  await f.bridge.handle("session.open", { cwd: "/tmp", sessionId: "s-steer" });
+  await f.bridge.handle("session.steer", { sessionId: "s-steer", content: [{ type: "text", text: "no-id" }] });
+  const id = f.steerMessages.at(-1)!.id;
+  const event = { type: "user/message", seq: 6, time: 5, data: { id, source: { kind: "user" }, content: [{ type: "text", text: "no-id" }] } };
+  f.listener("session/event")(f.agent.session, event as never);
+  assert.deepEqual(f.notifications.at(-1), { method: "session.event", params: { sessionId: "s-steer", event, images: [] } });
   await f.bridge.shutdown();
 });

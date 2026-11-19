@@ -73,6 +73,23 @@ describe("TimelineProjector", () => {
     );
   });
 
+  it("tags a correlated user message with the host client id and keeps the native id", () => {
+    const projector = new TimelineProjector("paseo-session");
+    const event = {
+      type: "user/message" as const,
+      seq: 4,
+      time: 4,
+      data: { id: "native-u1", source: { kind: "user" }, content: [{ type: "text" as const, text: "steer" }] },
+    };
+    assert.deepEqual(projector.projectEvent(event, { clientMessageId: "client-1" }).map(timelineItem), [
+      { type: "user_message", id: "native-u1", messageId: "native-u1", clientMessageId: "client-1", text: "steer" },
+    ]);
+    // Without a correlation the message stays native-only, as on history replay.
+    assert.deepEqual(projector.projectEvent(event).map(timelineItem), [
+      { type: "user_message", id: "native-u1", messageId: "native-u1", text: "steer" },
+    ]);
+  });
+
   it("uses one shared messageId across transient delta ids through the durable message", () => {
     const projector = new TimelineProjector("paseo-session");
     projector.projectStream({ type: "start", attemptId: "attempt-1", revision: 0, turn: 2, step: 3 });

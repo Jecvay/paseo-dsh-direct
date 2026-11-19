@@ -197,7 +197,8 @@ export interface BridgeMethods {
     result: { messageId: string };
   };
   "session.steer": {
-    params: { sessionId: string; content: PromptPart[] };
+    /** `clientMessageId` lets the bridge tag the matching native `user/message` with the host's `clientMessageId`. */
+    params: { sessionId: string; content: PromptPart[]; clientMessageId?: string };
     result: { messageId: string };
   };
   "session.configure": {
@@ -270,6 +271,13 @@ export interface BridgeNotifications {
     sessionId: string;
     event: DshSessionEvent;
     images: ToolImageOutcome[];
+    /**
+     * Present on the `user/message` a steer committed: the host `clientMessageId`
+     * originally sent on `session.steer`, so the provider can correlate the native
+     * DSH event with the host's submitted prompt. Ephemeral bridge metadata; never
+     * written into the DSH session.
+     */
+    clientMessageId?: string;
   };
   "session.stream": { sessionId: string; frame: DshStreamFrame };
   "session.status": { sessionId: string; status: "idle" | "running" };
