@@ -245,6 +245,61 @@ describe("parseBridgeLine", () => {
   });
 });
 
+describe("bridge frame decoding", () => {
+  it("round-trips U+2028 and U+2029 through the real child pipe in both directions", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "paseo-unicode-frames-"));
+    const home = path.join(root, "home");
+    await mkdir(path.join(home, "profiles", "fixture"), { recursive: true });
+    const text = "before\u2028middle\u2029after";
+    const script = `
+      const args = process.argv.slice(1);
+      if (args.includes('--dump-config')) {
+        console.log(${JSON.stringify(DISABLED_SURFACE_ROWS.map(id => `- id: ${id}`).join("\n"))});
+        process.exit(0);
+      }
+      const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+      send({ jsonrpc: '2.0', method: 'bridge.ready', params: { protocolVersion: 1 } });
+      let buffer = '';
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', chunk => {
+        buffer += chunk;
+        let newline;
+        while ((newline = buffer.indexOf('\\n')) !== -1) {
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          if (!line.trim()) continue;
+          const request = JSON.parse(line);
+          if (request.method === 'bridge.initialize') {
+            send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, catalog: { models: [], presets: [], note: ${JSON.stringify(text)} }, capabilities: {} } });
+          } else if (request.method === 'session.prompt') {
+            send({ jsonrpc: '2.0', id: request.id, result: { received: request.params.content[0].text } });
+          } else if (request.method === 'bridge.shutdown') {
+            process.exit(0);
+          }
+        }
+      });
+    `;
+    let bridge: Awaited<ReturnType<typeof launchDshBridge>> | undefined;
+    try {
+      bridge = await launchDshBridge({
+        bridgeSource: "",
+        profile: "fixture",
+        providerLaunch: {
+          command: process.execPath,
+          args: ["-e", script, "--"],
+          env: { ...process.env, DSH_HOME: home } as Record<string, string>,
+        },
+      });
+      assert.equal((bridge.initialized.catalog as { note?: string }).note, text);
+      const echoed = await bridge.request("session.prompt", { sessionId: "s", content: [{ type: "text", text }] });
+      assert.equal((echoed as { received?: string }).received, text);
+    } finally {
+      await bridge?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("bridge ready deadline", () => {
   async function fixture(mode: "delayed" | "never" | "exit") {
     const root = await mkdtemp(path.join(tmpdir(), "paseo-ready-test-"));
