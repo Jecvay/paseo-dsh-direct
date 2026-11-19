@@ -1,3 +1,11 @@
+/** Splits the bridge's NDJSON stream into frames; see `createJsonlFramer`. */
+export interface JsonlFramer {
+  /** Feed one decoded chunk; complete frames are delivered synchronously. */
+  push(chunk: string): void;
+  /** Deliver a trailing frame that arrived without its LF. */
+  flush(): void;
+}
+
 /**
  * Frame the bridge protocol the way JSONL actually defines it: a frame ends at
  * an LF byte and nowhere else.
@@ -10,13 +18,6 @@
  * halves, and the reply is dropped instead of answered. Framing on LF alone
  * keeps one JSON object per line whatever the payload contains.
  */
-export interface JsonlFramer {
-  /** Feed one decoded chunk; complete frames are delivered synchronously. */
-  push(chunk: string): void;
-  /** Deliver a trailing frame that arrived without its LF. */
-  flush(): void;
-}
-
 export function createJsonlFramer(onFrame: (frame: string) => void): JsonlFramer {
   let parts: string[] = [];
   const emit = (frame: string): void => {
