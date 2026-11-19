@@ -204,10 +204,16 @@ export async function apply(
     process.stdin.on("data", onData);
     process.stdin.once("end", onEnd);
     process.stdin.once("close", onEnd);
+    // A previous apply() paused stdin on dispose; a paused stream does not
+    // resume just because a data listener is attached again.
+    process.stdin.resume();
     detachInput = () => {
       process.stdin.off("data", onData);
       process.stdin.off("end", onEnd);
       process.stdin.off("close", onEnd);
+      // readline.close() paused stdin, which let the event loop drain after the
+      // host disposed this effect; a detached flowing stream would keep it open.
+      process.stdin.pause();
     };
     send({
       jsonrpc: "2.0",
