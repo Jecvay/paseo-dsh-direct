@@ -1,4 +1,4 @@
-import { createInterface } from "node:readline";
+import { createJsonlFramer } from "../jsonl-frames.js";
 import { createRequire } from "node:module";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -146,7 +146,7 @@ export async function apply(
     config.profile,
     helpers,
   );
-  let input: ReturnType<typeof createInterface> | undefined;
+  let detachInput: (() => void) | undefined;
   let disposed = false;
   const activeIds = new Set<string | number>();
   const exit = (code: number) => ctx.get("appExit")?.(code);
@@ -155,8 +155,7 @@ export async function apply(
     throw new Error("Paseo bridge requires the DSH profile launcher");
   const removeReady = onReady.onReady(() => {
     if (disposed) return;
-    input = createInterface({ input: process.stdin, crlfDelay: Infinity });
-    input.on("line", (line) => {
+    const handleLine = (line: string) => {
       if (!line.trim()) return;
       let request: RpcRequest;
       try {
@@ -189,14 +188,33 @@ export async function apply(
             }),
         )
         .finally(() => activeIds.delete(request.id));
-    });
-    input.on("close", () => {
-      if (!disposed)
-        void service.shutdown().then(
-          () => exit(0),
-          () => exit(1),
-        );
-    });
+    };
+    const frames = createJsonlFramer(handleLine);
+    const onData = (chunk: string) => frames.push(chunk);
+    const onEnd = () => {
+      detachInput?.();
+      frames.flush();
+      if (disposed) return;
+      void service.shutdown().then(
+        () => exit(0),
+        () => exit(1),
+      );
+    };
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", onData);
+    process.stdin.once("end", onEnd);
+    process.stdin.once("close", onEnd);
+    // A previous apply() paused stdin on dispose; a paused stream does not
+    // resume just because a data listener is attached again.
+    process.stdin.resume();
+    detachInput = () => {
+      process.stdin.off("data", onData);
+      process.stdin.off("end", onEnd);
+      process.stdin.off("close", onEnd);
+      // readline.close() paused stdin, which let the event loop drain after the
+      // host disposed this effect; a detached flowing stream would keep it open.
+      process.stdin.pause();
+    };
     send({
       jsonrpc: "2.0",
       method: "bridge.ready",
@@ -207,7 +225,7 @@ export async function apply(
     () => async () => {
       disposed = true;
       removeReady();
-      input?.close();
+      detachInput?.();
       await service.shutdown();
     },
     "paseo-dsh-bridge",

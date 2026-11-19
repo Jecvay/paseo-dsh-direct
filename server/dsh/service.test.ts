@@ -968,6 +968,83 @@ test("bridge output resolves image params before serializing and before a later 
   assert.equal(records.at(-1)?.id, 2);
 });
 
+test("bridge frames stdin on LF and resumes it for a later apply", { timeout: 5_000 }, async (t) => {
+  const f = fixture();
+  await f.bridge.shutdown();
+  const framesDir = await mkdtemp(join(tmpdir(), "paseo-bridge-frames-"));
+  const input = new PassThrough();
+  const records: Array<{ id?: number | null }> = [];
+  let wanted: number | null = null;
+  let resolveWanted: (() => void) | undefined;
+  const output = new Writable({
+    write(chunk, _encoding, done) {
+      const record = JSON.parse(chunk.toString()) as { id?: number | null };
+      records.push(record);
+      if (record.id === wanted) {
+        resolveWanted?.();
+        resolveWanted = undefined;
+      }
+      done();
+    },
+  });
+  const waitFor = (id: number): Promise<void> => {
+    wanted = id;
+    return new Promise<void>((resolve) => { resolveWanted = resolve; });
+  };
+  const stdin = Object.getOwnPropertyDescriptor(process, "stdin")!;
+  const stdout = Object.getOwnPropertyDescriptor(process, "stdout")!;
+  const argv = process.argv;
+  let dispose: (() => void | Promise<void>) | undefined;
+  t.after(async () => {
+    try {
+      await dispose?.();
+    } finally {
+      Object.defineProperty(process, "stdin", stdin);
+      Object.defineProperty(process, "stdout", stdout);
+      process.argv = argv;
+      input.destroy();
+      output.destroy();
+      await rm(framesDir, { recursive: true, force: true });
+    }
+  });
+  Object.defineProperty(process, "stdin", { configurable: true, value: input });
+  Object.defineProperty(process, "stdout", { configurable: true, value: output });
+  const start = async (): Promise<() => void | Promise<void>> => {
+    let ready!: () => void;
+    let stop!: () => void | Promise<void>;
+    // The synthetic host has no installed DSH module closure to resolve.
+    process.argv = [];
+    await apply({
+      ...f.ctx,
+      get: ((name: keyof HostServices) => {
+        if (name === "appReady") return { onReady: (listener: () => void) => { ready = listener; return () => undefined; } };
+        if (name === "appExit") return () => undefined;
+        return f.ctx.get(name);
+      }) as HostContext["get"],
+      effect: (callback) => { stop = callback(); },
+    }, { imagesDir: framesDir });
+    process.argv = argv;
+    ready();
+    return stop;
+  };
+
+  dispose = await start();
+  const first = waitFor(7);
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 7, method: "bridge.initialize", params: { note: "a\u2028b\u2029c" } })}\n`);
+  await first;
+  assert.equal(records.filter((record) => record.id === 7).length, 1);
+  assert.equal(records.some((record) => record.id === null), false);
+  await dispose();
+  // Disposal pauses stdin so the host can drain; a later apply() must resume it.
+  assert.equal(input.isPaused(), true);
+
+  dispose = await start();
+  const second = waitFor(9);
+  input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 9, method: "bridge.initialize" })}\n`);
+  await second;
+  assert.equal(records.filter((record) => record.id === 9).length, 1);
+});
+
 test("session.read materializes tool-result images onto historical events", async () => {
   const historicalEvent: DshSessionEvent = {
     type: "tool/result",

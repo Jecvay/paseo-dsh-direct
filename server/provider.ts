@@ -706,9 +706,10 @@ async function openSession(
     const selection = nativeId
       ? undefined
       : selectModel(bridge.initialized.catalog, input.config.model, input.config.thinkingOption);
+    const openSettings = sessionSettings(input.config);
     const permissionPreset = nativeId
       ? undefined
-      : selectedPermissionPreset(input.config.settings, bridge.initialized.catalog);
+      : openPermissionPreset(input.config, bridge.initialized.catalog);
     const opened = await bridge.request("session.open", {
       ...(nativeId ? { sessionId: nativeId, resume: true } : {}),
       cwd: input.config.cwd,
@@ -756,7 +757,7 @@ async function openSession(
     };
     state.sessions.set(input.sessionId, session);
     session.releaseBridgeListeners = listenToSessionBridge(session, state.emit);
-    if (!nativeId && input.config.settings[PLAN_MODE_SETTING] === true) {
+    if (!nativeId && openSettings[PLAN_MODE_SETTING] === true && hasPlanCommand(session)) {
       await setPlanMode(session, true);
     }
   } catch (error) {
@@ -1604,15 +1605,32 @@ function validateAdmission(
   }
 }
 
-function validateSessionConfig(config: ProviderSessionConfig): void {
+export function validateSessionConfig(config: ProviderSessionConfig): void {
   validateSettings(config.settings);
-  const unsupported: string[] = [];
-  if (config.providerOptions && Object.keys(config.providerOptions).length > 0) {
-    unsupported.push("providerOptions");
-  }
+  // Paseo stores the permission preset and plan-mode choice under providerOptions
+  // for agents created before the settings split, and sends them again on resume.
+  // Rejecting the whole bag made those agents unopenable; accept exactly the two
+  // keys this provider implements and name any other key.
+  const options = config.providerOptions ?? {};
+  const unsupported = Object.keys(options).filter(
+    (key) => key !== PERMISSION_PRESET_SETTING && key !== PLAN_MODE_SETTING,
+  );
   if (unsupported.length > 0) {
-    throw new Error(`DSH does not support session config: ${unsupported.join(", ")}`);
+    throw new Error(
+      `DSH does not support session config: ${unsupported.map((key) => `providerOptions.${key}`).join(", ")}`,
+    );
   }
+  if (options[PERMISSION_PRESET_SETTING] !== undefined && typeof options[PERMISSION_PRESET_SETTING] !== "string") {
+    throw new Error("DSH providerOptions.permissionPreset must be a string");
+  }
+  if (options[PLAN_MODE_SETTING] !== undefined && typeof options[PLAN_MODE_SETTING] !== "boolean") {
+    throw new Error("DSH providerOptions.planMode must be a boolean");
+  }
+}
+
+/** The settings a session opens with: stored providerOptions first, explicit settings win. */
+function sessionSettings(config: ProviderSessionConfig): Record<string, unknown> {
+  return { ...config.providerOptions, ...config.settings };
 }
 
 /**
@@ -1834,18 +1852,19 @@ function modelId(source: BridgeCatalog, selection?: ModelSelection): string | un
   )?.id;
 }
 
-function validateSettings(settings: Readonly<Record<string, unknown>>): void {
-  const unsupported = Object.keys(settings).filter(
+function validateSettings(settings: Readonly<Record<string, unknown>> | undefined): void {
+  const values = settings ?? {};
+  const unsupported = Object.keys(values).filter(
     (key) => key !== PERMISSION_PRESET_SETTING && key !== PLAN_MODE_SETTING,
   );
   if (unsupported.length > 0) {
     throw new Error(`DSH does not support session settings: ${unsupported.join(", ")}`);
   }
-  const value = settings[PERMISSION_PRESET_SETTING];
+  const value = values[PERMISSION_PRESET_SETTING];
   if (value !== undefined && typeof value !== "string") {
     throw new Error("DSH permissionPreset must be a string");
   }
-  const plan = settings[PLAN_MODE_SETTING];
+  const plan = values[PLAN_MODE_SETTING];
   if (plan !== undefined && typeof plan !== "boolean") {
     throw new Error("DSH planMode must be a boolean");
   }
@@ -1862,6 +1881,24 @@ function selectedPermissionPreset(
     throw new Error(`Unknown DSH permission preset: ${value}`);
   }
   return value;
+}
+
+/**
+ * Preset for a new session. An explicit setting must name a preset this profile
+ * still has, but a stored providerOptions snapshot only applies when it still
+ * matches: a stale value must not keep an agent unopenable.
+ */
+function openPermissionPreset(
+  config: ProviderSessionConfig,
+  source: BridgeCatalog,
+): string | undefined {
+  const settings = config.settings ?? {};
+  if (settings[PERMISSION_PRESET_SETTING] !== undefined)
+    return selectedPermissionPreset(settings, source);
+  const stored = config.providerOptions?.[PERMISSION_PRESET_SETTING];
+  return typeof stored === "string" && source.permissionPresets?.some((preset) => preset.id === stored)
+    ? stored
+    : undefined;
 }
 
 function selectModel(

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.21
+
+- Open stored `dsh-pi` agents again when their history, prompts, or tool output contain U+2028 or U+2029. Before this release, opening such an agent showed `Couldn't refresh agent history.` and the history refresh timed out. The plugin now treats only LF (`\n`) as a message boundary; `node:readline` also split messages at those characters inside valid JSON strings.
+- Open existing agents that have a stored `permissionPreset` or `planMode` setting again. Paseo sends both back in `providerOptions`; the plugin now accepts those two keys with type checks and still rejects unknown keys. New sessions use the stored values, explicit settings win, a stored preset the profile no longer has is ignored, and plan mode is skipped when the profile has no `/plan` command. Resumed sessions keep DSH's recorded plan and permission state, so a plan approval or permission change made in DSH is not overwritten on reopen.
+- Log unparseable bridge output as its length plus a short SHA-256 digest, and log `id: null` request errors as only the numeric code. These two diagnostics no longer copy history text, source code, or credentials into daemon logs (contributed by @frederick-wang in #98).
+- Update the plugin to 0.2.21 and reopen the affected agents. No configuration change is needed.
+- Verified with build, all four typecheck targets, 318 tests (315 pass, 3 environment-gated skips), notes and documentation gates, plus a real child-pipe round trip and a bridge stdin request carrying U+2028/U+2029. Reopening a real stored agent in Paseo remains for user acceptance after release.
+
 ## 0.2.20
 
 - Show the complete Markdown from DSH `exit_plan_mode` in Paseo's native plan tool card, including live updates and restored history (Refs #96).

@@ -70,7 +70,7 @@ DSH 的界面扩展不会自动变成 Paseo 界面，具体范围见 [客户端�
 
 Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt；`session.open.config.mcpServers` 中的 MCP server（stdio 与 streamable HTTP，含 Paseo 0.14 每 agent 工具与会话打开钩子注入项）挂载到该会话的 DSH 进程，工具名为 `mcp__<server>__<tool>`；tool policy 预先批准的 MCP 工具不再弹出审批。SSE 类型的 MCP server 明确报错。不持久化的会话写入该会话进程的临时目录，关闭时删除，不进入 DSH 历史。达到输出上限、被插件拦截或因进程中止未完成的回合显示警告。
 
-当前不支持会话回退与 Paseo 的 provider options。DSH profile 本身已有的配置仍由 DSH 管理。Paseo 的 `/` 目录列出 DSH 已注册命令（如 `/compact`、`/goal`、`/plan`）和用户可调用的技能；只属于终端界面的命令（如 `/model`、`/sessions`）不在其中。Paseo 会话标题与 DSH 标题仅在新建时同步，后续 Paseo 改名不会写回原生历史。会话回退与改名受 Paseo 插件宿主限制，理由见 [回退与改名同步决策](../.agents/notes/rejected/feature/2026-09-24-paseo-rewind-and-rename-sync.md)。
+当前不支持会话回退。Paseo 保存的 provider options 只接受本插件声明的 `permissionPreset` 与 `planMode`；其他键或类型不符会显式报错。新建会话使用这两个保存的值，显式设置优先；已存 preset 在当前 profile 中不存在时忽略，profile 没有 `/plan` 命令时不启用计划模式。恢复已有会话时以 DSH 记录的计划与权限状态为准。DSH profile 本身已有的配置仍由 DSH 管理。Paseo 的 `/` 目录列出 DSH 已注册命令（如 `/compact`、`/goal`、`/plan`）和用户可调用的技能；只属于终端界面的命令（如 `/model`、`/sessions`）不在其中。Paseo 会话标题与 DSH 标题仅在新建时同步，后续 Paseo 改名不会写回原生历史。会话回退与改名受 Paseo 插件宿主限制，理由见 [回退与改名同步决策](../.agents/notes/rejected/feature/2026-09-24-paseo-rewind-and-rename-sync.md)。
 
 ## 安装、更新与发行
 
