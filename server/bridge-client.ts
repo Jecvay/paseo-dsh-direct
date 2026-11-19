@@ -3,7 +3,8 @@ import { DEFAULT_STARTUP_TIMEOUT_SECONDS } from "../shared/startup-timeout.js";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { createInterface } from "node:readline";
+import { createHash } from "node:crypto";
+import { createJsonlFramer } from "./jsonl-frames.js";
 import { detectDshVersion } from "./dsh-version.js";
 import { spawnDsh } from "./dsh-spawn.js";
 import type { ProviderLaunch } from "@getpaseo/plugin/server/provider";
@@ -443,6 +444,29 @@ export async function launchDshBridge(options: LaunchBridgeOptions): Promise<Dsh
 }
 
 /**
+ * Diagnostic text for a stdout line that is not a protocol frame. Size plus a
+ * short digest identify the line while repeating, without copying history text,
+ * source code or credentials carried by the payload into the daemon log.
+ */
+export function describeIgnoredFrame(line: string): string {
+  const digest = createHash("sha256").update(line).digest("hex").slice(0, 12);
+  return `[paseo-dsh-direct] ignored dsh stdout: ${line.length} chars sha256:${digest}`;
+}
+
+/**
+ * Diagnostic text for an `id: null` error response from the bridge. Only a
+ * numeric JSON-RPC error code is surfaced: V8's `JSON.parse` message embeds a
+ * slice of the unparseable request, which can carry prompt or history text.
+ */
+export function describeNullIdResponse(message: Record<string, unknown>): string | undefined {
+  const error = message.error;
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code !== "number" || !Number.isFinite(code)) return undefined;
+  return `[paseo-dsh-direct] bridge rejected a request (code ${code})`;
+}
+
+/**
  * Parse one stdout line from the bridge process. `undefined` means the line is
  * not a protocol message: dsh also writes its own logs to stdout (for example
  * the model-catalog line the deepseek-account provider emits), and such a line
@@ -486,7 +510,10 @@ class JsonlBridgeClient implements DshBridge {
     this.exited = new Promise((resolve) => {
       this.resolveExited = resolve;
     });
-    createInterface({ input: child.stdout }).on("line", (line) => this.acceptLine(line));
+    const frames = createJsonlFramer((line) => this.acceptLine(line));
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => frames.push(chunk));
+    child.stdout.once("end", () => frames.flush());
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       this.stderr = (this.stderr + chunk).slice(-MAX_STDERR);
@@ -503,7 +530,10 @@ class JsonlBridgeClient implements DshBridge {
       );
       this.resolveExited();
     });
-    child.once("close", () => this.resolveExited());
+    child.once("close", () => {
+      frames.flush();
+      this.resolveExited();
+    });
   }
 
   async waitUntilReady(timeoutMs: number): Promise<void> {
@@ -612,13 +642,22 @@ class JsonlBridgeClient implements DshBridge {
     const message = parseBridgeLine(line);
     if (message === undefined) {
       // stdout carries the protocol, but dsh writes its own logs there too.
-      // Forward the line to stderr and keep the bridge alive instead of
-      // failing every provider snapshot on one log line.
-      process.stderr.write(`[paseo-dsh-direct] ignored dsh stdout: ${line.slice(0, 2000)}\n`);
+      // Keep the bridge alive instead of failing every provider snapshot on one
+      // log line, and never echo the frame itself: history text, source code and
+      // credentials travel through this pipe, so only its size and digest are
+      // recorded.
+      process.stderr.write(`${describeIgnoredFrame(line)}\n`);
       return;
     }
     if ("id" in message) {
-      if (message.id === null) return;
+      if (message.id === null) {
+        // The bridge answers a request it could not parse with an unknown id.
+        // Surface only the error code: V8's JSON.parse message embeds a slice of
+        // the raw request, which can carry prompt or history text.
+        const diagnostic = describeNullIdResponse(message as Record<string, unknown>);
+        if (diagnostic) process.stderr.write(`${diagnostic}\n`);
+        return;
+      }
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);

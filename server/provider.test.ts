@@ -5,7 +5,7 @@ import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications, Questi
 import type { DshBridge, SessionLaunch } from "./bridge-client.js";
 import { DEFAULT_PROFILE } from "./bridge-client.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
-import { createDshProvider } from "./provider.js";
+import { createDshProvider, validateSessionConfig } from "./provider.js";
 import { createFakeClock } from "../scripts/test-fake-clock.js";
 import { versionLine } from "./version-line.js";
 
@@ -20,6 +20,10 @@ class FakeBridge implements DshBridge {
   readonly executable = "dsh";
   /** Rows the next `session.list` returns (see the import list tests). */
   listedSessions: BridgeMethods["session.list"]["result"]["sessions"] = [];
+  /** Historical events the next `session.open` returns. */
+  openedEvents: BridgeMethods["session.open"]["result"]["events"] = [];
+  /** Whether the profile advertises DSH's `/plan` command. */
+  hasPlanCommand = true;
   readonly initialized: BridgeInitializeResult = {
     protocolVersion: 1,
     profile: "paseo",
@@ -60,7 +64,7 @@ class FakeBridge implements DshBridge {
         model: this.initialized.catalog.defaultModel,
         preset: "default",
         permissionPreset: open.permissionPreset ?? "read-only",
-        events: [],
+        events: this.openedEvents,
       } as BridgeMethods[Name]["result"];
     }
     if (method === "interaction.respond" && this.closeInteractionSynchronously) {
@@ -82,7 +86,9 @@ class FakeBridge implements DshBridge {
       return {
         commands: [
           { name: "compact", description: "Compact history", kind: "command" },
-          { name: "plan", description: "Enter or leave plan mode", kind: "command" },
+          ...(this.hasPlanCommand
+            ? [{ name: "plan", description: "Enter or leave plan mode", kind: "command" as const }]
+            : []),
           { name: "review", description: "Review code", kind: "skill" },
         ],
       } as BridgeMethods[Name]["result"];
@@ -550,6 +556,232 @@ describe("dsh provider", () => {
       "workspace-write",
     );
     await connection.close();
+  });
+
+  it("applies stored providerOptions when creating a session", async () => {
+    const bridge = new FakeBridge();
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open",
+      requestId: "open-1",
+      sessionId: "paseo-1",
+      config: {
+        cwd: "/repo",
+        env: {},
+        persist: false,
+        settings: {},
+        mcpServers: {},
+        providerOptions: { permissionPreset: "workspace-write", planMode: false },
+      },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+    assert.equal(events.some((event) => event.type === "request.failed"), false);
+    assert.deepEqual(bridge.calls.find((call) => call.method === "session.open")?.params, {
+      cwd: "/repo",
+      model: { provider: "deepseek", model: "chat" },
+      permissionPreset: "workspace-write",
+    });
+    await connection.close();
+  });
+
+  it("ignores a stored permission preset this profile no longer has", async () => {
+    const bridge = new FakeBridge();
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open",
+      requestId: "open-1",
+      sessionId: "paseo-1",
+      config: {
+        cwd: "/repo",
+        env: {},
+        persist: false,
+        settings: {},
+        mcpServers: {},
+        providerOptions: { permissionPreset: "removed-preset" },
+      },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+    assert.equal(events.some((event) => event.type === "request.failed"), false);
+    assert.deepEqual(bridge.calls.find((call) => call.method === "session.open")?.params, {
+      cwd: "/repo",
+      model: { provider: "deepseek", model: "chat" },
+    });
+    await connection.close();
+  });
+
+  it("skips a stored plan toggle when the profile has no plan command", async () => {
+    const bridge = new FakeBridge();
+    bridge.hasPlanCommand = false;
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open",
+      requestId: "open-1",
+      sessionId: "paseo-1",
+      config: {
+        cwd: "/repo",
+        env: {},
+        persist: false,
+        settings: {},
+        mcpServers: {},
+        providerOptions: { planMode: true },
+      },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+    assert.equal(events.some((event) => event.type === "request.failed"), false);
+    assert.deepEqual(
+      bridge.calls.filter((call) => call.method === "session.command"),
+      [],
+    );
+    await connection.close();
+  });
+
+  it("sends the stored plan toggle when the profile supports it", async () => {
+    const bridge = new FakeBridge();
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open",
+      requestId: "open-1",
+      sessionId: "paseo-1",
+      config: {
+        cwd: "/repo",
+        env: {},
+        persist: false,
+        settings: {},
+        mcpServers: {},
+        providerOptions: { planMode: true },
+      },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+    assert.equal(events.some((event) => event.type === "request.failed"), false);
+    assert.deepEqual(bridge.calls.find((call) => call.method === "session.command")?.params, {
+      sessionId: "native-new",
+      name: "plan",
+      arguments: "",
+    });
+    const configEvent = events.find(
+      (event): event is Extract<ProviderEvent, { type: "session.config" }> => event.type === "session.config",
+    );
+    assert.equal(
+      configEvent?.config.settings.find((setting) => setting.id === "planMode")?.value,
+      true,
+    );
+    await connection.close();
+  });
+
+  it("rejects an unknown explicit permission preset when creating a session", async () => {
+    const bridge = new FakeBridge();
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: [] });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open",
+      requestId: "open-1",
+      sessionId: "paseo-1",
+      config: {
+        cwd: "/repo",
+        env: {},
+        persist: false,
+        settings: { permissionPreset: "removed-preset" },
+        mcpServers: {},
+      },
+      history: "skip",
+    });
+    await tick();
+    await tick();
+    const failure = events.find(
+      (event): event is Extract<ProviderEvent, { type: "request.failed" }> => event.type === "request.failed",
+    );
+    assert.match(failure?.error.message ?? "", /Unknown DSH permission preset: removed-preset/);
+    assert.equal(bridge.calls.some((call) => call.method === "session.open"), false);
+    await connection.close();
+  });
+
+  it("resumes an agent with stored providerOptions without overriding DSH history", async () => {
+    const bridge = new FakeBridge();
+    bridge.openedEvents = [
+      { type: "plan/mode", seq: 1, time: 1, data: { active: true } },
+      { type: "plan/mode", seq: 2, time: 2, data: { active: false } },
+    ];
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({ versions: [1], capabilities: ["session.persistence"] });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open",
+      requestId: "open-1",
+      sessionId: "paseo-1",
+      persistence: { version: 1, data: { dshSessionId: "native-old" } },
+      config: {
+        cwd: "/repo",
+        env: {},
+        persist: true,
+        settings: {},
+        mcpServers: {},
+        providerOptions: { permissionPreset: "workspace-write", planMode: true },
+      },
+      history: "replay",
+    });
+    await tick();
+    await tick();
+    assert.equal(events.some((event) => event.type === "request.failed"), false);
+    assert.deepEqual(bridge.calls.find((call) => call.method === "session.open")?.params, {
+      sessionId: "native-old",
+      resume: true,
+      cwd: "/repo",
+    });
+    assert.deepEqual(
+      bridge.calls.filter((call) => call.method === "session.command"),
+      [],
+    );
+    const configEvent = events.find(
+      (event): event is Extract<ProviderEvent, { type: "session.config" }> => event.type === "session.config",
+    );
+    assert.equal(
+      configEvent?.config.settings.find((setting) => setting.id === "planMode")?.value,
+      false,
+    );
+    assert.equal(
+      configEvent?.config.settings.find((setting) => setting.id === "permissionPreset")?.value,
+      "read-only",
+    );
+    await connection.close();
+  });
+
+  it("rejects unknown or mistyped providerOptions", () => {
+    const base = { cwd: "/repo", env: {}, persist: false, mcpServers: {}, settings: {} };
+    assert.throws(
+      () => validateSessionConfig({ ...base, providerOptions: { auto_accept: true } }),
+      /DSH does not support session config: providerOptions\.auto_accept/,
+    );
+    assert.throws(
+      () => validateSessionConfig({ ...base, providerOptions: { permissionPreset: 1 } }),
+      /DSH providerOptions\.permissionPreset must be a string/,
+    );
+    assert.throws(
+      () => validateSessionConfig({ ...base, providerOptions: { planMode: "on" } }),
+      /DSH providerOptions\.planMode must be a boolean/,
+    );
   });
 
   it("reports a queued configure failure to Paseo", async () => {
