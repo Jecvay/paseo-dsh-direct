@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import type { ProviderConnection, ProviderLaunch, ProviderRegistration } from "@getpaseo/plugin/server/provider";
+import type { ProviderLaunch, ProviderRegistration } from "@getpaseo/plugin/server/provider";
 import type { SettingsDefinition } from "@getpaseo/plugin";
 import type { DshBridge, LaunchBridgeOptions } from "./bridge-client.js";
 import type { DshSettingsValues } from "../shared/settings.js";
@@ -45,11 +45,16 @@ const providerLaunch: ProviderLaunch = {
   env: { DSH_HOME: "/test/dsh-home" },
 };
 
-async function fixture(initial: DshSettingsValues) {
+async function fixture(initial: DshSettingsValues, options: { gateLaunch?: boolean } = {}) {
   const launches: Array<{ options: LaunchBridgeOptions; snapshot: LaunchBridgeOptions; bridge: DshBridge; closed: number }> = [];
   const warnings: string[] = [];
   const reads: string[] = [];
-  const connections: ProviderConnection[] = [];
+  let releaseLaunch = () => {};
+  const launchGate = options.gateLaunch
+    ? new Promise<void>((resolve) => { releaseLaunch = resolve; })
+    : undefined;
+  let markLaunched = () => {};
+  const launched = new Promise<void>((resolve) => { markLaunched = resolve; });
   let definition: SettingsDefinition | undefined;
   let values = structuredClone(initial);
   let revision = "host-0";
@@ -84,6 +89,8 @@ async function fixture(initial: DshSettingsValues) {
     },
   };
   const launchDshBridgeMock = async (options: LaunchBridgeOptions): Promise<DshBridge> => {
+    markLaunched();
+    if (launchGate) await launchGate;
     const record = { options, snapshot: { ...structuredClone({ ...options, signal: undefined }), signal: options.signal }, bridge: undefined as unknown as DshBridge, closed: 0 };
     const profile = options.profile ?? "paseo";
     const view: SubagentSettingsView = {
@@ -112,10 +119,13 @@ async function fixture(initial: DshSettingsValues) {
   const exits: number[] = [];
   let resolveExit = () => {};
   const exited = new Promise<void>((resolve) => { resolveExit = resolve; });
+  const stderr = Object.assign(new EventEmitter(), {
+    write: (line: string) => warnings.push(line),
+  });
   const hostProcess = Object.assign(new EventEmitter(), {
     env: {},
     platform: "linux",
-    stderr: { write: (line: string) => warnings.push(line) },
+    stderr,
     exit(code: number) {
       exits.push(code);
       resolveExit();
@@ -138,11 +148,10 @@ async function fixture(initial: DshSettingsValues) {
   } as unknown as PluginServerContext);
   assert.ok(provider);
   return {
-    launches, warnings, reads, discovery, settings, hostProcess, exits, exited,
+    launches, warnings, reads, discovery, settings, hostProcess, exits, exited, launched,
+    releaseLaunch: () => releaseLaunch(),
     async connect() {
-      const connection = await provider!.connect({ versions: [1], capabilities: [], launch: providerLaunch });
-      connections.push(connection);
-      return connection;
+      return provider!.connect({ versions: [1], capabilities: [], launch: providerLaunch });
     },
     async readSubagents() {
       const handler = handlers.get("subagent-settings.read");
@@ -154,7 +163,6 @@ async function fixture(initial: DshSettingsValues) {
       assert.equal(await settings.save(next, current.revision), true);
     },
     async dispose() {
-      await Promise.all(connections.map((connection) => connection.close()));
       await dispose();
     },
   };
@@ -217,20 +225,71 @@ test("invalid timeout text only drops the timeout on both actual entry launch pa
   assert.ok(f.warnings.every((line) => line.includes("ignoring the startup timeout setting")));
 });
 
-test("host disconnect closes active provider connections and exits the worker", async () => {
+const HOST_EXIT_EVENTS = ["disconnect", "SIGTERM", "SIGINT"] as const;
+
+for (const event of HOST_EXIT_EVENTS) {
+  test(`host ${event} closes active connections and requests worker exit`, { timeout: 5_000 }, async () => {
+    const f = await fixture({});
+    await f.connect();
+    assert.equal(f.launches[0].closed, 0);
+    for (const name of HOST_EXIT_EVENTS) assert.equal(f.hostProcess.listenerCount(name), 1);
+
+    f.hostProcess.emit(event);
+    f.hostProcess.emit(event);
+    if (event === "disconnect") {
+      assert.doesNotThrow(() => f.hostProcess.emit(
+        "error",
+        Object.assign(new Error("Channel closed"), { code: "ERR_IPC_CHANNEL_CLOSED" }),
+      ));
+      assert.doesNotThrow(() => f.hostProcess.stderr.emit(
+        "error",
+        Object.assign(new Error("Broken pipe"), { code: "EPIPE" }),
+      ));
+      assert.throws(
+        () => f.hostProcess.stderr.emit("error", Object.assign(new Error("Disk full"), { code: "ENOSPC" })),
+        /Disk full/,
+      );
+    }
+    await f.exited;
+
+    assert.equal(f.launches[0].options.signal?.aborted, true);
+    assert.equal(f.launches[0].closed, 1);
+    assert.deepEqual(f.exits, [0]);
+    for (const name of HOST_EXIT_EVENTS) assert.equal(f.hostProcess.listenerCount(name), 0);
+  });
+}
+
+test("normal unload closes active connections without exiting the worker", { timeout: 5_000 }, async () => {
   const f = await fixture({});
   await f.connect();
-  assert.equal(f.launches[0].closed, 0);
-  assert.equal(f.hostProcess.listenerCount("disconnect"), 1);
-  assert.equal(f.hostProcess.listenerCount("SIGTERM"), 1);
-  assert.equal(f.hostProcess.listenerCount("SIGINT"), 1);
+  await f.dispose();
+  assert.equal(f.launches[0].closed, 1);
+  assert.deepEqual(f.exits, []);
+  for (const name of HOST_EXIT_EVENTS) assert.equal(f.hostProcess.listenerCount(name), 0);
+});
 
+test("the host-exit deadline stops a worker whose cleanup stalls", { timeout: 5_000 }, async (t) => {
+  const f = await fixture({}, { gateLaunch: true });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const connecting = f.connect();
+  await f.launched;
   f.hostProcess.emit("disconnect");
-  await f.exited;
+  t.mock.timers.tick(10_000);
+  assert.deepEqual(f.exits, [0], "the deadline must exit without waiting for the stalled bridge");
+  f.releaseLaunch();
+  await assert.rejects(connecting, (error: Error) => error.name === "AbortError");
+});
 
+test("a connection that resolves during shutdown is closed before the worker exits", { timeout: 5_000 }, async () => {
+  const f = await fixture({}, { gateLaunch: true });
+  const connecting = f.connect();
+  await f.launched;
+  f.hostProcess.emit("disconnect");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(f.exits, [], "the worker must wait for the connecting bridge");
+  f.releaseLaunch();
+  await assert.rejects(connecting, (error: Error) => error.name === "AbortError");
+  await f.exited;
   assert.equal(f.launches[0].closed, 1);
   assert.deepEqual(f.exits, [0]);
-  assert.equal(f.hostProcess.listenerCount("disconnect"), 0);
-  assert.equal(f.hostProcess.listenerCount("SIGTERM"), 0);
-  assert.equal(f.hostProcess.listenerCount("SIGINT"), 0);
 });
