@@ -532,6 +532,8 @@ function listenToSessionBridge(
         if (session.activeTurnId) finishTurn(session, report, emit);
         else if (session.dispatch?.sawRunning && !session.dispatch.deferred) {
           session.dispatch.deferred = report;
+          // Settled at idle; never let an aborted RPC leak this clock forward.
+          session.turnMeasurement = undefined;
         }
         return;
       }
@@ -2234,9 +2236,16 @@ function terminalReport(
   };
 }
 
-/** Input and output are the minimum a cumulative token baseline must know. */
+/** A baseline needs measured tokens; an all-zero warm-up fold says nothing. */
 function hasTokenTotals(usage: BridgeUsage): boolean {
-  return usage.inputTokens !== undefined && usage.outputTokens !== undefined;
+  return (
+    usage.inputTokens !== undefined &&
+    usage.outputTokens !== undefined &&
+    (usage.inputTokens > 0 ||
+      (usage.cachedInputTokens ?? 0) > 0 ||
+      (usage.cacheWriteTokens ?? 0) > 0 ||
+      usage.outputTokens > 0)
+  );
 }
 
 /** Paseo's usage schema has no cache-write field; keep it inside the plugin. */
