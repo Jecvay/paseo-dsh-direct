@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, test } from "node:test";
 import type { ProviderEvent, ProviderInput } from "@getpaseo/plugin/server/provider";
-import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications, QuestionAnswer, QuestionItem } from "../shared/bridge-protocol.js";
+import type { BridgeInitializeResult, BridgeMethods, BridgeNotifications, BridgeUsage, QuestionAnswer, QuestionItem } from "../shared/bridge-protocol.js";
 import type { DshBridge, SessionLaunch } from "./bridge-client.js";
 import { DEFAULT_PROFILE } from "./bridge-client.js";
 import { PLUGIN_VERSION } from "./plugin-version.js";
@@ -22,6 +22,8 @@ class FakeBridge implements DshBridge {
   listedSessions: BridgeMethods["session.list"]["result"]["sessions"] = [];
   /** Historical events the next `session.open` returns. */
   openedEvents: BridgeMethods["session.open"]["result"]["events"] = [];
+  /** Whole-session totals the next `session.open` returns. */
+  openedUsage: BridgeUsage | undefined;
   /** Whether the profile advertises DSH's `/plan` command. */
   hasPlanCommand = true;
   readonly initialized: BridgeInitializeResult = {
@@ -44,6 +46,10 @@ class FakeBridge implements DshBridge {
   canStop = true;
   /** When set, `session.steer` waits on it before returning, to exercise mid-request turn ends. */
   steerGate?: Promise<void>;
+  /** When set, `session.prompt` waits on it before returning, to interleave native events. */
+  promptGate?: Promise<void>;
+  /** Simulate a prompt RPC that fails after DSH already started a turn. */
+  promptFailsAfterStart = false;
   closeCount = 0;
   private listeners = new Map<string, Set<(params: unknown) => void>>();
   private failureListeners = new Set<(error: Error) => void>();
@@ -66,6 +72,7 @@ class FakeBridge implements DshBridge {
         model: this.initialized.catalog.defaultModel,
         preset: "default",
         permissionPreset: open.permissionPreset ?? "read-only",
+        ...(this.openedUsage ? { usage: this.openedUsage } : {}),
         events: this.openedEvents,
       } as BridgeMethods[Name]["result"];
     }
@@ -77,6 +84,15 @@ class FakeBridge implements DshBridge {
       });
     }
     if (method === "session.prompt") {
+      if (this.promptFailsAfterStart) {
+        this.notify("session.event", {
+          sessionId: "native-new",
+          event: { type: "turn/start", seq: 90, time: 1_700_000_000_000, data: { turn: 1 } },
+          images: [],
+        });
+        throw new Error("prompt failed");
+      }
+      if (this.promptGate) await this.promptGate;
       this.notify("session.status", { sessionId: "native-new", status: "running" });
       if (this.completePromptSynchronously) {
         this.notify("session.status", { sessionId: "native-new", status: "idle" });
@@ -335,7 +351,7 @@ describe("dsh provider", () => {
     const planSetting = () => {
       const config = events.filter((event) => event.type === "session.config").at(-1);
       return config?.type === "session.config"
-        ? config.config.settings.find((setting) => setting.id === "planMode")
+        ? config.config.settings?.find((setting) => setting.id === "planMode")
         : undefined;
     };
     assert.equal(planSetting()?.value, false);
@@ -403,22 +419,583 @@ describe("dsh provider", () => {
     await connection.close();
   });
 
-  it("forwards the bridge's complete usage reading to Paseo unchanged", async () => {
+  it("forwards the bridge's usage reading without the internal cache-write count", async () => {
     const bridge = new FakeBridge();
     const { connection, events } = await openSession(bridge);
     const usage = {
       inputTokens: 3091,
       cachedInputTokens: 7808,
+      cacheWriteTokens: 42,
       outputTokens: 61,
       contextWindowUsedTokens: 10899,
       contextWindowMaxTokens: 1000000,
     };
     bridge.notify("session.usage", { sessionId: "native-new", usage });
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { contextWindowUsedTokens: 12000, contextWindowMaxTokens: 1000000 },
+    });
     await tick();
     assert.deepEqual(
       events.flatMap((event) => (event.type === "session.usage" ? [event.usage] : [])),
-      [usage],
+      [{
+        inputTokens: 3091,
+        cachedInputTokens: 7808,
+        outputTokens: 61,
+        contextWindowUsedTokens: 10899,
+        contextWindowMaxTokens: 1000000,
+      }, {
+        inputTokens: 3091,
+        cachedInputTokens: 7808,
+        outputTokens: 61,
+        contextWindowUsedTokens: 12000,
+        contextWindowMaxTokens: 1000000,
+      }],
     );
+    await connection.close();
+  });
+
+  it("reports session metrics after ready when usage changes", async () => {
+    const bridge = new FakeBridge();
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 1200, cachedInputTokens: 300, cacheWriteTokens: 0, outputTokens: 400 },
+    });
+    await tick();
+    const readyAt = events.findIndex((event) => event.type === "session.ready");
+    const reportedAt = events.findIndex((event) => event.type === "session.metrics");
+    assert.ok(readyAt >= 0, "session.ready should be emitted");
+    assert.ok(reportedAt > readyAt, "session.metrics should follow session.ready");
+    const reported = events[reportedAt];
+    assert.deepEqual(reported?.type === "session.metrics" ? reported.metrics : undefined, [
+      { label: "Turns", value: "0" },
+      { label: "Tokens", value: "1.2K ↑ · 400 ↓" },
+      { label: "Cache", value: "20%" },
+    ]);
+    await connection.close();
+  });
+
+  it("holds session metrics until the session is ready", async () => {
+    const bridge = new FakeBridge();
+    let release!: () => void;
+    const versionGate = new Promise<string>((resolve) => { release = () => resolve(PLUGIN_VERSION); });
+    const provider = createDshProvider({
+      createBridge: async () => bridge,
+      detectDshVersion: () => versionGate,
+    });
+    const connection = await provider.connect({
+      versions: [1],
+      capabilities: SESSION_METRICS_CAPABILITIES,
+    });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    const opening = connection.send({
+      type: "session.open",
+      requestId: "open-gate",
+      sessionId: "paseo-1",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+      history: "skip",
+    });
+    await tick();
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 900, cachedInputTokens: 100, cacheWriteTokens: 0, outputTokens: 50 },
+    });
+    await tick();
+    assert.ok(!events.some((event) => event.type === "session.ready"), "still opening");
+    assert.deepEqual(events.filter((event) => event.type === "session.metrics"), []);
+    release();
+    await opening;
+    await tick();
+    const metrics = events.filter((event) => event.type === "session.metrics");
+    assert.equal(metrics.length, 1);
+    assert.deepEqual(metrics[0]?.type === "session.metrics" ? metrics[0].metrics : undefined, [
+      { label: "Turns", value: "0" },
+      { label: "Tokens", value: "900 ↑ · 50 ↓" },
+      { label: "Cache", value: "10%" },
+    ]);
+    await connection.close();
+  });
+
+  it("advertises session metrics only to hosts that offer them", async () => {
+    const bridge = new FakeBridge();
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const modern = await provider.connect({
+      versions: [1],
+      capabilities: ["prompt.message", "session.metrics"],
+    });
+    assert.ok(modern.capabilities.includes("session.metrics"));
+    await modern.close();
+    const older = await provider.connect({ versions: [1], capabilities: ["prompt.message"] });
+    assert.ok(!older.capabilities.includes("session.metrics"));
+    await older.close();
+  });
+
+  it("reports model, elapsed, token and cache metrics for a completed turn", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const startedAt = 1_700_000_000_000;
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 1000, cachedInputTokens: 3000, cacheWriteTokens: 1000, outputTokens: 500 },
+    });
+    let release!: () => void;
+    bridge.promptGate = new Promise<void>((resolve) => { release = resolve; });
+    const sending = connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-metrics", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "measure me" }] } },
+    });
+    await tick();
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 30, time: startedAt, data: { turn: 1 } },
+      images: [],
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 2000, cachedInputTokens: 6000, cacheWriteTokens: 1000, outputTokens: 800 },
+    });
+    release();
+    await sending;
+    await tick();
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 31, time: startedAt + 12_400, data: { turn: 1, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
+    const completed = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "12.4s" },
+      { label: "Tokens", value: "1.0K ↑ · 300 ↓" },
+      { label: "Cache", value: "75%", tone: "ok" },
+    ]);
+    const reported = events.findLast((event) => event.type === "session.metrics");
+    assert.deepEqual(reported?.type === "session.metrics" ? reported.metrics : undefined, [
+      { label: "Turns", value: "1" },
+      { label: "Tokens", value: "2.0K ↑ · 800 ↓" },
+      { label: "Cache", value: "67%", tone: "ok" },
+    ]);
+    await connection.close();
+  });
+
+  it("measures a turn that ends before the prompt RPC returns", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const startedAt = 1_700_000_000_000;
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
+    });
+    let release!: () => void;
+    bridge.promptGate = new Promise<void>((resolve) => { release = resolve; });
+    const sending = connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-early", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "finish early" }] } },
+    });
+    await tick();
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 32, time: startedAt, data: { turn: 1 } },
+      images: [],
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 500, cachedInputTokens: 500, cacheWriteTokens: 0, outputTokens: 100 },
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 33, time: startedAt + 5_000, data: { turn: 1, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
+    release();
+    await sending;
+    await tick();
+    const completedTurns = events.filter((event) => event.type === "session.turn" && event.state === "completed");
+    assert.equal(completedTurns.length, 1, "a deferred turn finishes once");
+    const completed = completedTurns[0];
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "5.0s" },
+      { label: "Tokens", value: "500 ↑ · 100 ↓" },
+      { label: "Cache", value: "50%", tone: "ok" },
+    ]);
+    await connection.close();
+  });
+
+  it("drops the first turn clock when an idle report is deferred", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const startedAt = 1_700_000_000_000;
+    let release!: () => void;
+    bridge.promptGate = new Promise<void>((resolve) => { release = resolve; });
+    const sending = connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-idle", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "idle first" }] } },
+    });
+    await tick();
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 48, time: startedAt, data: { turn: 1 } },
+      images: [],
+    });
+    bridge.notify("session.status", { sessionId: "native-new", status: "running" });
+    bridge.notify("session.status", { sessionId: "native-new", status: "idle" });
+    await tick();
+    // A second native turn starts while the prompt RPC is still pending.
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 49, time: startedAt + 10_000, data: { turn: 2 } },
+      images: [],
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 50, time: startedAt + 12_000, data: { turn: 2, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
+    release();
+    await sending;
+    await tick();
+    const completedTurns = events.filter((event) => event.type === "session.turn" && event.state === "completed");
+    assert.equal(completedTurns.length, 1, "the idle report should finish once");
+    const completed = completedTurns[0];
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "2.0s" },
+    ]);
+    await connection.close();
+  });
+
+  it("drops a measurement when the prompt RPC fails", async () => {
+    const bridge = new FakeBridge();
+    bridge.promptFailsAfterStart = true;
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    await connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-rpc-fail", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "fail" }] } },
+    });
+    await tick();
+    const startedAt = 1_700_000_010_000;
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 91, time: startedAt, data: { turn: 2 } },
+      images: [],
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 92, time: startedAt + 2_000, data: { turn: 2, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
+    const completed = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "2.0s" },
+    ]);
+    await connection.close();
+  });
+
+  it("keeps session metrics off a host that did not negotiate them", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    bridge.openedUsage = { inputTokens: 100, outputTokens: 50 };
+    const { connection, events } = await openSession(bridge, ["prompt.message"]);
+    assert.deepEqual(events.filter((event) => event.type === "session.metrics"), []);
+    const startedAt = 1_700_000_000_000;
+    let release!: () => void;
+    bridge.promptGate = new Promise<void>((resolve) => { release = resolve; });
+    const sending = connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-old", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "old host" }] } },
+    });
+    await tick();
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 34, time: startedAt, data: { turn: 1 } },
+      images: [],
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 35, time: startedAt + 1_000, data: { turn: 1, reason: { kind: "completed" } } },
+      images: [],
+    });
+    release();
+    await sending;
+    await tick();
+    assert.deepEqual(events.filter((event) => event.type === "session.metrics"), []);
+    const completed = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "1.0s" },
+    ]);
+    await connection.close();
+  });
+
+  it("starts a stored session with its recorded turns and token totals", async () => {
+    const bridge = new FakeBridge();
+    bridge.openedEvents = [
+      { type: "turn/end", seq: 1, time: 1_700_000_000_000, data: { turn: 1, reason: { kind: "completed" } } },
+      { type: "turn/end", seq: 2, time: 1_700_000_001_000, data: { turn: 2, reason: { kind: "completed" } } },
+      { type: "turn/end", seq: 3, time: 1_700_000_001_500, data: { turn: 3, reason: { kind: "error", error: { message: "boom" } } } },
+      { type: "turn/end", seq: 4, time: 1_700_000_001_000, data: { turn: 2, reason: { kind: "completed" } } },
+      { type: "turn/end", seq: 5, time: 1_700_000_001_800, data: { turn: 4, reason: { kind: "max-tokens" } } },
+    ];
+    bridge.openedUsage = {
+      inputTokens: 5000,
+      cachedInputTokens: 1000,
+      cacheWriteTokens: 0,
+      outputTokens: 2000,
+    };
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const reported = events.findLast((event) => event.type === "session.metrics");
+    assert.deepEqual(reported?.type === "session.metrics" ? reported.metrics : undefined, [
+      { label: "Turns", value: "3" },
+      { label: "Tokens", value: "5.0K ↑ · 2.0K ↓" },
+      { label: "Cache", value: "17%" },
+    ]);
+    const startedAt = 1_700_000_002_000;
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 6, time: startedAt, data: { turn: 5 } },
+      images: [],
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 6000, cachedInputTokens: 1200, cacheWriteTokens: 0, outputTokens: 2300 },
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 7, time: startedAt + 1_500, data: { turn: 5, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
+    const completed = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "1.5s" },
+      { label: "Tokens", value: "1.0K ↑ · 300 ↓" },
+      { label: "Cache", value: "17%" },
+    ]);
+    const after = events.findLast((event) => event.type === "session.metrics");
+    assert.deepEqual(after?.type === "session.metrics" ? after.metrics : undefined, [
+      { label: "Turns", value: "4" },
+      { label: "Tokens", value: "6.0K ↑ · 2.3K ↓" },
+      { label: "Cache", value: "17%" },
+    ]);
+    await connection.close();
+  });
+
+  it("reports zero turns when a stored session has no turn history", async () => {
+    const bridge = new FakeBridge();
+    bridge.openedUsage = {
+      inputTokens: 5000,
+      cachedInputTokens: 1000,
+      cacheWriteTokens: 0,
+      outputTokens: 2000,
+    };
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const reported = events.findLast((event) => event.type === "session.metrics");
+    assert.deepEqual(reported?.type === "session.metrics" ? reported.metrics : undefined, [
+      { label: "Turns", value: "0" },
+      { label: "Tokens", value: "5.0K ↑ · 2.0K ↓" },
+      { label: "Cache", value: "17%" },
+    ]);
+    await connection.close();
+  });
+
+  it("defers turn token metrics until a resumed session has a baseline", async () => {
+    const bridge = new FakeBridge();
+    // A warm-up fold with zero token buckets is not a token baseline.
+    bridge.openedUsage = {
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 0,
+      contextWindowUsedTokens: 90000,
+      contextWindowMaxTokens: 128000,
+    };
+    const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
+    const connection = await provider.connect({
+      versions: [1],
+      capabilities: [...SESSION_METRICS_CAPABILITIES, "session.persistence"],
+    });
+    const events: ProviderEvent[] = [];
+    connection.onEvent((event) => events.push(event));
+    await connection.send({
+      type: "session.open",
+      requestId: "open-old",
+      sessionId: "paseo-1",
+      config: { cwd: "/repo", env: {}, mcpServers: {}, settings: {}, persist: true },
+      history: "skip",
+      persistence: { version: 1, data: { dshSessionId: "native-old" } },
+    });
+    await tick();
+    const startedAt = 1_700_000_000_000;
+    bridge.notify("session.event", {
+      sessionId: "native-old",
+      event: { type: "turn/start", seq: 40, time: startedAt, data: { turn: 9 } },
+      images: [],
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-old",
+      usage: { contextWindowUsedTokens: 95000, contextWindowMaxTokens: 128000 },
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-old",
+      usage: { inputTokens: 5000, cachedInputTokens: 1000, cacheWriteTokens: 0, outputTokens: 2000 },
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-old",
+      usage: { inputTokens: 5100, cachedInputTokens: 1050, cacheWriteTokens: 0, outputTokens: 2050 },
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-old",
+      event: { type: "turn/end", seq: 41, time: startedAt + 2_000, data: { turn: 9, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
+    const first = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
+    assert.deepEqual(first?.type === "session.turn" ? first.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "2.0s" },
+    ]);
+    const reported = events.findLast((event) => event.type === "session.metrics");
+    assert.deepEqual(reported?.type === "session.metrics" ? reported.metrics : undefined, [
+      { label: "Turns", value: "1" },
+      { label: "Tokens", value: "5.1K ↑ · 2.1K ↓" },
+      { label: "Cache", value: "17%" },
+    ]);
+
+    // The next turn starts from the total that arrived during the first turn.
+    bridge.notify("session.event", {
+      sessionId: "native-old",
+      event: { type: "turn/start", seq: 42, time: startedAt + 10_000, data: { turn: 10 } },
+      images: [],
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-old",
+      usage: { inputTokens: 5200, cachedInputTokens: 1100, cacheWriteTokens: 0, outputTokens: 2100 },
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-old",
+      event: { type: "turn/end", seq: 43, time: startedAt + 12_000, data: { turn: 10, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
+    const second = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
+    assert.deepEqual(second?.type === "session.turn" ? second.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "2.0s" },
+      { label: "Tokens", value: "100 ↑ · 50 ↓" },
+      { label: "Cache", value: "33%" },
+    ]);
+    await connection.close();
+  });
+
+  it("leaves a canceled turn without footer metrics but keeps its usage", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const startedAt = 1_700_000_000_000;
+    let release!: () => void;
+    bridge.promptGate = new Promise<void>((resolve) => { release = resolve; });
+    const sending = connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-stop", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "stop" }] } },
+    });
+    await tick();
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 36, time: startedAt, data: { turn: 1 } },
+      images: [],
+    });
+    bridge.notify("session.usage", {
+      sessionId: "native-new",
+      usage: { inputTokens: 100, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 50 },
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 37, time: startedAt + 2_000, data: { turn: 1, reason: { kind: "aborted" } } },
+      images: [],
+    });
+    release();
+    await sending;
+    await tick();
+    const canceled = events.findLast((event) => event.type === "session.turn" && event.state === "canceled");
+    assert.ok(canceled && canceled.type === "session.turn");
+    assert.equal(canceled.metrics, undefined);
+    const reported = events.findLast((event) => event.type === "session.metrics");
+    assert.deepEqual(reported?.type === "session.metrics" ? reported.metrics : undefined, [
+      { label: "Turns", value: "0" },
+      { label: "Tokens", value: "100 ↑ · 50 ↓" },
+      { label: "Cache", value: "0%" },
+    ]);
+    await connection.close();
+  });
+
+  it("leaves a failed turn without footer metrics", async () => {
+    const bridge = new FakeBridge(new Set(), false, false);
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const startedAt = 1_700_000_000_000;
+    let release!: () => void;
+    bridge.promptGate = new Promise<void>((resolve) => { release = resolve; });
+    const sending = connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-fail", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "fail" }] } },
+    });
+    await tick();
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 44, time: startedAt, data: { turn: 1 } },
+      images: [],
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 45, time: startedAt + 2_000, data: { turn: 1, reason: { kind: "error", error: { message: "boom" } } } },
+      images: [],
+    });
+    release();
+    await sending;
+    await tick();
+    const failed = events.findLast((event) => event.type === "session.turn" && event.state === "failed");
+    assert.ok(failed && failed.type === "session.turn");
+    assert.equal(failed.metrics, undefined);
+    await connection.close();
+  });
+
+  it("counts a completed turn that carries a warning", async () => {
+    const bridge = new FakeBridge();
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    const startedAt = 1_700_000_000_000;
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 46, time: startedAt, data: { turn: 1 } },
+      images: [],
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 47, time: startedAt + 1_000, data: { turn: 1, reason: { kind: "max-tokens" } } },
+      images: [],
+    });
+    await tick();
+    const completed = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "1.0s" },
+    ]);
+    const reported = events.findLast((event) => event.type === "session.metrics");
+    assert.deepEqual(reported?.type === "session.metrics" ? reported.metrics : undefined, [
+      { label: "Turns", value: "1" },
+    ]);
     await connection.close();
   });
 
@@ -625,7 +1202,7 @@ describe("dsh provider", () => {
     assert.equal(opened?.type === "session.opened" && "persistence" in opened, false);
     const config = events.find((event) => event.type === "session.config");
     assert.equal(
-      config?.type === "session.config" ? config.config.settings[0]?.value : undefined,
+      config?.type === "session.config" ? config.config.settings?.[0]?.value : undefined,
       "workspace-write",
     );
     await connection.close();
@@ -755,7 +1332,7 @@ describe("dsh provider", () => {
       (event): event is Extract<ProviderEvent, { type: "session.config" }> => event.type === "session.config",
     );
     assert.equal(
-      configEvent?.config.settings.find((setting) => setting.id === "planMode")?.value,
+      configEvent?.config.settings?.find((setting) => setting.id === "planMode")?.value,
       true,
     );
     await connection.close();
@@ -831,11 +1408,11 @@ describe("dsh provider", () => {
       (event): event is Extract<ProviderEvent, { type: "session.config" }> => event.type === "session.config",
     );
     assert.equal(
-      configEvent?.config.settings.find((setting) => setting.id === "planMode")?.value,
+      configEvent?.config.settings?.find((setting) => setting.id === "planMode")?.value,
       false,
     );
     assert.equal(
-      configEvent?.config.settings.find((setting) => setting.id === "permissionPreset")?.value,
+      configEvent?.config.settings?.find((setting) => setting.id === "permissionPreset")?.value,
       "read-only",
     );
     await connection.close();
@@ -1073,11 +1650,16 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-async function openSession(bridge: FakeBridge) {
+const SESSION_METRICS_CAPABILITIES = ["prompt.message", "session.metrics"];
+
+async function openSession(
+  bridge: FakeBridge,
+  capabilities = ["prompt.message", "prompt.command", "prompt.image", "session.persistence", "session.configure", "prompt.steer"],
+) {
   const provider = createDshProvider({ createBridge: async () => bridge, detectDshVersion: noVersionWarning });
   const connection = await provider.connect({
     versions: [1],
-    capabilities: ["prompt.message", "prompt.command", "prompt.image", "session.persistence", "session.configure", "prompt.steer"],
+    capabilities,
   });
   const events: ProviderEvent[] = [];
   connection.onEvent((event) => events.push(event));

@@ -7,15 +7,18 @@ import {
   type ProviderConnection,
   type ProviderEvent,
   type ProviderInput,
+  type ProviderMetric,
   type ProviderPermissionRequest,
   type ProviderPermissionResponse,
   type ProviderRegistration,
   type ProviderSessionConfig,
   type ProviderStatus,
+  type ProviderUsage,
 } from "@getpaseo/plugin/server/provider";
 import type {
   BridgeCatalog,
   BridgeMethods,
+  BridgeUsage,
   DshSessionEvent,
   InteractionRequest,
   ModelSelection,
@@ -46,6 +49,7 @@ import { displayText, toPromptParts } from "./prompt-content.js";
 import { StreamCoalescer, type StreamCoalesceConfig } from "./stream-coalescer.js";
 import { TimelineProjector } from "./timeline.js";
 import { classifyTurnEnd, type TurnTerminal } from "./turn-end.js";
+import { turnMetrics, sessionMetrics } from "./turn-metrics.js";
 import { objectValue } from "./values.js";
 import { matchVersionLine, versionWarningMessage } from "./version-line.js";
 
@@ -57,6 +61,7 @@ const CAPABILITIES = [
   "session.can_stop_runtime",
   "session.configure",
   "session.list",
+  "session.metrics",
   "session.persistence",
   "session.subsession",
   "permission",
@@ -96,8 +101,22 @@ interface Dispatch {
   kind: "prompt" | "command";
   clientMessageId: string;
   sawRunning: boolean;
-  /** A terminal DSH reported before the RPC returned. */
-  deferred: TurnTerminal | null;
+  /** A terminal DSH reported before the RPC returned, with metrics measured when it happened. */
+  deferred: TerminalReport | null;
+}
+
+/** A finished turn, measured at the moment DSH reported its end. */
+interface TerminalReport extends TurnTerminal {
+  metrics?: readonly ProviderMetric[];
+}
+
+/** Clock, model and starting usage for one root turn's footer. */
+interface TurnMeasurement {
+  startedAt: number;
+  usageAtStart?: BridgeUsage;
+  /** The session had no usable token baseline when this turn began. */
+  baselinePending: boolean;
+  model?: string;
 }
 
 interface PendingSubagentCall {
@@ -141,6 +160,17 @@ interface SessionState {
   activeTurnId: string | null;
   cancelRequested: boolean;
   dispatch: Dispatch | null;
+  /** Latest cumulative token usage reported by the bridge. */
+  lastUsage?: BridgeUsage;
+  /** False until a resumed session reports its first whole-session total. */
+  usageBaselineKnown: boolean;
+  /** Completed root turns, including turns already in the native history. */
+  turnsCompleted: number;
+  /** Set while a root turn runs; cleared when it ends. */
+  turnMeasurement?: TurnMeasurement;
+  /** The last `session.metrics` list sent, so an unchanged report stays quiet. */
+  lastSessionMetrics?: string;
+  metricsEnabled: boolean;
   commands: SlashCommand[];
   /** DSH plan mode, from the latest `plan/mode` event. */
   planMode: boolean;
@@ -344,6 +374,11 @@ function listenToSessionBridge(
         // The prompt path emits its own bubble with the clientMessageId.
         if (event.type === "user/message" && session.dispatch?.kind === "prompt") return;
         if (event.type === "turn/start") {
+          // Start measuring at DSH's own timestamp. A prompt may still be in
+          // flight, so this runs before Paseo's turn exists.
+          if (!session.activeTurnId && !session.turnMeasurement) {
+            beginTurnMeasurement(session, eventTime(event.time));
+          }
           // A turn nobody dispatched from Paseo: a /goal continuation or a queued
           // follow-up that DSH drains without going idle.
           if (!session.activeTurnId && !session.dispatch) {
@@ -361,9 +396,14 @@ function listenToSessionBridge(
             }
           }
           flushWaitingChildren(session, session.nativeId, emit);
+          const report = terminalReport(session, terminal, eventTime(event.time));
           // DSH can finish before the prompt or command RPC returns.
-          if (!session.activeTurnId && session.dispatch) session.dispatch.deferred = terminal;
-          else finishTurn(session, terminal, emit);
+          if (!session.activeTurnId && session.dispatch) {
+            session.dispatch.deferred = report;
+            // Metrics are settled; do not let a failed RPC leak this clock into
+            // the next turn.
+            session.turnMeasurement = undefined;
+          } else finishTurn(session, report, emit);
           return;
         }
         if (event.type === "plan/mode" && typeof event.data.active === "boolean") {
@@ -488,9 +528,12 @@ function listenToSessionBridge(
         }
         session.coalescer.flush(session.nativeId);
         const terminal: TurnTerminal = { state: session.cancelRequested ? "canceled" : "completed" };
-        if (session.activeTurnId) finishTurn(session, terminal, emit);
+        const report = terminalReport(session, terminal, Date.now());
+        if (session.activeTurnId) finishTurn(session, report, emit);
         else if (session.dispatch?.sawRunning && !session.dispatch.deferred) {
-          session.dispatch.deferred = terminal;
+          session.dispatch.deferred = report;
+          // Settled at idle; never let an aborted RPC leak this clock forward.
+          session.turnMeasurement = undefined;
         }
         return;
       }
@@ -511,12 +554,21 @@ function listenToSessionBridge(
     session.bridge.on("session.usage", ({ sessionId, usage }) => {
       if (!isCurrentSession(sessionId)) return;
       session.activityRevision += 1;
+      // A context-only reading says nothing about the token baseline. Merge so a
+      // later partial reading cannot erase the token totals a turn started from.
+      session.lastUsage = { ...session.lastUsage, ...usage };
+      if (!session.usageBaselineKnown && hasTokenTotals(usage)) {
+        // A resumed session opened without a token snapshot. This turn keeps no
+        // token row (its start is unknown); later turns start from this total.
+        session.usageBaselineKnown = true;
+      }
       emit({
         type: "session.usage",
         sessionId: session.paseoId,
         ...(session.activeTurnId ? { turnId: session.activeTurnId } : {}),
-        usage,
+        usage: paseoUsage(session.lastUsage),
       });
+      emitSessionMetrics(session, emit);
     }),
     session.bridge.on("interaction.request", (interaction) => {
       if (!isCurrentSession(interaction.sessionId)) return;
@@ -585,6 +637,7 @@ function failSession(
     });
     session.activeTurnId = null;
   }
+  session.turnMeasurement = undefined;
   emit({
     type: "session.runtime_failed",
     sessionId: session.paseoId,
@@ -730,6 +783,7 @@ async function openSession(
     if (state.isClosed()) return;
     const pluginCardsEnabled = state.capabilities.includes("timeline.plugin");
     const subsessionsEnabled = state.capabilities.includes("session.subsession");
+    const turns = countCompletedTurns(opened.events);
     session = {
       paseoId: input.sessionId,
       nativeId: opened.sessionId,
@@ -746,6 +800,10 @@ async function openSession(
       activeTurnId: null,
       cancelRequested: false,
       dispatch: null,
+      lastUsage: opened.usage,
+      usageBaselineKnown: Boolean(opened.usage && hasTokenTotals(opened.usage)) || !nativeId,
+      turnsCompleted: turns,
+      metricsEnabled: state.capabilities.includes("session.metrics"),
       commands,
       planMode: latestPlanMode(opened.events),
       pendingInteractions: new Map(),
@@ -815,6 +873,7 @@ async function openSession(
   if (state.isClosed() || session.closed) return;
   session.ready = true;
   state.emit({ type: "session.ready", requestId: input.requestId, sessionId: input.sessionId });
+  emitSessionMetrics(session, state.emit);
 }
 
 /**
@@ -899,6 +958,7 @@ async function promptSession(
     emitPromptFailure(input, errorMessage(error), state.emit);
   } finally {
     session.dispatch = null;
+    if (!session.activeTurnId) session.turnMeasurement = undefined;
   }
 }
 
@@ -928,6 +988,7 @@ async function runCommand(
     return;
   } finally {
     session.dispatch = null;
+    if (!session.activeTurnId) session.turnMeasurement = undefined;
   }
   await refreshCommands(session, emit);
 }
@@ -2030,16 +2091,79 @@ function startTurn(
 ): void {
   session.activeTurnId = turnId;
   session.cancelRequested = false;
+  beginTurnMeasurement(session, Date.now());
   emit({ type: "session.turn", sessionId: session.paseoId, turnId, state: "started" });
+}
+
+/** Keep the earliest clock for this turn: DSH's event time beats the RPC return. */
+function beginTurnMeasurement(session: SessionState, startedAt: number): void {
+  if (session.turnMeasurement) return;
+  const model = currentModelLabel(session);
+  const baseline = session.usageBaselineKnown ? session.lastUsage : undefined;
+  session.turnMeasurement = {
+    startedAt,
+    baselinePending: !session.usageBaselineKnown,
+    ...(baseline ? { usageAtStart: baseline } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
+function measureTurn(
+  session: SessionState,
+  endedAt: number,
+): readonly ProviderMetric[] | undefined {
+  const measurement = session.turnMeasurement;
+  if (!measurement) return undefined;
+  const start = measurement.usageAtStart;
+  const current = session.lastUsage;
+  const inputTokens = measurement.baselinePending
+    ? undefined
+    : usageDelta(start, start?.inputTokens, current?.inputTokens);
+  const cachedInputTokens = measurement.baselinePending
+    ? undefined
+    : usageDelta(start, start?.cachedInputTokens, current?.cachedInputTokens);
+  const cacheWriteTokens = measurement.baselinePending
+    ? undefined
+    : usageDelta(start, start?.cacheWriteTokens, current?.cacheWriteTokens);
+  const outputTokens = measurement.baselinePending
+    ? undefined
+    : usageDelta(start, start?.outputTokens, current?.outputTokens);
+  return turnMetrics({
+    model: measurement.model,
+    elapsedMs: Math.max(0, endedAt - measurement.startedAt),
+    inputTokens,
+    cachedInputTokens,
+    cacheWriteTokens,
+    outputTokens,
+  });
+}
+
+/**
+ * A turn's share of a cumulative counter. No starting snapshot means the
+ * session began from zero; a snapshot missing this bucket cannot answer without
+ * claiming the whole history, so the row is left out.
+ */
+function usageDelta(
+  baseline: BridgeUsage | undefined,
+  before: number | undefined,
+  after: number | undefined,
+): number | undefined {
+  if (after === undefined) return undefined;
+  if (!baseline) return after;
+  if (before === undefined) return undefined;
+  return Math.max(0, after - before);
 }
 
 function finishTurn(
   session: SessionState,
-  terminal: TurnTerminal,
+  terminal: TerminalReport,
   emit: (event: ProviderEvent) => void,
 ): void {
   const turnId = session.activeTurnId;
   if (!turnId) return;
+  // Metrics are measured when DSH reports the end, not when a deferred report
+  // finally reaches Paseo; a turn without that observation has no metrics.
+  const metrics = terminal.metrics;
   emit({
     type: "session.turn",
     sessionId: session.paseoId,
@@ -2048,10 +2172,104 @@ function finishTurn(
     ...(terminal.state === "failed"
       ? { error: terminal.error ?? { message: "DSH turn failed" } }
       : {}),
+    ...(metrics?.length ? { metrics } : {}),
   });
   session.activeTurnId = null;
   session.cancelRequested = false;
+  session.turnMeasurement = undefined;
+  if (terminal.state === "completed") session.turnsCompleted += 1;
+  emitSessionMetrics(session, emit);
   void refreshCommands(session, emit);
+}
+
+/** Replace the session-wide rows after a turn or when a stored session opens. */
+function emitSessionMetrics(session: SessionState, emit: (event: ProviderEvent) => void): void {
+  if (!session.metricsEnabled || !session.ready || session.closed) return;
+  const usage = session.lastUsage;
+  if (session.turnsCompleted === 0 && !usage) return;
+  const metrics = sessionMetrics({
+    turns: session.turnsCompleted,
+    inputTokens: usage?.inputTokens,
+    cachedInputTokens: usage?.cachedInputTokens,
+    cacheWriteTokens: usage?.cacheWriteTokens,
+    outputTokens: usage?.outputTokens,
+  });
+  if (metrics.length === 0) return;
+  const signature = JSON.stringify(metrics);
+  if (signature === session.lastSessionMetrics) return;
+  session.lastSessionMetrics = signature;
+  emit({ type: "session.metrics", sessionId: session.paseoId, metrics });
+}
+
+function eventTime(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 10_000_000_000 ? value * 1000 : value;
+  }
+  return Date.now();
+}
+
+function countCompletedTurns(events: readonly DshSessionEvent[]): number {
+  // A snapshot can repeat a turn's events; count each recorded turn once.
+  const completed = new Set<number | string>();
+  let unnumbered = 0;
+  for (const event of events) {
+    if (event.type !== "turn/end") continue;
+    if (classifyTurnEnd(event.data).state !== "completed") continue;
+    const turn = event.data.turn;
+    if (typeof turn === "number" || typeof turn === "string") completed.add(turn);
+    else unnumbered += 1;
+  }
+  return completed.size + unnumbered;
+}
+
+/** Attach footer metrics only to a completed turn, measured at the end it reports. */
+function terminalReport(
+  session: SessionState,
+  terminal: TurnTerminal,
+  endedAt: number,
+): TerminalReport {
+  return {
+    ...terminal,
+    ...(terminal.state === "completed"
+      ? { metrics: measureTurn(session, endedAt) }
+      : {}),
+  };
+}
+
+/** A baseline needs measured tokens; an all-zero warm-up fold says nothing. */
+function hasTokenTotals(usage: BridgeUsage): boolean {
+  return (
+    usage.inputTokens !== undefined &&
+    usage.outputTokens !== undefined &&
+    (usage.inputTokens > 0 ||
+      (usage.cachedInputTokens ?? 0) > 0 ||
+      (usage.cacheWriteTokens ?? 0) > 0 ||
+      usage.outputTokens > 0)
+  );
+}
+
+/** Paseo's usage schema has no cache-write field; keep it inside the plugin. */
+function paseoUsage(usage: BridgeUsage): ProviderUsage {
+  return {
+    ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+    ...(usage.cachedInputTokens !== undefined
+      ? { cachedInputTokens: usage.cachedInputTokens }
+      : {}),
+    ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+    ...(usage.contextWindowUsedTokens !== undefined
+      ? { contextWindowUsedTokens: usage.contextWindowUsedTokens }
+      : {}),
+    ...(usage.contextWindowMaxTokens !== undefined
+      ? { contextWindowMaxTokens: usage.contextWindowMaxTokens }
+      : {}),
+  };
+}
+
+function currentModelLabel(session: SessionState): string | undefined {
+  const source = session.bridge.initialized.catalog;
+  const selected = modelId(source, session.open.model) ?? session.config.model;
+  if (!selected) return session.open.model?.model;
+  return catalog(source).models.find((model) => model.id === selected)?.label ?? selected;
 }
 
 function persistence(sessionId: string) {

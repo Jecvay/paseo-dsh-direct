@@ -12,7 +12,7 @@ Runs DeepSeek Harness (`dsh`) as a native Paseo agent provider. Paseo clients (d
 - Streaming assistant text and reasoning ("thinking") as Paseo timeline items.
 - Tool calls with Paseo approval prompts, and `dsh` user questions answered from the Paseo UI.
 - Create, resume, cancel and close sessions; model list and mode switching from the Paseo UI.
-- Token usage and context-window fill in Paseo's usage meter.
+- Token usage and context-window fill in Paseo's usage meter, plus per-turn and per-session provider metrics on Paseo 0.17.2 and later.
 - DSH branding (name and icon) in the provider list.
 - On Paseo 0.14, answers the host's idle runtime cleanup query and refuses cleanup while supported DSH checks find pending work (agents, inboxes, maintenance, background jobs, subagent completion delivery, goals, reminders). After the host releases a persisted session runtime, the next message resumes the same native DSH session.
 

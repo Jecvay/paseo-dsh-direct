@@ -22,7 +22,7 @@ Paseo Settings 里的 Install Plugin 输入框没有 Git ref 字段，粘贴 Git
 | `0.2.x` | `0.2.1-rc.4`（握手、目录、历史读取、隔离 Paseo 0.14 集成）；`0.2.1-rc.2`（安装方式见下）；`0.2.0-rc.2` 与回合级能力在 `0.2.0-rc.1` 下实测 | `npm:paseo-dsh-direct`，或 Git `main` |
 | `0.1.x` | `0.1.7-rc.2` | `npm:paseo-dsh-direct@dsh-0.1`，或 Git 分支 `rel/0.1` |
 
-DSH `0.2.1-rc.4` 的桥接 smoke 已通过：握手、10 个模型、495 条原生历史摘要读取及正常关闭。SDK `0.14.0` 与 `0.11.0` 的真实发布包已交叉验证能力协商。在隔离的 Paseo `0.14.0` Daemon（真实 `@getpaseo/server`/`client` `0.14.0`、真实 DSH `0.2.1-rc.4`、loopback 脚本模型、临时 Paseo/DSH home）中验证了：两个插件子进程编译并 `running`、完整模型回合、空闲时安全查询返回可回收、DSH 后台任务运行期间拒绝回收、任务结束后同步回收并关闭 DSH 子进程、回收后下一条消息与 `agent.reload()` 都恢复同一原生 `sessionId`；`agent.session_open` 注入的外部 MCP server 与每 agent 工具经 `session.open.config.mcpServers` 出现在模型可见工具中。该 E2E 用注入时钟快进一小时触发回收，不使用真实等待或远端模型。隔离 DSH home 的原生子代理设置 E2E 验证初始化、持久化、过期草稿拒绝及会话策略保留，不调用模型。
+DSH `0.2.1-rc.4` 的桥接 smoke 已通过：握手、10 个模型、495 条原生历史摘要读取及正常关闭。既有 provider 能力在 SDK `0.14.0` 与 `0.11.0` 的真实发布包上交叉验证过能力协商；`session.metrics` 来自 `0.17.3` 开发类型并复用同一协商，旧宿主不提供该能力时插件不发会话指标事件。隔离的 Paseo `0.17.3` Daemon 与随桌面版打包的 `0.17.3` Web 渲染器已显示回合指标弹层（Model/Elapsed/Tokens/Cache）和上下文详情（Turns/Tokens/Cache），页面刷新后仍在；真实安装的桌面客户端、手机端和用户自己的 Daemon 尚未验证。在隔离的 Paseo `0.14.0` Daemon（真实 `@getpaseo/server`/`client` `0.14.0`、真实 DSH `0.2.1-rc.4`、loopback 脚本模型、临时 Paseo/DSH home）中验证了：两个插件子进程编译并 `running`、完整模型回合、空闲时安全查询返回可回收、DSH 后台任务运行期间拒绝回收、任务结束后同步回收并关闭 DSH 子进程、回收后下一条消息与 `agent.reload()` 都恢复同一原生 `sessionId`；`agent.session_open` 注入的外部 MCP server 与每 agent 工具经 `session.open.config.mcpServers` 出现在模型可见工具中。该 E2E 用注入时钟快进一小时触发回收，不使用真实等待或远端模型。该结论来自 DSH `0.2.1-rc.4` 的历史运行；本次候选在 DSH `0.2.2-rc.5` 上的同一 E2E 只完成插件加载与真实回合，空闲回收断言与未改动基线同样超时，未计为通过。隔离 DSH home 的原生子代理设置 E2E 验证初始化、持久化、过期草稿拒绝及会话策略保留，不调用模型。
 
 Paseo 验证基线为 `0.14.0`（隔离 Daemon：插件加载、真实回合、空闲安全查询、后台任务否决、回收与恢复）与 `0.12.0`（插件安装、加载、provider 可用性、诊断与模型目录，Daemon 运行于 Node.js `24`），此前的基线 `0.11.2`（Node.js `22`）结论仍有效；回合级验证在 Paseo `0.9.2`、Node.js `24.13.0` 下完成。手机真机界面尚未实测；官方移动客户端使用的 Daemon 接口已验证。
 
@@ -46,7 +46,7 @@ DSH 保持用户原有安装，插件不自动升级或替换它。插件只需�
 
 ## 宿主契约
 
-[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.11.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.14.0`，可选 peer 依赖 `@getpaseo/client`、`@getpaseo/protocol` 同为 `0.14.0`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。清单带 `name` 与 `icon`（均要求 Paseo 0.11.0 及以上）；Paseo 0.8 至 0.10 的用户安装 `npm:paseo-dsh-direct@0.2.1`。
+[paseo-plugin.json](../paseo-plugin.json) 声明 `requirements.paseo: ">=0.11.0"`，开发类型依赖固定为 `@getpaseo/plugin@0.17.3`，可选 peer 依赖 `@getpaseo/client`、`@getpaseo/protocol` 同为 `0.17.3`。最低版本声明是加载条件，不代表所有更高宿主版本均经过测试。清单带 `name` 与 `icon`（均要求 Paseo 0.11.0 及以上）；Paseo 0.8 至 0.10 的用户安装 `npm:paseo-dsh-direct@0.2.1`。
 
 Provider 注册了 `status()`：Paseo 0.11 及以上列出 Provider 时，用 `PASEO_DSH_EXECUTABLE`（未设置则取 `PATH` 里的 `dsh`）运行 `--version`（结果按可执行路径缓存；Paseo 配置了 `agents.providers.dsh-pi.command` 时探测该命令）。`dsh` 无法运行时报告不可用并给出原因；`major.minor` 线与插件不一致时仍报告可用，附带与会话时间线相同的版本线警告。Provider 注册 `command: ["dsh"]`，详见 [服务端架构](server-architecture.md#dsh-的选择)。`paseo-plugin.json` 的 `name` 为 `DeepSeek Harness`，`icon` 指向仓库根的 256x256 透明底 PNG `dsh.png`（由彩色标志 `dsh-logo.svg` 渲染，图形是取自 dsh 网页前端 favicon 的 DeepSeek 鲸鱼，`@deepseek-ai/dsh-web-frontend`，MIT）。Provider 的 `icon` 是 `dsh.svg`，一个用 `currentColor` 的单色图形，因为 Paseo 以主题文字色绘制 provider 图标。
 
