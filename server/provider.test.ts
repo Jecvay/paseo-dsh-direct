@@ -48,6 +48,8 @@ class FakeBridge implements DshBridge {
   steerGate?: Promise<void>;
   /** When set, `session.prompt` waits on it before returning, to interleave native events. */
   promptGate?: Promise<void>;
+  /** Simulate a prompt RPC that fails after DSH already started a turn. */
+  promptFailsAfterStart = false;
   closeCount = 0;
   private listeners = new Map<string, Set<(params: unknown) => void>>();
   private failureListeners = new Set<(error: Error) => void>();
@@ -82,6 +84,14 @@ class FakeBridge implements DshBridge {
       });
     }
     if (method === "session.prompt") {
+      if (this.promptFailsAfterStart) {
+        this.notify("session.event", {
+          sessionId: "native-new",
+          event: { type: "turn/start", seq: 90, time: 1_700_000_000_000, data: { turn: 1 } },
+          images: [],
+        });
+        throw new Error("prompt failed");
+      }
       if (this.promptGate) await this.promptGate;
       this.notify("session.status", { sessionId: "native-new", status: "running" });
       if (this.completePromptSynchronously) {
@@ -653,6 +663,38 @@ describe("dsh provider", () => {
     release();
     await sending;
     await tick();
+    const completedTurns = events.filter((event) => event.type === "session.turn" && event.state === "completed");
+    assert.equal(completedTurns.length, 1, "the idle report should finish once");
+    const completed = completedTurns[0];
+    assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
+      { label: "Model", value: "DeepSeek Chat" },
+      { label: "Elapsed", value: "2.0s" },
+    ]);
+    await connection.close();
+  });
+
+  it("drops a measurement when the prompt RPC fails", async () => {
+    const bridge = new FakeBridge();
+    bridge.promptFailsAfterStart = true;
+    const { connection, events } = await openSession(bridge, SESSION_METRICS_CAPABILITIES);
+    await connection.send({
+      type: "session.prompt",
+      sessionId: "paseo-1",
+      prompt: { clientMessageId: "client-rpc-fail", delivery: "auto", input: { type: "message", content: [{ type: "text", text: "fail" }] } },
+    });
+    await tick();
+    const startedAt = 1_700_000_010_000;
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/start", seq: 91, time: startedAt, data: { turn: 2 } },
+      images: [],
+    });
+    bridge.notify("session.event", {
+      sessionId: "native-new",
+      event: { type: "turn/end", seq: 92, time: startedAt + 2_000, data: { turn: 2, reason: { kind: "completed" } } },
+      images: [],
+    });
+    await tick();
     const completed = events.findLast((event) => event.type === "session.turn" && event.state === "completed");
     assert.deepEqual(completed?.type === "session.turn" ? completed.metrics : undefined, [
       { label: "Model", value: "DeepSeek Chat" },
@@ -722,7 +764,7 @@ describe("dsh provider", () => {
     const startedAt = 1_700_000_002_000;
     bridge.notify("session.event", {
       sessionId: "native-new",
-      event: { type: "turn/start", seq: 5, time: startedAt, data: { turn: 4 } },
+      event: { type: "turn/start", seq: 6, time: startedAt, data: { turn: 5 } },
       images: [],
     });
     bridge.notify("session.usage", {
@@ -731,7 +773,7 @@ describe("dsh provider", () => {
     });
     bridge.notify("session.event", {
       sessionId: "native-new",
-      event: { type: "turn/end", seq: 6, time: startedAt + 1_500, data: { turn: 4, reason: { kind: "completed" } } },
+      event: { type: "turn/end", seq: 7, time: startedAt + 1_500, data: { turn: 5, reason: { kind: "completed" } } },
       images: [],
     });
     await tick();
