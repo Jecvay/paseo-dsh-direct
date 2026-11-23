@@ -336,13 +336,13 @@ export class BridgeService {
   }
 
   /**
-   * Fold the harness's token projections into Paseo's usage vocabulary.
+   * Fold the harness's token projections into one plain usage reading.
    *
-   * `tokenUsage` totals and `contextPressure` carry every figure Paseo can
-   * render, and both are plain numbers, so no live harness object crosses the
-   * wire. Returns undefined when no projection registry is mounted or neither
-   * unit is registered: a profile without them degrades to no usage rather
-   * than failing the turn.
+   * `tokenUsage` and `contextPressure` carry the figures Paseo renders; the
+   * token projection also supplies the cache-write count the plugin uses for
+   * its cache-hit metric. Returns undefined when no projection registry is
+   * mounted, the snapshot fails, or nothing measured has landed yet: a profile
+   * without them degrades to no usage rather than failing the turn.
    */
   private readUsage(session: HostSession): BridgeUsage | undefined {
     const projections = this.ctx.get("sessionProjections");
@@ -361,6 +361,7 @@ export class BridgeService {
           uncachedInputTokens?: number;
           outputTokens?: number;
           cacheReadTokens?: number;
+          cacheWriteTokens?: number;
         }
       | undefined;
     const pressure = values.contextPressure as
@@ -375,6 +376,8 @@ export class BridgeService {
       usage.inputTokens = tokens.uncachedInputTokens;
     if (typeof tokens?.cacheReadTokens === "number")
       usage.cachedInputTokens = tokens.cacheReadTokens;
+    if (typeof tokens?.cacheWriteTokens === "number")
+      usage.cacheWriteTokens = tokens.cacheWriteTokens;
     if (typeof tokens?.outputTokens === "number")
       usage.outputTokens = tokens.outputTokens;
     // `projectedTokens` folds the shadow price of an adjacent compaction into
@@ -1083,6 +1086,7 @@ export class BridgeService {
         handle.agent.session.snapshotEvents(),
       );
       const subagents = await this.readSubagentSnapshots(id, events);
+      const usage = this.readUsage(handle.agent.session);
       return {
         sessionId: id,
         cwd: handle.agent.session.header.cwd ?? params.cwd,
@@ -1091,6 +1095,7 @@ export class BridgeService {
         permissionPreset: this.ctx
           .get("permissionPresets")
           ?.current(handle.agent.session),
+        ...(usage ? { usage } : {}),
         events,
         ...(subagents.length > 0 ? { subagents } : {}),
       };

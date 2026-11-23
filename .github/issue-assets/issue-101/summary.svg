@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" width="1600" height="1000" role="img" aria-labelledby="title desc">
+  <title id="title">DSH 会话在 Paseo 中显示回合与会话指标</title>
+  <desc id="desc">问题路径：插件只发回合终态，Paseo 只能补一行 Model。改动路径：用 DSH 回合事件时间计时，用累计 token 差值算本轮，按能力协商发会话指标。结果：完成回合显示 Model、Elapsed、Tokens、Cache，会话详情显示 Turns、累计 Tokens、累计 Cache，旧宿主连接不变。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6573"/>
+    </marker>
+    <style>
+      text { font-family: "WenQuanYi Zen Hei", "Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1d2530; }
+      .title { font-size: 42px; font-weight: 700; }
+      .subtitle { font-size: 21px; fill: #5b6573; }
+      .section { font-size: 20px; font-weight: 700; fill: #435063; letter-spacing: 1px; }
+      .head { font-size: 27px; font-weight: 700; }
+      .body { font-size: 20px; fill: #435063; }
+      .small { font-size: 17px; fill: #5b6573; }
+      .box { fill: #ffffff; stroke: #c7ced8; stroke-width: 2; rx: 14; }
+      .problem { fill: #fbf3f1; stroke: #c98d80; }
+      .change { fill: #eef7f4; stroke: #4f9b86; }
+      .keep { fill: #f3f4f6; stroke: #8a94a3; stroke-dasharray: 7 6; }
+      .warn { fill: #fdf6e8; stroke: #c39a4a; }
+      .result { fill: #edf4fb; stroke: #5d86b3; }
+      .arrow { stroke: #5b6573; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .tag { font-size: 16px; font-weight: 700; fill: #435063; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1000" fill="#f7f8fa"/>
+  <text class="title" x="60" y="76">DSH 会话在 Paseo 里显示回合与会话指标</text>
+  <text class="subtitle" x="60" y="116">目标：完成回合显示耗时与 token，会话详情显示累计值；旧版 Paseo 不受影响</text>
+
+  <!-- Problem path -->
+  <text class="section" x="60" y="172">原来的路径</text>
+  <rect class="box problem" x="60" y="196" width="390" height="126"/>
+  <text class="head" x="84" y="238">DSH 回合结束</text>
+  <text class="body" x="84" y="274">turn/end 带事件时间</text>
+  <text class="body" x="84" y="304">累计 token 已可读</text>
+
+  <line class="arrow" x1="454" y1="259" x2="520" y2="259"/>
+  <rect class="box problem" x="524" y="196" width="430" height="126"/>
+  <text class="head" x="548" y="238">插件只发终态</text>
+  <text class="body" x="548" y="274">session.turn completed</text>
+  <text class="body" x="548" y="304">没有 metrics 字段</text>
+
+  <line class="arrow" x1="958" y1="259" x2="1024" y2="259"/>
+  <rect class="box problem" x="1028" y="196" width="512" height="126"/>
+  <text class="head" x="1052" y="238">Paseo 只能补一行</text>
+  <text class="body" x="1052" y="274">回合 footer：Model（daemon 补）</text>
+  <text class="body" x="1052" y="304">会话详情：没有统计</text>
+
+  <!-- Change path -->
+  <text class="section" x="60" y="386">这次改了什么</text>
+  <rect class="box change" x="60" y="410" width="410" height="128"/>
+  <text class="head" x="84" y="452">回合开始</text>
+  <text class="body" x="84" y="488">取 turn/start 的事件时间</text>
+  <text class="body" x="84" y="518">记下当时的累计用量与模型</text>
+
+  <line class="arrow" x1="474" y1="474" x2="540" y2="474"/>
+  <rect class="box change" x="544" y="410" width="410" height="128"/>
+  <text class="head" x="568" y="452">回合结束</text>
+  <text class="body" x="568" y="488">取 turn/end 的事件时间</text>
+  <text class="body" x="568" y="518">累计值做差得到本轮用量</text>
+
+  <line class="arrow" x1="958" y1="474" x2="1024" y2="474"/>
+  <rect class="box change" x="1028" y="410" width="512" height="128"/>
+  <text class="head" x="1052" y="452">写进完成回合</text>
+  <text class="body" x="1052" y="488">Model · Elapsed · Tokens ↑↓ · Cache</text>
+  <text class="body" x="1052" y="518">失败和取消不带指标，也不计 Turns</text>
+
+  <rect class="box change" x="60" y="578" width="410" height="128"/>
+  <text class="head" x="84" y="620">打开已有会话</text>
+  <text class="body" x="84" y="656">session.open 返回整会话用量</text>
+  <text class="body" x="84" y="686">历史完成回合数恢复 Turns</text>
+
+  <line class="arrow" x1="474" y1="642" x2="540" y2="642"/>
+  <rect class="box change" x="544" y="578" width="410" height="128"/>
+  <text class="head" x="568" y="620">会话级上报</text>
+  <text class="body" x="568" y="656">Turns · 累计 Tokens · 累计 Cache</text>
+  <text class="body" x="568" y="686">仅在协商到 session.metrics 时发送</text>
+
+  <line class="arrow" x1="958" y1="642" x2="1024" y2="642"/>
+  <rect class="box warn" x="1028" y="578" width="512" height="128"/>
+  <text class="head" x="1052" y="620">旧版 Paseo 自动降级</text>
+  <text class="body" x="1052" y="656">忽略 turn 上的可选指标字段</text>
+  <text class="body" x="1052" y="686">不发会话指标事件，连接与 usage 不变</text>
+
+  <!-- Results -->
+  <text class="section" x="60" y="768">用户得到</text>
+  <rect class="box result" x="60" y="792" width="720" height="122"/>
+  <text class="head" x="84" y="834">完成回合的 footer</text>
+  <text class="body" x="84" y="870">Model · Elapsed 12.4s · 18.9K ↑ · 2.3K ↓ · Cache 82%</text>
+  <text class="small" x="84" y="898">数据不完整时省略对应行，不显示 0</text>
+
+  <rect class="box result" x="820" y="792" width="720" height="122"/>
+  <text class="head" x="844" y="834">会话详情与恢复后</text>
+  <text class="body" x="844" y="870">Turns 7 · 累计 Tokens · 整会话 Cache</text>
+  <text class="small" x="844" y="898">恢复会话从已有累计值继续，不把历史算进下一轮</text>
+
+  <circle cx="72" cy="955" r="8" fill="#c39a4a"/>
+  <text class="small" x="92" y="962">候选已通过构建、类型检查与自动化测试；旧宿主可加载并完成真实回合；Paseo 0.17 的实际界面显示留待发布后验收。</text>
+</svg>

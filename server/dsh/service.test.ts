@@ -547,14 +547,14 @@ test("token projections become session usage without repeating an unchanged fold
 
   // The units materialize at zero before any provider usage lands.
   values = {
-    tokenUsage: { uncachedInputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
+    tokenUsage: { uncachedInputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
     contextPressure: { contextWindow: 262144 },
   };
   fire("tokenUsage");
   assert.deepEqual(usage(), [], "a warm-up fold carrying no measured token is not sent");
 
   values = {
-    tokenUsage: { uncachedInputTokens: 4923, cacheReadTokens: 21120, outputTokens: 51 },
+    tokenUsage: { uncachedInputTokens: 4923, cacheReadTokens: 21120, cacheWriteTokens: 120, outputTokens: 51 },
     contextPressure: { contextWindow: 262144, pressureTokens: 13076 },
   };
   fire("tokenUsage");
@@ -564,6 +564,7 @@ test("token projections become session usage without repeating an unchanged fold
       usage: {
         inputTokens: 4923,
         cachedInputTokens: 21120,
+        cacheWriteTokens: 120,
         outputTokens: 51,
         contextWindowUsedTokens: 13076,
         contextWindowMaxTokens: 262144,
@@ -577,7 +578,7 @@ test("token projections become session usage without repeating an unchanged fold
   assert.equal(usage().length, 1, "a projection the bridge does not track publishes nothing");
 
   values = {
-    tokenUsage: { uncachedInputTokens: 5000, cacheReadTokens: 30000, outputTokens: 60 },
+    tokenUsage: { uncachedInputTokens: 5000, cacheReadTokens: 30000, cacheWriteTokens: 140, outputTokens: 60 },
     contextPressure: { contextWindow: 262144, pressureTokens: 14000 },
   };
   fire("tokenUsage");
@@ -591,6 +592,36 @@ test("token projections become session usage without repeating an unchanged fold
   assert.equal(usage().length, 3, "a reopened session starts from a fresh fold");
 
   await f.bridge.handle("session.close", { sessionId });
+  await f.bridge.shutdown();
+});
+
+test("session.open returns the whole-session token totals already folded", async () => {
+  const f = fixture({
+    sessionProjections: {
+      snapshot: () => ({
+        values: {
+          tokenUsage: {
+            uncachedInputTokens: 4923,
+            cacheReadTokens: 21120,
+            cacheWriteTokens: 7,
+            outputTokens: 51,
+          },
+          contextPressure: { contextWindow: 262144, pressureTokens: 13076 },
+        },
+      }),
+      onChanged: () => () => undefined,
+    },
+  });
+  const opened = await f.bridge.handle("session.open", { cwd: "/tmp" });
+  assert.deepEqual(opened.usage, {
+    inputTokens: 4923,
+    cachedInputTokens: 21120,
+    cacheWriteTokens: 7,
+    outputTokens: 51,
+    contextWindowUsedTokens: 13076,
+    contextWindowMaxTokens: 262144,
+  });
+  await f.bridge.handle("session.close", { sessionId: opened.sessionId });
   await f.bridge.shutdown();
 });
 
@@ -620,7 +651,7 @@ test("context usage prefers the compaction projection over the raw prompt size",
   // After a compaction dsh 0.2.1+ projects the prompt size down without
   // waiting for the next request's provider-reported usage.
   values = {
-    tokenUsage: { uncachedInputTokens: 4923, cacheReadTokens: 21120, outputTokens: 51 },
+    tokenUsage: { uncachedInputTokens: 4923, cacheReadTokens: 21120, cacheWriteTokens: 120, outputTokens: 51 },
     contextPressure: {
       contextWindow: 262144,
       pressureTokens: 382221,
@@ -632,7 +663,7 @@ test("context usage prefers the compaction projection over the raw prompt size",
 
   // dsh before 0.2.1 writes no shadow price, so only the raw prompt size exists.
   values = {
-    tokenUsage: { uncachedInputTokens: 4923, cacheReadTokens: 21120, outputTokens: 51 },
+    tokenUsage: { uncachedInputTokens: 4923, cacheReadTokens: 21120, cacheWriteTokens: 120, outputTokens: 51 },
     contextPressure: { contextWindow: 262144, pressureTokens: 382221 },
   };
   fire("contextPressure");
@@ -1203,6 +1234,7 @@ test("tracks subagent child sessions, filters inherited fork events and collects
     resume: true,
     cwd: "/tmp",
   });
+  assert.deepEqual(opened.usage, { inputTokens: 120, outputTokens: 30 });
   assert.equal(opened.subagents?.length, 1);
   assert.deepEqual(opened.subagents?.[0], {
     sessionId: "child-persisted",

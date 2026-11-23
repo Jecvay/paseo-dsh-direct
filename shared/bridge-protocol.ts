@@ -134,6 +134,12 @@ export interface SessionOpenResult {
   model?: ModelSelection;
   preset?: string;
   permissionPreset?: string;
+  /**
+   * Whole-session figures already accumulated by DSH. Absent when the profile
+   * mounts no projection registry, the snapshot fails, or no figure has been
+   * measured yet; the provider then learns the baseline from the first reading.
+   */
+  usage?: BridgeUsage;
   events: DshSessionEvent[];
   subagents?: SubagentSessionSnapshot[];
 }
@@ -243,16 +249,22 @@ export interface BridgeMethods {
   "bridge.shutdown": { params: {}; result: {} };
 }
 /**
- * One session's token and context figures, in Paseo's usage vocabulary.
+ * One session's token and context figures.
  *
- * Field names match `ProviderUsage` so the provider forwards this straight
- * onto `session.usage` without a second translation table.
+ * Every field except `cacheWriteTokens` matches Paseo's `ProviderUsage` by name.
+ * `cacheWriteTokens` comes from DSH's token projection, feeds the plugin's
+ * cache-hit metric, and is stripped by the provider's Paseo-facing mapping.
  */
 export interface BridgeUsage {
   /** Uncached prompt tokens reported by the provider. */
   inputTokens?: number;
   /** Prompt tokens served from the provider's cache. */
   cachedInputTokens?: number;
+  /**
+   * Prompt tokens written to the provider's cache. Paseo has no matching usage
+   * field; the plugin keeps it for cache-hit metrics only.
+   */
+  cacheWriteTokens?: number;
   /** Completion tokens produced by the model. */
   outputTokens?: number;
   /** Provider-reported prompt size of the newest request. */

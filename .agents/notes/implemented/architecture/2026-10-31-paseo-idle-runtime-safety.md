@@ -10,7 +10,7 @@ Paseo 0.14 默认在满足宿主条件且空闲一小时后释放可恢复运行
 
 ## 决定
 
-`@getpaseo/plugin` 开发依赖和 `@getpaseo/client`、`@getpaseo/protocol` 可选 peer 依赖固定为 `0.14.0`。清单保留 `requirements.paseo: ">=0.11.0"`，新查询通过连接和会话能力协商启用，旧宿主过滤未知能力。此决定遵循 [最低版本规则](../process/2026-10-11-raise-version-floors-only-on-real-incompatibility.md)，并补充 [Direct 桥接](2026-09-23-pi-tui-direct-bridge.md) 的生命周期契约，不替代其通信路线。
+`@getpaseo/plugin` 开发依赖和 `@getpaseo/client`、`@getpaseo/protocol` 可选 peer 依赖固定为 `0.17.3`（由 [提供方指标接入](2026-11-23-paseo-provider-metrics.md) 升级）。清单保留 `requirements.paseo: ">=0.11.0"`，新查询通过连接和会话能力协商启用，旧宿主过滤未知能力。此决定遵循 [最低版本规则](../process/2026-10-11-raise-version-floors-only-on-real-incompatibility.md)，并补充 [Direct 桥接](2026-09-23-pi-tui-direct-bridge.md) 的生命周期契约，不替代其通信路线。
 
 Provider 先检查持久会话已就绪，没有活动回合、分发、挂起交互或进行中的操作，再通过桥接的 `session.can_stop_runtime` 只读请求检查 DSH 内部工作。桥接关闭会退出整个 DSH 进程，因此检查该进程内全部 agent 的执行状态、inbox、活动目标和调度，以及全进程后台任务。原生子代理按 `subagent/start`、`subagent/end` 全局跟踪运行，覆盖本地 agent 表之外或无法归属会话的外部后端；完成通知送达父会话、子代理收尾完成后才解除保护。查询期间出现新活动时拒绝回收。
 

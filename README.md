@@ -32,7 +32,7 @@ Most dsh integrations go through ACP, a generic protocol that every agent can sp
 - Tool approvals and dsh's questions to you appear as Paseo's own approval and question cards.
 - Your existing dsh sessions can be imported and resumed in Paseo.
 - dsh's slash commands (`/compact`, `/plan`, ...) appear in Paseo's `/` menu.
-- Paseo's usage meter shows dsh's token counts and how full the context window is.
+- Paseo's usage meter shows dsh's token counts and how full the context window is; on Paseo 0.17.2 and later, completed turns also show model, elapsed time, token and cache-hit rows, and the session details show turn and cumulative token totals.
 - Goal changes that dsh does not already report in a `/goal` command's own output, plan mode switches and permission preset changes show up in the conversation as small timeline cards.
 
 ## Versioning
