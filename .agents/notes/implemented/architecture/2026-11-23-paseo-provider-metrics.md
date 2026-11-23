@@ -43,4 +43,4 @@ turn 指标只在 `completed` 终态附带：`Model` 取模型目录的显示名
 
 `npm run build`、四组 typecheck、全量测试、notes 与文档门禁通过。新增测试覆盖：能力协商门控、完成回合的 Model/Elapsed/Tokens/Cache、deferred 回合按事件时间计时、失败/取消不带指标、恢复会话的历史 Turns 与 token 基线、context-only/partial 读数不污染首轮、`session.usage` 合并后转发且不泄漏 `cacheWriteTokens`。
 
-隔离的 Paseo 0.14.0 Daemon（真实 0.14 `server`/`client`/`plugin` 包、真实 DSH、loopback 脚本模型）验证了插件加载、两个插件子进程运行和一次真实回合，说明旧宿主能接受带可选 `metrics` 字段的 turn 事件并保持连接。该 E2E 随后的空闲回收断言在 DSH 0.2.2-rc.5 上与未改动的基线同样超时，属于环境/DSH 版本差异，不作为本次通过项。Paseo 0.17.2/0.17.3 客户端上的实际指标渲染尚未实测，留待发布后的用户验收。
+隔离的 Paseo 0.14.0 Daemon（真实 0.14 `server`/`client`/`plugin` 包、真实 DSH、loopback 脚本模型）验证了插件加载、两个插件子进程运行和一次真实回合，说明旧宿主能接受带可选 `metrics` 字段的 turn 事件并保持连接。该 E2E 随后的空闲回收断言在 DSH 0.2.2-rc.5 上与未改动的基线同样超时，属于环境/DSH 版本差异，不作为本次通过项。隔离的 Paseo 0.17.3 Daemon 与随桌面版打包的 0.17.3 Web 渲染器验证了实际界面：Turn stats 弹层显示 Model/Elapsed/Tokens/Cache，Context window 弹层显示 Turns/累计 Tokens/累计 Cache，页面刷新后两者仍在。真实安装的桌面客户端、手机端和用户自己的 Daemon 尚未实测。

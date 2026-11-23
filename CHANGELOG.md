@@ -6,7 +6,7 @@
 - Report a resumed session's existing token totals as soon as it opens, then count only the new turn's delta. A resumed session without a token snapshot uses its first token reading as the baseline, so earlier history is never charged to the current turn.
 - Count Turns from completed native turns; failed and canceled turns keep their error or cancellation state and do not add a turn or footer metrics. Cache uses DSH's uncached input, cache-read and cache-write buckets; rows with missing data are omitted instead of shown as zero.
 - Update the plugin to 0.2.24 and reload it; no configuration change is needed.
-- Verified with build, all four typecheck targets, the full test suite, notes and documentation gates, and an isolated Paseo 0.14 host that loaded the plugin and completed a real turn with the new optional fields. That E2E's later idle-reclaim check times out on DSH 0.2.2-rc.5 for both this candidate and the unchanged baseline, so it is not counted as validation. Real rendering in Paseo 0.17 remains for user acceptance after release.
+- Verified with build, all four typecheck targets, the full test suite, notes and documentation gates, and an isolated Paseo 0.14 host that loaded the plugin and completed a real turn with the new optional fields. That E2E's later idle-reclaim check times out on DSH 0.2.2-rc.5 for both this candidate and the unchanged baseline, so it is not counted as validation. Also verified in the Paseo 0.17.3 web renderer against an isolated 0.17.3 daemon: the turn stats popover showed Model/Elapsed/Tokens/Cache, the context details showed Turns/Tokens/Cache, and both survived a page reload. A real installed client and a physical phone remain unverified.
 
 ## 0.2.23
 
