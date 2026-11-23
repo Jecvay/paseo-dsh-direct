@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.24
+
+- Show the turn and session statistics Paseo 0.17.2 added for provider plugins. A completed turn now carries provider-measured Model, Elapsed, Tokens and Cache rows; session details show Turns, cumulative Tokens and the session cache-hit share. Paseo 0.11 through 0.17.1 keep working: they ignore the new turn fields and never receive the session metrics event, so `requirements.paseo` stays `>=0.11.0` (Refs #101).
+- Report a resumed session's existing token totals as soon as it opens, then count only the new turn's delta. A resumed session without a token snapshot uses its first token reading as the baseline, so earlier history is never charged to the current turn.
+- Count Turns from completed native turns; failed and canceled turns keep their error or cancellation state and do not add a turn or footer metrics. Cache uses DSH's uncached input, cache-read and cache-write buckets; rows with missing data are omitted instead of shown as zero.
+- Update the plugin to 0.2.24 and reload it; no configuration change is needed.
+- Verified with build, all four typecheck targets, the full test suite, notes and documentation gates, and an isolated Paseo 0.14 host that loaded the plugin and completed a real turn with the new optional fields. That E2E's later idle-reclaim check times out on DSH 0.2.2-rc.5 for both this candidate and the unchanged baseline, so it is not counted as validation. Real rendering in Paseo 0.17 remains for user acceptance after release.
+
 ## 0.2.23
 
 - Fix steering a busy turn showing the same user message twice. Paseo records the accepted input, and the plugin also projected the DSH-native `user/message` without the host `clientMessageId`, so Paseo treated them as two messages. The bridge now registers the native message UUID and the host client ID before `agent.steer`, attaches the client ID to that one committed `user/message` notification, and the projector passes it through. Paseo merges the pair into one row and keeps the native `messageId`.
