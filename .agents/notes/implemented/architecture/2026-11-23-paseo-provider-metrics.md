@@ -14,7 +14,7 @@ Paseo 0.17.2 给 provider 增加了 `ProviderMetric`、完成回合上的可选 
 
 turn 指标只在 `completed` 终态附带：`Model` 取模型目录的显示名，`Elapsed` 取 DSH `turn/start` 与 `turn/end` 事件的 `time` 差，`Tokens` 取回合起止的累计 token 差（未命中缓存的输入与输出），`Cache` 取 `cacheRead / (uncachedInput + cacheRead + cacheWrite)` 的整百分比，达到 50% 时使用 `ok` tone。任何一行缺少可信数据就省略，不补零。prompt/command RPC 返回前就结束的回合在事件到达时结算，RPC 延迟不进入耗时。
 
-会话指标在打开完成后和每个完成回合后发送，包含 `Turns`、累计 `Tokens` 与整会话累计 `Cache`，按 JSON 签名去重。`Turns` 只计 `turn/end` 中分类为完成的回合，包括 `max-tokens`、`blocked`、`interrupted` 这类带警告的完成；失败和取消回合不增加 Turns，也不带 footer 指标。打开会话时从 `session.open` 的 `turn/end` 历史恢复 Turns，并从新增的 `session.open.usage` 恢复整会话 token 基线。恢复会话没有可用 token 快照时，第一条同时带输入与输出的读数成为后续回合的基线；发生在这个回合内的首条读数不会反过来充当该回合起点，所以该回合只显示 Model/Elapsed，下一回合起才有 Tokens/Cache。
+会话指标在打开完成后、每次 usage 变化后和每个完成回合后发送，包含 `Turns`、累计 `Tokens` 与整会话累计 `Cache`，按 JSON 签名去重；`ready` 之前不发。`Turns` 只计 `turn/end` 中分类为完成的回合，包括 `max-tokens`、`blocked`、`interrupted` 这类带警告的完成；失败和取消回合不增加 Turns，也不带 footer 指标。打开会话时从 `session.open` 的 `turn/end` 历史恢复 Turns，并从新增的 `session.open.usage` 恢复整会话 token 基线。恢复会话没有可用 token 快照时，第一条同时带输入与输出的读数成为后续回合的基线；发生在这个回合内的首条读数不会反过来充当该回合起点，所以该回合只显示 Model/Elapsed，下一回合起才有 Tokens/Cache。
 
 桥接在 `session.open` 结果中附带整会话 usage；`BridgeUsage` 增加仅内部使用的 `cacheWriteTokens`，转发给 Paseo 前由 provider 白名单剥离。子会话不参与根会话的 Turns/Tokens/Cache，也不加 footer 指标。cost 不提供：DSH 没有可核实的美元成本数据源。
 
@@ -37,6 +37,7 @@ turn 指标只在 `completed` 终态附带：`Model` 取模型目录的显示名
 - 恢复会话的首轮指标取决于打开快照是否带完整输入/输出；只有 context 或部分 token 的 profile 会从首条完整读数起算，首轮可能省略 Tokens。
 - 子会话仍显示自己的回合生命周期，但没有 footer 指标；根会话的 token 总量是否包含子代理取决于 DSH 的 `tokenUsage` 投影，本次不改变该口径。
 - cost 仍然没有；历史 replay 后旧回合 footer 仍无指标，但会话级 Turns/Tokens/Cache 会在打开时恢复。
+- 把一个带父会话继承前缀的 fork 子会话当作普通根会话导入时，`Turns` 可能包含继承历史；正常根会话与实时子会话不受影响。
 
 ## 怎么验证的
 
