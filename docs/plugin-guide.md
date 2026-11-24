@@ -70,7 +70,7 @@ paseo provider diagnostic dsh-pi
 
 ## 发布验证与排障
 
-发布流程以 [AGENTS.md](../AGENTS.md#日常-ops) 和 `.github/workflows/publish.yml` 为准。维护分支只使用 `rel/<major.minor>`；发布 PR 分支使用不匹配 `rel/*` 的名称，避免与维护线的发布触发规则混淆。
+发布流程以 [AGENTS.md](../AGENTS.md#日常-ops) 和 `.github/workflows/publish.yml` 为准。发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。维护分支只使用 `rel/<major.minor>`；发布 PR 分支使用不匹配 `rel/*` 的名称，避免与维护线的发布触发规则混淆。
 
 Publish 成功后，分别核对 npm 的版本、dist-tag 和远端 tag（将 `X.Y.Z` 换为本次版本）：
 
@@ -129,8 +129,6 @@ PASEO_PLAN_REVIEW_E2E=1 PASEO_PLAN_REVIEW_SERVER=/abs/preinstalled/@getpaseo/ser
 单元测试使用合成协议帧、临时目录和可控的子进程。真实 profile 检查只读查询既有历史；模型、工具、中断和恢复测试使用专用会话。
 
 DSH 会话写锁由原生运行时拥有。不要删除 `.lock` 文件来强行恢复正在另一个客户端使用的会话，也不要把生成的新 session id 当成恢复原会话的替代。
-
-手工部署与生产实测按照根 [AGENTS.md](../AGENTS.md) 记入本地 `.agents/ops-log.md`，文件由 Git 忽略、按需创建；agent 自行将长期结论核实、脱敏后整理进本文档，只提交长期产物。发布前逐项核对 [Alpha 验收规范](alpha-acceptance.md)。
 
 ## 官方参考
 

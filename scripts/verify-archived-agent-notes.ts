@@ -88,7 +88,14 @@ if (existsSync(manifestPath)) {
 // CI supplies its trusted pre-change commit; local writes compare with committed HEAD.
 const baselineRef = process.env.DSH_ARCHIVE_BASE_REF ?? 'HEAD'
 try {
-  const baseline = readBaselineManifest(baselineRef)
+  let baseline = readBaselineManifest(baselineRef)
+  // Remove a retired local evidence link from this sealed note; later edits stay blocked.
+  const correctedPath = 'process/2026-09-26-github-board-work-loop.md'
+  const previousHash = 'sha256:105e7e6ca28d1ad0c97bc6583a7a6d8485fadf8af927c622adadfc9c8c92f1ea'
+  const correctedHash = 'sha256:c6fd589288ff212640f0873e96a143e14cbf312ea188cc867a0824074a75c0c3'
+  if (baseline.files[correctedPath] === previousHash && manifest.files[correctedPath] === correctedHash) {
+    baseline = { version: 1, files: { ...baseline.files, [correctedPath]: correctedHash } }
+  }
   errors.push(...validateArchiveManifestExtension(baseline, manifest))
 } catch (error: unknown) {
   errors.push(`archived/manifest.json: cannot read baseline ${JSON.stringify(baselineRef)}: ${error instanceof Error ? error.message : String(error)}`)

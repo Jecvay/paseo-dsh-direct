@@ -10,5 +10,3 @@ coverage/
 *.jsonl
 *.secret
 *.token
-# Local operations notes; only distilled knowledge belongs in Git.
-/.agents/ops-log.md

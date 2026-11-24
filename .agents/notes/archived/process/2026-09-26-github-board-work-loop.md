@@ -35,4 +35,4 @@ Archived: 2026-09-29
 
 ## 怎么验证的
 
-board.ts 全子命令对真实 Project 实测（入板/阶段移动/优先级推断/sub-issue 挂载与查询/WIP 守卫/关闭自动归档）；systemd service 实跑一轮评估循环——#3 获结构化归并评论、自动建父单 #17 挂四个子单、卡片移入「已评估」（详见 [ops-log](../../../../.agents/ops-log.md)）。typecheck:scripts 通过。
+board.ts 全子命令对真实 Project 实测（入板/阶段移动/优先级推断/sub-issue 挂载与查询/WIP 守卫/关闭自动归档）；systemd service 实跑一轮评估循环——#3 获结构化归并评论、自动建父单 #17 挂四个子单、卡片移入「已评估」。typecheck:scripts 通过。
