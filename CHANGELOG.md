@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.25
+
+- Refresh `README.md`, `README.zh.md`, `docs/en/installation.md`, and `OVERVIEW.md` so the public docs and npm/registry pages reflect the current feature set: incremental streaming with concurrent subagent batching, native plan review, image/file attachments and tool-returned images, native subagent subsessions and model selection, Paseo 0.14+ safe idle cleanup, MCP passthrough, Windows DSH Desktop auto-detection, and Paseo 0.17.2+ turn and session metrics.
+- Restructure both READMEs around quick installation and a side-by-side native capability table under `Why "Direct"`, move detailed bridge startup timeout limits into `docs/en/installation.md`, align Chinese README coverage with English, and fix English README links that previously pointed to Chinese docs/anchors.
+- Documentation-only release; no runtime or configuration changes.
+- Verified with `npm ci`, build, all four typecheck targets, 354 tests (351 pass, 3 environment-gated skips), notes and documentation gates, `npm pack --dry-run`, and `git diff --check`.
+
 ## 0.2.24
 
 - Show the turn and session statistics Paseo 0.17.2 added for provider plugins. A completed turn now carries provider-measured Model, Elapsed, Tokens and Cache rows; session details show Turns, cumulative Tokens and the session cache-hit share. Paseo 0.11 through 0.17.1 keep working: they ignore the new turn fields and never receive the session metrics event, so `requirements.paseo` stays `>=0.11.0` (Refs #101).
