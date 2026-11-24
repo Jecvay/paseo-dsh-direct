@@ -92,6 +92,8 @@ grep -o 'https://www.npmjs.com/auth/cli/[a-z0-9-]*' /tmp/npm-publish.log
 ## 给 agent 的约定
 
 - 动手前先读本文件 + 对应 `docs/`，以其为基准。
+- **代码改动合并前必须做四路 simplify。** 候选实现完成后，按 [code-simplify](.agents/skills/code-simplify/SKILL.md) 让四个独立 subagent 检查同一份 diff，再由主 agent 落实简化。需要正式实测时，优先用完成 simplify 的版本。
+- **合并前核对四路结果。** 在 PR 或对应的变更记录中简要写明所审查的候选提交、各路结论和处理结果。贡献者的工具无法派发 subagent 时，由维护方补齐四路审查。
 - **人读内容先过风格关**：任何给人看的产出（工单标题/评论、PR 文案、文档、报告）都要结论先行，用完整短句说清做什么、结果是什么以及因果关系；标题优先用动宾结构，避免名词和内部术语堆砌。重要产出写完后由 style subagent 专审可读性再定稿。标准：不点开上下文，人能否一眼看懂并做出判断。
 - **方向性的决定要写进 `.agents/notes/`**：无论决定做还是决定不做，都写一篇（规则见 `.agents/notes/README.md`）。「方向性」在本项目指 **改变与 DSH/Paseo 的通信协议机制（如从 Direct 转为 ACP、调整 RPC 协议帧格式）、变更支持的 Paseo SDK 版本兼容性、调整前端/服务端目录边界或引入新的外部运行时依赖**；纯机械改动（错别字、格式、普通 bug 修复）不写。
 - **多步骤任务优先用 subagent 派发**：需要拆解成「想清楚再执行」的活，不写文件交接，直接在派发 subagent 的 prompt 里把设计决策全部前置写清楚——任何「执行时再看」都是缺陷。subagent 的产出（反馈、教训）当场读、当场判断是否要落进 `.agents/notes/`，仓外事件按判据记 `.agents/ops-log.md`，不建单独的交接文件。
