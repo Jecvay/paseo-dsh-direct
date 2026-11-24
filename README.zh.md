@@ -2,82 +2,89 @@
 
 [English](README.md) | 中文
 
-`paseo-dsh-direct` 通过 Direct Provider，把本机的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）接入 [Paseo](https://github.com/getpaseo/paseo)。
+面向 [Paseo](https://github.com/getpaseo/paseo) 的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）原生直连插件——让你在 Paseo 桌面端、Web、iOS 和 Android 上直接驱动本机 `dsh`，获得流式思考输出、原生计划审批、子代理管理、工具图片展示与实时统计指标。
+
+`Paseo >= 0.11.0` · `dsh 0.2.x` · `npm:paseo-dsh-direct` · [MIT 许可](LICENSE)
 
 ## 安装
 
-需要 Paseo 0.11 及以上，并在运行 Paseo daemon 的机器上装好 `dsh`，它的 `major.minor` 要和你装的插件线一致。Paseo 0.8 至 0.10 请安装 `npm:paseo-dsh-direct@0.2.1`。
+请先在运行 Paseo daemon 的机器上安装 `dsh`（`0.2.x`），支持 macOS、Linux 和 Windows。Windows 上若 `PATH` 中没有 `dsh`，插件会自动探测已安装的 DSH Desktop 内置 `dsh`。
 
-在 Paseo 里打开 **Settings → Plugins → Install Plugin**，npm 和 Git 两种来源任填一个：
+在 Paseo 中打开 **Settings → Plugins → Install Plugin**，粘贴任一来源：
 
-| 你的 dsh | npm | Git |
-|---|---|---|
-| `0.2.x` | `npm:paseo-dsh-direct` | `https://github.com/Jecvay/paseo-dsh-direct` |
-| `0.1.x` | `npm:paseo-dsh-direct@dsh-0.1` | 只能用命令行：`paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref rel/0.1` |
+- **npm（推荐）：** `npm:paseo-dsh-direct`
+- **Git：** `https://github.com/Jecvay/paseo-dsh-direct`
 
-更新插件在 daemon 所在机器上运行（App 的插件菜单里没有更新入口）：
+更新插件需在 daemon 所在机器上执行以下命令（App 插件菜单没有更新入口）：
 
 ```bash
-paseo plugin update paseo-dsh-direct --check   # 看有没有新版本
-paseo plugin update paseo-dsh-direct --yes     # 更新到最新
+paseo plugin update paseo-dsh-direct --check   # 检查是否有新版本
+paseo plugin update paseo-dsh-direct --yes     # 更新到最新版本
 ```
 
-更多：[兼容性说明](docs/compatibility.md) · [命令行安装、本地目录安装、环境变量](docs/plugin-guide.md)
+<details>
+<summary>旧版本、开启 <code>pluginsEnabled</code> 与从源码安装</summary>
+
+- **DSH `0.1.x`：** 在 Settings 填写 `npm:paseo-dsh-direct@dsh-0.1`，或用命令行执行 `paseo plugin install https://github.com/Jecvay/paseo-dsh-direct --ref rel/0.1`。
+- **Paseo `0.8`–`0.10`：** 安装 `npm:paseo-dsh-direct@0.2.1`。
+- **Daemon 未开启插件加载：** 在 Paseo `config.json` 顶层设置 `"pluginsEnabled": true`，然后执行 `paseo daemon reload`。
+- **命令行安装指定 Git ref：**
+  ```bash
+  paseo plugin install github:Jecvay/paseo-dsh-direct --ref <tag-or-commit>
+  ```
+- **从本地源码安装：**
+  ```bash
+  git clone https://github.com/Jecvay/paseo-dsh-direct.git
+  cd paseo-dsh-direct
+  npm ci
+  npm run build
+  paseo plugin install "$PWD"
+  paseo plugin ls
+  paseo provider models dsh-pi
+  ```
+
+</details>
+
+更多命令行安装方式与环境变量见[开发与验证指南](docs/plugin-guide.md)，完整版本规则与实测矩阵见[兼容性说明](docs/compatibility.md)。
 
 ## 为什么叫 Direct
 
-其他 dsh 接入大多走 ACP，那是一套所有 agent 都能用的通用协议。本插件不走 ACP，直接原生对接 dsh，dsh 的各种行为都能按 Paseo 自己的方式呈现：
+其他 `dsh` 接入方案大多走 ACP，那是一套所有 agent 都能用的通用协议；实际用起来往往会丢掉运行时特性，流式输出、审批和会话体验都不够好用。本插件不走 ACP，直接原生对接 `dsh`，让 `dsh` 的各种行为都能按 Paseo 自己的方式完整呈现：
 
-- 回复和思考过程流畅地流式输出，不会被切成一段一段。
-- 工具审批和 dsh 向你提的问题，显示成 Paseo 自带的审批卡片和问答卡片。
-- 已有的 dsh 会话可以导入 Paseo 接着用。
-- dsh 的斜杠命令（`/compact`、`/plan` 等）出现在 Paseo 的 `/` 菜单里。
-- Paseo 的用量表显示 dsh 的 token 用量和上下文占用。
-- 目标变化（dsh 自己在 `/goal` 命令输出里已报告的除外）、计划模式切换和权限预设变化会在对话里显示为小的时间线卡片。
+| 能力 | Paseo 原生体验 |
+|---|---|
+| **流式输出与思考** | 回复和思考过程按增量流畅输出，不会被切成一段一段；多子代理并发流会自动合并限流，避免 WebSocket / Relay 抖动或卡顿。 |
+| **工具、计划与图片** | 工具审批卡、用户问答卡、完整 Markdown 计划审批卡（`Approve` / `Keep planning`）、图片与文件输入，以及工具返回图片（如 `read_image`）的内联渲染。 |
+| **原生子代理（Subagents）** | DSH 子代理直接映射到 Paseo 的子会话轨道、侧边面板与父级启动卡片，并支持在设置页按模型筛选子代理可用列表。 |
+| **会话与运行时管理** | 导入并恢复本机已有 DSH 会话且保留原生会话 ID。Paseo 0.14+ 支持空闲安全回收，确认无待处理代理、后台任务、目标、收件箱或提醒时才释放进程。 |
+| **命令与 MCP** | DSH 斜杠命令（`/compact`、`/plan`、`/goal` 等）与用户技能直接进入 Paseo 的 `/` 菜单；Paseo 的 stdio 与 streamable HTTP MCP 服务器自动挂载进 DSH。 |
+| **用量与指标** | 实时 token 与上下文占用表（DSH 0.2.1+ 压缩后立即回落），并提供目标、计划模式、权限与压缩时间线卡片。Paseo 0.17.2+ 在单轮完成后展示模型、耗时、token 与缓存命中率，会话详情展示累计轮次与总量。 |
 
-## 版本号
+## 使用与配置
 
-插件版本号的 `major.minor` 跟随它支持的 dsh 线；最后一位是插件自己的发布计数，不跟 dsh 走。按本机的 dsh 版本选装对应线——见上表，完整规则和已实测的 dsh 版本见[兼容性说明](docs/compatibility.md)。
+新建对话时选择 **DeepSeek Harness**（Provider ID 为 `dsh-pi`）。本机已有原生 DSH 会话可通过 Paseo 的 **Import session** 导入并续聊。
 
-## 使用
+首次启动时，插件基于 DSH 官方 `web` 模板自动创建独立的 `paseo` profile（位于 `~/.dsh/profiles/paseo`，设置了 `$DSH_HOME` 时在其下），不修改 Paseo 或 DSH 核心。模型路由、默认模型与权限预设写在对应 profile 的 `cordis.patch.yml` 中。
 
-新建对话时选择 **DeepSeek Harness**。模型和 preset 来自已配置的 DSH profile。已有原生 DSH 会话可通过 Paseo 的 **Import session** 导入，并保留原生会话标识。
+在 Paseo 的 **Settings → DeepSeek Harness** 页面可调整运行配置（改动对新会话或新启动的桥接生效）：
 
-Provider 支持连续正文和思考输出、工具执行与审批、用户问答、模型和 preset 配置、中断及会话恢复。它用插件专用的 `paseo` profile 启动 DSH，不修改 Paseo 或 DSH 核心。
+| 设置项 | 作用 |
+|---|---|
+| **Executable** | 指定 `dsh` 命令或绝对路径；设置 `PASEO_DSH_EXECUTABLE` 时以环境变量优先。 |
+| **Profile** | 指定使用的 DSH profile（默认 `paseo`）；设置 `PASEO_DSH_PROFILE` 时优先。显式指定的 profile 不会自动创建。 |
+| **Startup timeout** | 启动 `dsh` 后等待桥接就绪信号的秒数（`1`–`600`，默认 `15`）。等待范围与宿主时限详见[服务端架构](docs/server-architecture.md#桥接就绪等待与宿主时限)。 |
+| **Subagents** | 通过 **Edit models** 按模型名或提供方搜索并勾选子代理可用模型。首次初始化默认全选，后续新增模型需手动勾选，详见[客户端架构](docs/client-architecture.md#设置页)。 |
 
-插件使用名为 `paseo` 的 DSH profile。首次启动时，插件用 DSH 官方的 `web` 模板自动创建它（位置是 `~/.dsh/profiles/paseo`；设置了 `$DSH_HOME` 时在其下）。模型路由、默认模型和权限预设写在 `~/.dsh/profiles/paseo/cordis.patch.yml`。可在 Paseo 设置里的 **DeepSeek Harness** 页通过 `Executable`、`Profile` 指定可执行文件和 profile。可执行文件的选择顺序：`PASEO_DSH_EXECUTABLE`、设置页、Paseo 配置的 `agents.providers.dsh-pi.command`、`PATH` 里的 `dsh`。profile 的选择顺序：`PASEO_DSH_PROFILE`、设置页、默认的 `paseo`；显式指定的 profile 不会被自动创建。
+**`dsh` 查找顺序：** `PASEO_DSH_EXECUTABLE` → 设置页（`Executable`）→ Paseo 配置 `agents.providers.dsh-pi.command` → `PATH` 中的 `dsh`（Windows 无 `PATH` 命中时自动回退至 DSH Desktop 内置 `dsh`）。
 
-在同一设置页的 `Startup timeout` 中填写桥接就绪等待时间，接受 1–600 整数秒，留空仍用默认 15 秒。它只控制启动桥接进程到收到就绪信号（`bridge.ready`）的等待，没有环境变量覆盖。设置对所有新启动的桥接生效，包括会话创建/恢复、模型目录/历史会话查询和子代理设置读写；已运行的桥接不受影响。
+> **提示：** 若原生会话正被其他 DSH 客户端（如终端界面）占用，请先在原客户端释放，再从 Paseo 导入或恢复。
 
-创建默认 profile（60 秒）、检查启动配置（20 秒）和后续初始化请求（`bridge.initialize`，30 秒）各有独立时限。等待加长也可能延长连接关闭等待。
+## 版本与兼容性
 
-Paseo 0.11、0.14 和 0.15.3 对建立 Provider 连接和普通插件请求（RPC）设有 30 秒外层时限。因此，设置更长的桥接等待不保证模型目录查询或子代理设置操作能等那么久。请求超时后底层任务仍可能继续，设置保存也可能稍后完成；重试前先核对当前状态。这些版本中，建立连接后打开会话的事件路径（`session.open`）没有同类外层计时器。600 秒是允许填写的上限，不代表整个操作可等待 600 秒。详见[等待范围与源码依据](docs/server-architecture.md#桥接就绪等待与宿主时限)。
+- 插件版本号的 `major.minor` 跟随支持的 DSH 线（`0.2.x` ↔ `dsh 0.2.*`），`patch` 为插件独立发布计数。
+- 最低要求 Paseo `0.11.0`。新宿主特性（`0.14+` 空闲安全回收、`0.17.2+` 回合与会话指标）通过能力协商按需启用，在旧版本 Paseo 上自动降级。
 
-如果 Paseo Daemon 默认关闭插件加载，请先在配置中启用 `pluginsEnabled`。
-
-同一设置页的 **Subagent models** 区域可以按名称或提供方搜索模型、逐项勾选、全选、清空或关闭选模。首次初始化会选中当前可用的全部模型并保存到 DSH profile；已有选择（包括显式关闭）会保留，后续新增模型需要手动勾选。改动对支持选模的 preset 的新会话生效，详见[设置页说明](docs/client-architecture.md#设置页)。
-
-如果原生会话仍被另一个 DSH 客户端（如终端界面）占用，请先在那里释放，再从 Paseo 导入或恢复。
-
-## 从源码安装
-
-用于本地开发，或不走 Settings 界面直接安装：
-
-```bash
-git clone https://github.com/Jecvay/paseo-dsh-direct.git
-cd paseo-dsh-direct
-npm ci
-npm run build
-paseo plugin install "$PWD"
-paseo plugin ls
-paseo provider models dsh-pi
-```
-
-构建后也可以直接安装本地源码：`paseo plugin install /absolute/path/to/paseo-dsh-direct`。命令行还能指定 Settings 界面给不了的 Git ref：
-
-```bash
-paseo plugin install github:Jecvay/paseo-dsh-direct --ref <tag-or-commit>
-```
+完整版本策略与实测记录见[兼容性说明](docs/compatibility.md)。
 
 ## 开发
 
@@ -90,7 +97,7 @@ npm run verify:notes
 npm run verify:docs
 ```
 
-参阅[文档索引](docs/README.md)、[兼容性说明](docs/compatibility.md)、[插件开发与验证](docs/plugin-guide.md)和 [Alpha 验收规范](docs/alpha-acceptance.md)。
+**文档导航：** [文档总索引](docs/README.zh.md) · [兼容性说明](docs/compatibility.md) · [插件开发与验证](docs/plugin-guide.md) · [服务端架构](docs/server-architecture.md) · [客户端架构](docs/client-architecture.md) · [Alpha 验收规范](docs/alpha-acceptance.md)
 
 ## 许可
 
