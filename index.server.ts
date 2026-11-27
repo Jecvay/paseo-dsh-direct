@@ -13,6 +13,15 @@ const HOST_EXIT_EVENTS = ["disconnect", "SIGTERM", "SIGINT"] as const;
 // A pending host request must not keep an orphaned worker alive after its host is gone.
 const HOST_EXIT_DEADLINE_MS = 10_000;
 
+// Paseo compiles this entry in a clean plugin directory without the host client
+// package, so name only the discovery calls used here instead of `PaseoApi`.
+type ProviderDiscoveryApi = {
+  providers: {
+    refresh(input: { providers: string[] }): Promise<unknown>;
+    listModels(provider: string): Promise<{ error?: string | null }>;
+  };
+};
+
 export default function contribute(server: PluginServerContext) {
   const settings = server.registerSettings(DSH_SETTINGS);
   // Read per call, not once: a changed setting applies to new sessions and new catalog discovery.
@@ -35,14 +44,7 @@ export default function contribute(server: PluginServerContext) {
     }),
   });
   // Provider discovery supplies the same resolved command and environment used for sessions.
-  // Keep the host API shape local so the plugin compiles without installing host packages.
-  type ProviderDiscovery = {
-    providers: {
-      refresh(input: { providers: string[] }): Promise<unknown>
-      listModels(provider: string): Promise<{ error?: string | null }>
-    }
-  }
-  const refreshLaunch = async (paseo: ProviderDiscovery) => {
+  const refreshLaunch = async (paseo: ProviderDiscoveryApi) => {
     await paseo.providers.refresh({ providers: ["dsh-pi"] });
     const result = await paseo.providers.listModels("dsh-pi");
     if (result.error) throw new Error(result.error);

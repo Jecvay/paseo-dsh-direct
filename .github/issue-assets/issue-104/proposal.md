@@ -3,7 +3,7 @@
 Issue: https://github.com/Jecvay/paseo-dsh-direct/issues/104
 基线: `b3c58d571b611950c28e29a9e360a99938c0f3e4`；目标线: `main`（插件 `0.2.x` / dsh `0.2.x`）。
 
-**三行摘要**：官方注册表要求安装时不能有未锁定依赖树的构建；本仓当前在安装时用 `npm install --include=dev` 现场装 385 个包，npm 包又不带锁文件，会被审查阻塞。改为在发布前生成并提交桥接/版本模块，npm 包直接带可用源码，删除 manifest 的 build 与 postinstall。需要本人批准：合并 `0.2.26`、由既有工作流发布、以及向官方注册表提交该版本。
+**三行摘要**：官方注册表要求安装准备命令若安装依赖，必须带锁定依赖树的锁文件；本仓当前在安装时用 `npm install --include=dev` 现场装 385 个包，npm 包又不带锁文件，会被审查阻塞。改为在发布前生成并提交桥接/版本模块，npm 包直接带可用源码，删除 manifest 的 build 与 postinstall。需要本人批准：合并 `0.2.26`、由既有工作流发布、以及向官方注册表提交该版本。
 
 ## 问题
 
@@ -17,28 +17,26 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 
 本次范围是移除安装时构建、让 npm/Git/本地目录三种来源都直接可用、验证打包、更新当前文档并准备官方登记。合并、发布和向第三方提交登记仍需本人逐次确认；不提高 Paseo 或 dsh 的最低版本，不改运行时协议。
 
-### 三路证据
+### 证据
 
 | 结论 | 证据 | 核实方式 |
 |---|---|---|
 | 有准备命令安装依赖时，产物必须带锁文件；缺锁是打包阻塞项 | [发布文档](https://paseo.sh/docs/plugins/publishing) 的 “Lock installed dependencies”；[REVIEW.md](https://github.com/getpaseo/plugins/blob/main/REVIEW.md) 的 “concrete packaging blocker” | 2026-11-27 阅读原文 |
-| 官方接受“无 build、直接带 TypeScript 源码”的 Provider | [geoqiao/deepseek-harness 记录](https://github.com/getpaseo/plugins/blob/main/plugins/geoqiao/deepseek-harness.json)、[liuxing7954/dsh-paseo 记录](https://github.com/getpaseo/plugins/blob/main/plugins/liuxing7954/dsh-paseo.json) | 2026-11-27 阅读注册表记录 |
-| 官方鼓励普通插件省略 build，由 Paseo 原生编译 TypeScript；已有 DSH Provider 以“无 build、直接带源码”通过审查 | [Paseo 插件参考](https://paseo.sh/docs/plugins/reference)；`geoqiao/deepseek-harness`、`liuxing7954/dsh-paseo` 的注册表记录 | 2026-11-27 阅读注册表记录与审查 PR |
+| 官方鼓励普通插件省略 build，由 Paseo 原生编译 TypeScript；已有 DSH Provider 以“无 build、直接带源码”通过审查 | [Paseo 插件参考](https://paseo.sh/docs/plugins/reference)；[geoqiao/deepseek-harness](https://github.com/getpaseo/plugins/blob/main/plugins/geoqiao/deepseek-harness.json)、[liuxing7954/dsh-paseo](https://github.com/getpaseo/plugins/blob/main/plugins/liuxing7954/dsh-paseo.json) | 2026-11-27 阅读注册表记录与审查 PR |
 | npm 12 的 `npm ci` 不接受 shrinkwrap-only 包 | npm 12.2.3 在只含 `npm-shrinkwrap.json` 的包上执行 `npm ci --include=dev --ignore-scripts`，退出 1，报 `EUSAGE: ... can only install with an existing package-lock.json` | 2026-11-27 本机实际执行 |
 | 当前 npm 产物没有锁文件，安装时现场解析 385 个包 | `npm pack paseo-dsh-direct@0.2.25` 文件列表无锁文件；隔离 Paseo 0.17.5 daemon 安装日志显示 `added 385 packages`，解析出的 `lefthook` 与仓库锁版本不同 | 2026-11-27 本机实际执行 |
 | 现有架构允许提交预生成的 TypeScript 模块 | [TypeScript 决策](../../../.agents/notes/implemented/architecture/2026-09-16-adopt-typescript-as-core-language.md) 拒绝的是把 CJS/MJS 预编译产物当作插件入口，不是拒绝生成桥接字符串；Paseo 仍编译 `.ts` | 阅读决定记录与 Paseo 编译器实现 |
 | 带 dev 依赖的 `npm ci` 构建可被审查接受（仅作为替代方案证据） | [vokturz/peer-agents PR](https://github.com/getpaseo/plugins/pull/321)、[po-trottier/omp-roles PR](https://github.com/getpaseo/plugins/pull/1471) | 2026-11-27 阅读审查记录 |
-| 未验证：注册表审查是否要求截图或拒绝“预生成 bundle” | 无公开规则；Provider 类记录通常没有截图 | 标记为未知，不写成保证 |
 
 ## 提案
 
 ### 改什么，数据如何流动
 
-1. **发布前生成、随仓库提交**：删除 `.gitignore` 对 `server/generated-bridge.ts` 与 `server/generated-version.ts` 的忽略，运行 `npm run build` 生成并提交这两个文件；`files` 去掉对应的 `!` 排除项，让 npm 包包含它们。`dist/dsh-bridge.mjs` 仍只作本地中间产物，不提交、不发布。
+1. **发布前生成、随仓库提交**：删除 `.gitignore` 对 `server/generated-bridge.ts` 与 `server/generated-version.ts` 的忽略，运行 `npm run build` 生成并提交这两个文件；`files` 去掉对应的 `!` 排除项，让 npm 包包含它们；`scripts/` 只用于开发，不再随包发布。`dist/dsh-bridge.mjs` 仍只作本地中间产物，不提交、不发布。
 2. **去掉宿主类型依赖**：`index.server.ts` 里的 `import("@getpaseo/client").PaseoApi` 换成只描述实际用到的 `providers.refresh` / `providers.listModels` 的本地结构类型，让干净 checkout 没有宿主包时也能编译。
 3. **删除安装时构建**：从 `paseo-plugin.json` 删除 `build`；从 `package.json` 删除 `postinstall`，新增显式 `setup:hooks` 供开发者安装 lefthook。npm 包不再声明任何生命周期或准备命令；npm 来源仍由 Paseo 用宿主 npm 获取包本身，Git 与本地目录来源不经过 npm。
 4. **防止生成物过期**：`npm run verify:generated` 先用 `git ls-files --error-unmatch` 确认两个生成物已被 Git 跟踪，再运行 `npm run build` 并 `git diff --exit-code` 检查提交内容与源码一致；版本号变化必须同时更新 `generated-version.ts`。CI 与 Publish 只调用这一条，不重复构建。
-5. **产物级门禁**：新增 `scripts/verify-package.mjs` 与 `npm run verify:package`。它用 `npm pack --json --ignore-scripts` 打包，断言 tarball 含 `paseo-plugin.json`、`OVERVIEW.md`、入口、`server/generated-*.ts` 与 `server/dsh/bridge.ts` 源码，不含测试与 `dist/`；再用 Paseo 的 npm 获取参数把 tarball 装进临时父目录，读取安装后的 `package.json` 与 manifest，断言没有生命周期脚本、没有 `build`、生成桥接非空、版本号与 `package.json` 一致。CI 与 Publish 在发布前都执行。
+5. **产物级门禁**：新增 `scripts/verify-package.mjs` 与 `npm run verify:package`。它用 `npm pack --json --ignore-scripts` 打包，断言 tarball 含 `paseo-plugin.json`、`OVERVIEW.md`、入口、`server/generated-*.ts` 与 `server/dsh/bridge.ts` 源码，不含测试、`scripts/` 与 `dist/`；再用 Paseo 的 npm 获取参数把 tarball 装进临时父目录，读取安装后的 `package.json` 与 manifest，断言没有生命周期脚本、没有 `build`、生成桥接非空、版本号与 `package.json` 一致。CI 与 Publish 在发布前都执行。
 6. **更新当前事实文档**：`AGENTS.md` 的社区索引改为官方注册表，开发者安装步骤补 `npm run setup:hooks`，发版步骤补“更新版本号后重新生成并提交生成物”；`docs/plugin-guide.md`、`docs/compatibility.md`、`docs/en/compatibility.md`、`docs/server-architecture.md` 改写成“无安装时构建、生成物随包发布”的现行机制；`CHANGELOG.md` 增加 `0.2.26` 条目。
 7. **元数据与锁**：`package.json` 与 `paseo-plugin.json` 的 description 统一为一句 `Runs a local DeepSeek Harness (dsh) agent as a native Paseo provider.`。`package.json` 版本升到 `0.2.26`，保留 `package-lock.json` 供开发/CI 使用，不新增 shrinkwrap；路线提案里仍有效的分发计划行从 paseo.cafe 改为官方注册表，历史调研数字不动。
 
@@ -56,7 +54,7 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 ### 兼容与回退
 
 - 不提高 `requirements.paseo`，不改客户端/服务端契约，不触碰用户正在使用的 daemon 或插件。
-- 安装不再需要 daemon 主机上的 npm，也不再受 npm 11/12 锁文件行为影响；这是比当前更少的前提。
+- Git 与本地目录来源不再需要宿主 npm；npm 来源仍需宿主 npm 取包，但不再安装依赖或构建。安装不再受 npm 11/12 锁文件行为影响，这是比当前更少的前提。
 - 失败处理：若生成物与源码不一致或产物门禁失败，保留候选并修复，不回退到安装时 `npm install`；若某个受支持平台无法加载生成物，保留候选并报告实际证据，不发布该版本。
 - 旧版本 `0.1.x` 线不在本次范围；其 manifest 与发布物保持原样。
 
@@ -82,4 +80,4 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 - 生成物是约 70KB 的单行字符串，提交后 diff 较大；CI 的生成物一致性检查负责防止过期。审查者可能更愿意看源码，因此 tarball 同时保留 `server/dsh/bridge.ts` 源文件。
 - 审查者可能认为“预生成 bundle”不易审查，或要求截图等 listing 媒体；这是审查判断，不是已知失败。提交正文会说明生成方式与源码位置，并按反馈补材料。
 - 注册表 ID 可能按 `paseo-` 前缀规则变成 `jecvay/dsh-direct`，而不是 npm 包名；README 链接只在 listing 实际上线后写入，不猜 URL。
-- 真实桌面/手机界面与注册表审查流程不在本轮可验证范围；不把未验证项写成通过。
+- 真实桌面/手机界面与注册表审查流程不在本轮可验证范围；注册表是否要求截图或拒绝预生成 bundle 也未知，不把未验证项写成通过。

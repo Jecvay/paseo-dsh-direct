@@ -2,7 +2,7 @@
 
 ## 版本号规则
 
-插件版本号 `major.minor.patch` 的 `major.minor` 跟随 DSH：插件 `0.1.x` 线支持 DSH `0.1.*`，插件 `0.2.x` 线支持 DSH `0.2.*`。最后一位 `patch` 是插件自己的发布计数，不跟 DSH 走。DSH 的预发布后缀（`-rc.N`、`-alpha.N`）不参与匹配，只看 `major.minor`：DSH `0.1.7-rc.2` 属于 `0.1` 线。插件自身的版本号只在 `package.json` 里维护一份，不另设常量。每次发布打 git tag `vX.Y.Z`（如 `v0.1.1`）。
+插件版本号 `major.minor.patch` 的 `major.minor` 跟随 DSH：插件 `0.1.x` 线支持 DSH `0.1.*`，插件 `0.2.x` 线支持 DSH `0.2.*`。最后一位 `patch` 是插件自己的发布计数，不跟 DSH 走。DSH 的预发布后缀（`-rc.N`、`-alpha.N`）不参与匹配，只看 `major.minor`：DSH `0.1.7-rc.2` 属于 `0.1` 线。插件自身的版本号只在 `package.json` 里手工维护；`server/generated-version.ts` 由 `npm run build` 生成，勿手改。每次发布打 git tag `vX.Y.Z`（如 `v0.1.1`）。
 
 插件启动时对实际使用的 DSH 可执行文件跑一次 `--version`（结果按可执行文件路径缓存，同一进程内不重复探测），与插件自身版本线比对：
 
@@ -76,7 +76,7 @@ Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt�
 
 从 npm 来源安装时，Paseo 用宿主的 npm 获取包本身（本包没有 production dependencies），随后编译随包提供的 TypeScript；Git 与本地目录来源同样不运行插件级构建。`paseo-plugin.json` 没有 `build` 命令。
 
-npm 包与 Git 仓库都直接包含 `server/generated-bridge.ts` 和 `server/generated-version.ts`。改动桥接或版本号后运行 `npm run build` 并提交这两个生成文件；`verify:generated` 检查它们与源码一致，`verify:package` 从 tarball 安装并检查产物。仓库的 `package-lock.json` 只固定开发依赖，不进入 npm 包，也不需要随插件安装。
+从 0.2.26 起，npm 包与 Git 仓库都直接包含 `server/generated-bridge.ts` 和 `server/generated-version.ts`。任何进入 bridge bundle 的源码（含其 import）或版本号变化后，运行 `npm run build` 并提交这两个生成文件；`verify:generated` 检查它们与源码一致，`verify:package` 从 tarball 安装并检查产物。仓库的 `package-lock.json` 只固定开发依赖，不进入 npm 包，也不需要随插件安装。
 
 本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 来源写 `github:owner/repository` 或完整 Git 地址；Paseo 0.11 起不带前缀的 `owner/slug` 指向插件注册表，不能用来装本插件。Git 或 npm 安装可指定已存在的 tag、commit 或 dist-tag：
 

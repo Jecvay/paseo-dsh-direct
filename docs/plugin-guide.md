@@ -7,16 +7,15 @@
 ```bash
 npm ci
 npm run setup:hooks
-npm run build
+npm run verify:generated
 npm run typecheck
 npm test
-npm run verify:generated
 npm run verify:package
 npm run verify:notes
 npm run verify:docs
 ```
 
-`build` 编译 DSH 桥接并生成供服务端导入的源码模块。生成物随仓库提交，也包含在 npm 包中，安装时不再运行构建；改动桥接或版本号后运行 `npm run build` 并提交两个生成文件，`verify:generated` 检查它们与源码一致。`verify:package` 从 npm tarball 安装并检查产物。CI 与 Publish 执行同一组检查。
+`build` 编译 DSH 桥接并生成供服务端导入的源码模块。生成物随仓库提交，也包含在 npm 包中，安装时不再运行构建；任何进入 bridge bundle 的源码（含其 import）或版本号变化后，运行 `npm run build` 并提交两个生成文件，`verify:generated` 检查它们与源码一致。`verify:package` 从 npm tarball 安装并检查产物。CI 与 Publish 执行同一组检查。
 
 ## 目录与导入
 
@@ -41,7 +40,7 @@ Paseo 编译器检查客户端、服务端和共享模块边界。分层 TypeScr
 
 ## 本机安装
 
-在项目目录完成构建和检查后执行：
+在项目目录完成检查后执行；仅当改动进入 bridge bundle 的源码（含其 import）或版本号时，先运行 `npm run build` 并提交生成物。
 
 ```bash
 paseo plugin install "$PWD"

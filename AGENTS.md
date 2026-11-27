@@ -58,7 +58,7 @@ npm run verify:docs
 
 **发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本：
 
-1. 在一个 PR 里改 `package.json` 的版本号，并在 `CHANGELOG.md` 顶部加这个版本的条目。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。若桥接或版本号变化，运行 `npm run build` 并提交 `server/generated-bridge.ts` 与 `server/generated-version.ts`；Publish 前的生成物检查会拒绝过期文件。
+1. 在一个 PR 里升版本号并在 `CHANGELOG.md` 顶部加这个版本的条目：用 `npm version <ver> --no-git-tag-version` 同时更新 `package.json` 与 `package-lock.json`，再运行 `npm run build` 更新 `server/generated-version.ts` 并一起提交。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。若进入 bridge bundle 的源码（含其 import）变化，也必须重新生成并提交两个生成文件；Publish 前的生成物检查会拒绝过期文件。
 2. 把 PR 合进 `main`，旧线合进对应的 `rel/<major.minor>`。
 3. 合并即发布：CI 发 npm 包并推送 tag `vX.Y.Z`，不需要人推 tag。在 Actions 的 Publish 运行里确认成功，再在 npm 上看到新版本。
 4. 已安装的用户从 Paseo 里更新插件。
@@ -82,8 +82,11 @@ npm run verify:docs
 ```bash
 git clone --branch <tag> https://github.com/Jecvay/paseo-dsh-direct.git /tmp/paseo-dsh-direct-release
 cd /tmp/paseo-dsh-direct-release
+npm ci --include=dev
+npm run verify:generated
+npm run verify:package
 npm pack --dry-run
-sleep 900 | BROWSER=true script -f -q -c "npm publish --tag latest --auth-type=web" /tmp/npm-publish.log   # 旧线改 --tag dsh-0.1
+sleep 900 | BROWSER=true script -f -q -c "npm publish --ignore-scripts --tag latest --auth-type=web" /tmp/npm-publish.log   # 旧线改 --tag dsh-0.1
 grep -o 'https://www.npmjs.com/auth/cli/[a-z0-9-]*' /tmp/npm-publish.log
 ```
 

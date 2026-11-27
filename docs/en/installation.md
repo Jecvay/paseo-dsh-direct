@@ -19,11 +19,10 @@ For local development, or to install without going through the Settings UI:
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-direct.git
 cd paseo-dsh-direct
-npm ci
 paseo plugin install "$PWD"
 ```
 
-For an existing checkout, use `paseo plugin install /absolute/path/to/paseo-dsh-direct` directly; run `npm run build` first if you changed the DSH bridge. Verify registration with:
+For an existing checkout, use `paseo plugin install /absolute/path/to/paseo-dsh-direct` directly; run `npm run build` first if you changed any source that enters the bridge bundle, or the version. Verify registration with:
 
 ```bash
 paseo plugin ls

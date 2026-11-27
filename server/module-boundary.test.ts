@@ -16,6 +16,14 @@ function sources(dir: string): string[] {
   });
 }
 
+function shippedSources(): string[] {
+  return [
+    path.join(ROOT, "index.server.ts"),
+    path.join(ROOT, "index.client.tsx"),
+    ...ALLOWED.filter((dir) => existsSync(dir)).flatMap((dir) => sources(dir)),
+  ];
+}
+
 describe("plugin module boundary", () => {
   it("keeps relative imports inside client/, server/ and shared/", () => {
     const escapes: string[] = [];
@@ -27,5 +35,14 @@ describe("plugin module boundary", () => {
       }
     }
     assert.deepEqual(escapes, []);
+  });
+
+  it("does not import the host client package without installing it", () => {
+    // Paseo supplies its plugin SDK declarations, but a clean plugin directory has
+    // no @getpaseo/client. A type-only reference would still fail the plugin build.
+    const offenders = shippedSources().filter((file) =>
+      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["']@getpaseo\/client(?:\/[^"']*)?["']/.test(readFileSync(file, "utf8")),
+    );
+    assert.deepEqual(offenders.map((file) => path.relative(ROOT, file)), []);
   });
 });

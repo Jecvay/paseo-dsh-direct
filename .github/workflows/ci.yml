@@ -20,3 +20,5 @@ jobs:
       - run: npm run verify:notes
       - run: npm run verify:docs
       - run: npm run verify:package
+      - name: Verify package with npm 12
+        run: npx --yes npm@12 run verify:package

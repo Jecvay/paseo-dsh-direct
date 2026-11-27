@@ -6,7 +6,7 @@ Status: proposed
 
 官方 Paseo 插件注册表要求：安装插件时若执行会安装依赖的准备命令，产物必须带锁定依赖树的锁文件；缺锁文件是打包阻塞项（[REVIEW.md](https://github.com/getpaseo/plugins/blob/main/REVIEW.md)，2026-11-27）。本仓的 `paseo-plugin.json` 在安装时执行 `npm install --include=dev`，现场安装约 385 个构建依赖；npm 又不发布 `package-lock.json`，所以 `0.2.25` 的 npm 包里没有任何锁文件。
 
-改用 `npm-shrinkwrap.json` + `npm ci` 能补上锁，但 npm 12 不再读取 shrinkwrap：在只含 shrinkwrap 的包上执行 `npm ci` 会报 `EUSAGE: ... can only install with an existing package-lock.json`（2026-11-27 用 npm 12.2.3 实测）。安装时构建因此同时受注册表规则和 npm 版本行为影响。
+改用 `npm-shrinkwrap.json` + `npm ci` 能补上锁，但 npm 12.2.3 的 `npm ci` 拒绝只含 shrinkwrap 的包：执行 `npm ci` 会报 `EUSAGE: ... can only install with an existing package-lock.json`（2026-11-27 用 npm 12.2.3 实测）。安装时构建因此同时受注册表规则和 npm 版本行为影响。
 
 ## 提案
 
@@ -19,7 +19,7 @@ Status: proposed
 
 ## 考虑过的其他做法
 
-- **shrinkwrap + `npm ci` 保留安装时构建**：改动更小，审查政策也接受带锁的 dev 构建；但 npm 12 不支持 shrinkwrap，任何使用 npm 12 的 daemon 主机都会安装失败，而且每次安装仍要下载几百个包。放弃。
+- **shrinkwrap + `npm ci` 保留安装时构建**：改动更小，审查政策也接受带锁的 dev 构建；但 npm 12.2.3 不支持 shrinkwrap，使用该版本执行这条 build 会安装失败，而且每次安装仍要下载几百个包。放弃。
 - **只在发布 CI 里临时生成 shrinkwrap**：仓库只保留 `package-lock.json`；同样受 npm 12 影响，手工发布和 tag 兜底容易漏步骤。放弃。
 - **保留 `npm install` 并只补锁文件**：安装仍可改写依赖树，审查者无法确认装的就是被审的那棵。放弃。
 - **只提交 Git 来源，不修 npm 包**：README 推荐 npm，现网用户主要从 npm 更新；把 npm 产物留在不合规状态与 issue 目标不符。放弃。

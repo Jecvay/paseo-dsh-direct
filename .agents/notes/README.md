@@ -112,7 +112,7 @@ Status: proposed
 
 ## 检查
 
-门禁脚本在仓根 `scripts/`(TS + tsx,lefthook 挂 pre-commit 自动跑;clone 后 `npm install` 完成挂载):
+门禁脚本在仓根 `scripts/`(TS + tsx,lefthook 挂 pre-commit 自动跑;clone 后 `npm ci && npm run setup:hooks` 完成挂载):
 
 1. `verify-agent-note-classification`——路径必须是 `{lifecycle}/{kind}/`,kind 在六类闭集内,文件名 `yyyy-mm-dd-*.md`
 2. `verify-agent-note-format`——头三行骨架、状态行语法、每生命周期必需节、implemented 禁提案期节、「考虑过的其他做法」强制(或祖父注释,仅 2026-08-26 前的旧件)

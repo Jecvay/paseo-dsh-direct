@@ -114,7 +114,7 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - if: steps.plan.outputs.published == 'false'
-        run: npm publish --provenance --access public --tag "${{ steps.dist.outputs.tag }}"
+        run: npm publish --ignore-scripts --provenance --access public --tag "${{ steps.dist.outputs.tag }}"
       - name: Reconcile the dist-tag of an already published version
         # A publish that succeeded under the wrong dist-tag (or was staged
         # while a second run failed with E409) cannot be republished; point
