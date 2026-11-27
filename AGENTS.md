@@ -9,7 +9,7 @@
 - **严格遵守 Paseo 0.11 插件规范**：前后端三层分界明确（`server/` 运行于 Daemon 子进程，`client/` 运行于 App 前端，`shared/` 为跨端契约）。客户端代码禁止调用 Node.js 或 DOM 专属 API，必须保证移动端及跨平台兼容。
 - **敏感凭证不进入记录与产物**：API 密钥、Telegram bot token、Discord webhook URL/token、GitHub token、私钥、签名密钥等仅通过环境变量或凭证系统注入，禁止硬编码、提交入库，或写入 notes、文档、测试样本、issue/PR、通知及运行日志。说明配置时只写环境变量名、凭证标识或占位符，不附真实值；本地敏感路径也不提交。记录操作与故障前先脱敏，不原样输出完整环境、认证头、凭证文件、带密钥的请求 URL 或客户端异常；Telegram API URL 的 `/bot<token>/` 与 Discord webhook URL 本身都含凭证。排障和检查只报告缺少哪项配置、错误类别及必要的脱敏上下文；排查疑似泄露时也不复述密钥。
 - **直连优先原则**：优先采用 Paseo 的 Direct Provider 接口对接 DSH 内部事件总线/RPC，绕过泛型 ACP 适配器带来的流式 chunk 拆包撕裂与交互能力降级。
-- **开源交付标准**：工程与文档保持自包含、清晰规范，原生适配 `paseo plugin add` 安装机制与 [paseo.cafe](https://paseo.cafe) 社区索引。
+- **开源交付标准**：工程与文档保持自包含、清晰规范，原生适配 `paseo plugin add` 安装机制与 [paseo.sh/plugins](https://paseo.sh/plugins) 官方索引。
 
 ## 子系统
 
@@ -43,10 +43,13 @@
 ## 日常 ops
 
 ```bash
-# 依赖安装
-npm install
+# 依赖安装与提交钩子
+npm ci
+npm run setup:hooks
 
 # 门禁与类型检查
+npm run verify:generated
+npm run verify:package
 npm run verify:notes
 npm run verify:docs
 ```
@@ -55,7 +58,7 @@ npm run verify:docs
 
 **发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本：
 
-1. 在一个 PR 里改 `package.json` 的版本号，并在 `CHANGELOG.md` 顶部加这个版本的条目。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。
+1. 在一个 PR 里改 `package.json` 的版本号，并在 `CHANGELOG.md` 顶部加这个版本的条目。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。若桥接或版本号变化，运行 `npm run build` 并提交 `server/generated-bridge.ts` 与 `server/generated-version.ts`；Publish 前的生成物检查会拒绝过期文件。
 2. 把 PR 合进 `main`，旧线合进对应的 `rel/<major.minor>`。
 3. 合并即发布：CI 发 npm 包并推送 tag `vX.Y.Z`，不需要人推 tag。在 Actions 的 Publish 运行里确认成功，再在 npm 上看到新版本。
 4. 已安装的用户从 Paseo 里更新插件。
@@ -70,7 +73,7 @@ npm run verify:docs
 - 在 Actions 页面手动运行 Publish（Run workflow，选分支）；
 - 推送 tag `v*`，tag 必须与 `package.json` 版本一致。
 
-工作流先查 npm 上有没有这个版本、远端有没有 tag `v<版本号>`：已有版本不重复发布、已有 tag 不重复创建；从分支运行时，已发布版本仍会对齐该分支应使用的 dist-tag。因此只改依赖不改版本号的提交不会发布新包。npm 上没有时，先跑构建、类型检查、测试与文档门禁，再发布；tag 没有时，发布成功后用 Actions 自带的令牌把 tag 打在这次提交上并推送（这个推送不会再触发工作流）。门禁失败则不发布也不打 tag：把修复合进同一分支，再在 Actions 页面对该分支手动运行 Publish；版本号在 npm 上被占用（例如手动发过）时不重发包，按需校正 dist-tag 并补 tag。dist-tag 按提交所在分支决定：在 `origin/main` 上发 `latest`，在 `rel/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。
+工作流先查 npm 上有没有这个版本、远端有没有 tag `v<版本号>`：已有版本不重复发布、已有 tag 不重复创建；从分支运行时，已发布版本仍会对齐该分支应使用的 dist-tag。因此只改依赖不改版本号的提交不会发布新包。npm 上没有时，先跑构建、生成物一致性检查、类型检查、测试、文档门禁与 npm 产物检查，再发布；tag 没有时，发布成功后用 Actions 自带的令牌把 tag 打在这次提交上并推送（这个推送不会再触发工作流）。门禁失败则不发布也不打 tag：把修复合进同一分支，再在 Actions 页面对该分支手动运行 Publish；版本号在 npm 上被占用（例如手动发过）时不重发包，按需校正 dist-tag 并补 tag。dist-tag 按提交所在分支决定：在 `origin/main` 上发 `latest`，在 `rel/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。
 
 一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish 与 Allow npm dist-tag（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
 
@@ -93,6 +96,6 @@ grep -o 'https://www.npmjs.com/auth/cli/[a-z0-9-]*' /tmp/npm-publish.log
 - **方向性的决定要写进 `.agents/notes/`**：无论决定做还是决定不做，都写一篇（规则见 `.agents/notes/README.md`）。「方向性」在本项目指 **改变与 DSH/Paseo 的通信协议机制（如从 Direct 转为 ACP、调整 RPC 协议帧格式）、变更支持的 Paseo SDK 版本兼容性、调整前端/服务端目录边界或引入新的外部运行时依赖**；纯机械改动（错别字、格式、普通 bug 修复）不写。
 - **多步骤任务优先用 subagent 派发**：需要拆解成「想清楚再执行」的活，不写文件交接，直接在派发 subagent 的 prompt 里把设计决策全部前置写清楚——任何「执行时再看」都是缺陷。subagent 的产出（反馈、教训）当场读、当场判断是否要落进 `.agents/notes/`，不建单独的交接文件。
 - **`docs/` 只写当前事实**：不写「以前如何、现在改成如何」，直接描述现在生效的机制。变更经过与理由的去向见「落点与查询」一节。
-- **提交检查自动执行（git 项目）**：本仓用 lefthook 挂 pre-commit 文档门禁（clone 后 `npm install` 完成安装；脚本在 `scripts/verify-*`，分工见 `lefthook.yml`），提交时自动跑笔记结构与文档链接检查。被拦＝骨架不合格，修好再提交；`--no-verify` 只在明确知情的紧急情况使用。svn / 无版本控制项目没有 git 钩子，门禁全靠本条约定执行。
+- **提交检查自动执行（git 项目）**：本仓用 lefthook 挂 pre-commit 文档门禁（clone 后 `npm ci && npm run setup:hooks` 完成安装；脚本在 `scripts/verify-*`，分工见 `lefthook.yml`），提交时自动跑笔记结构与文档链接检查。被拦＝骨架不合格，修好再提交；`--no-verify` 只在明确知情的紧急情况使用。svn / 无版本控制项目没有 git 钩子，门禁全靠本条约定执行。
 - 若任务与本文件描述冲突，停下向用户确认。
 - 用户说「沉淀进本项目 harness / 文档 / skill」等时：核心原则/约定 → 更新本文件；细节/手册/踩坑 → `docs/<topic>.md` 并同步 `docs/README.md` 索引；决定与理由 → `.agents/notes/`；可复用流程 → `.agents/skills/<name>/`。

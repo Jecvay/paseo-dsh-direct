@@ -74,9 +74,9 @@ Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt�
 
 ## 安装、更新与发行
 
-从 Git 或 npm 安装时，Paseo 负责根据 [paseo-plugin.json](../paseo-plugin.json) 的 `build` 命令执行构建；本地目录安装需要预先完成构建。插件构建生成并嵌入 DSH 桥接，Git checkout 或 npm 包本身都不需要包含机器特定的预编译路径。
+从 npm 来源安装时，Paseo 用宿主的 npm 获取包本身（本包没有 production dependencies），随后编译随包提供的 TypeScript；Git 与本地目录来源同样不运行插件级构建。`paseo-plugin.json` 没有 `build` 命令。
 
-manifest 的构建命令是 `npm install --include=dev`，不是 `npm ci`：npm 发布时无论 `files` 字段怎么写都会剔除 `package-lock.json`（这是 npm 打包的硬规则，`.npmignore` 负负得正的写法也绕不过去），npm 安装来源拿到的目录里没有锁文件，`npm ci` 会直接报错退出；Git 安装的 checkout 里锁文件还在，`npm install` 对它同样有效，所以两种来源共用同一条构建命令。
+npm 包与 Git 仓库都直接包含 `server/generated-bridge.ts` 和 `server/generated-version.ts`。改动桥接或版本号后运行 `npm run build` 并提交这两个生成文件；`verify:generated` 检查它们与源码一致，`verify:package` 从 tarball 安装并检查产物。仓库的 `package-lock.json` 只固定开发依赖，不进入 npm 包，也不需要随插件安装。
 
 本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 来源写 `github:owner/repository` 或完整 Git 地址；Paseo 0.11 起不带前缀的 `owner/slug` 指向插件注册表，不能用来装本插件。Git 或 npm 安装可指定已存在的 tag、commit 或 dist-tag：
 

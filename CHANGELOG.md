@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.26
+
+- Ship the generated DSH bridge and plugin version modules in the npm tarball and the repository, so Paseo compiles the plugin directly instead of running an install-time npm build. This removes the unlocked plugin-level dependency install that the official Paseo registry review treats as a packaging blocker, and removes the install-time dependence on the host `npm ci`/lockfile behavior. An npm-source install still uses the host npm to fetch the package itself.
+- Remove the manifest `build` step and the `postinstall` hook. Developers run `npm run setup:hooks` after `npm ci`. `npm run build` still regenerates `server/generated-bridge.ts` and `server/generated-version.ts`; CI and Publish fail when the committed files are stale.
+- Add `npm run verify:package`, which packs the npm tarball, installs it with Paseo's npm acquisition options, and checks the installed manifest, generated bridge and version. CI and Publish run it before release.
+- Replace the retired paseo.cafe reference in the maintainer guide with the official paseo.sh/plugins registry, and update the packaging documentation. Describe the plugin as running a local DeepSeek Harness agent as a native Paseo provider.
+- Verified with `npm ci`, build, the generated-file check, all four typecheck targets, the full test suite, notes and documentation gates, `verify:package`, and an isolated Paseo 0.17.5 daemon that loaded the candidate directory as `running` with the provider ready. Installing the exact published npm version on a clean daemon remains for post-release verification.
+
 ## 0.2.25
 
 - Refresh `README.md`, `README.zh.md`, `docs/en/installation.md`, and `OVERVIEW.md` so the public docs and npm/registry pages reflect the current feature set: incremental streaming with concurrent subagent batching, native plan review, image/file attachments and tool-returned images, native subagent subsessions and model selection, Paseo 0.14+ safe idle cleanup, MCP passthrough, Windows DSH Desktop auto-detection, and Paseo 0.17.2+ turn and session metrics.

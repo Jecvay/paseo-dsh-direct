@@ -1,7 +1,7 @@
 {
   "name": "paseo-dsh-direct",
-  "version": "0.2.25",
-  "description": "DeepSeek Harness Direct Provider Plugin for Paseo",
+  "version": "0.2.26",
+  "description": "Runs a local DeepSeek Harness (dsh) agent as a native Paseo provider.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Jecvay/paseo-dsh-direct.git"
@@ -21,16 +21,12 @@
     "server",
     "client",
     "shared",
-    "scripts/build.mjs",
-    "scripts/install-lefthook.mjs",
     "paseo-plugin.json",
     "dsh.svg",
     "dsh.png",
     "OVERVIEW.md",
     "!server/**/*.test.ts",
-    "!client/**/*.test.ts",
-    "!server/generated-bridge.ts",
-    "!server/generated-version.ts"
+    "!client/**/*.test.ts"
   ],
   "peerDependencies": {
     "@getpaseo/client": "0.17.3",
@@ -81,9 +77,11 @@
     "typecheck:client": "tsc -p tsconfig.client.json",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "test": "tsx --test \"server/**/*.test.ts\" \"scripts/**/*.test.ts\"",
-    "postinstall": "node scripts/install-lefthook.mjs",
     "verify:notes": "tsx scripts/verify-agent-note-classification.ts && tsx scripts/verify-agent-note-format.ts && tsx scripts/verify-archived-agent-notes.ts",
     "verify:docs": "tsx scripts/verify-md-links.ts && tsx scripts/verify-doc-refs.ts",
-    "verify-archived-agent-notes": "tsx scripts/verify-archived-agent-notes.ts"
+    "verify-archived-agent-notes": "tsx scripts/verify-archived-agent-notes.ts",
+    "setup:hooks": "node scripts/install-lefthook.mjs",
+    "verify:generated": "git ls-files --error-unmatch server/generated-bridge.ts server/generated-version.ts && npm run build && git diff --exit-code -- server/generated-bridge.ts server/generated-version.ts",
+    "verify:package": "node scripts/verify-package.mjs"
   }
 }

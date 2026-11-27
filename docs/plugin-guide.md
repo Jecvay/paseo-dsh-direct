@@ -6,14 +6,17 @@
 
 ```bash
 npm ci
+npm run setup:hooks
 npm run build
 npm run typecheck
 npm test
+npm run verify:generated
+npm run verify:package
 npm run verify:notes
 npm run verify:docs
 ```
 
-`build` 编译 DSH 桥接并生成供服务端导入的源码模块，因此必须先于类型检查、测试和本地安装运行。生成物不提交到 Git；Git 来源的安装和更新由 Paseo manifest 构建命令重新生成，本地目录安装前须自行构建。CI 执行同一组检查。
+`build` 编译 DSH 桥接并生成供服务端导入的源码模块。生成物随仓库提交，也包含在 npm 包中，安装时不再运行构建；改动桥接或版本号后运行 `npm run build` 并提交两个生成文件，`verify:generated` 检查它们与源码一致。`verify:package` 从 npm tarball 安装并检查产物。CI 与 Publish 执行同一组检查。
 
 ## 目录与导入
 

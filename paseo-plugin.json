@@ -1,12 +1,9 @@
 {
   "id": "paseo-dsh-direct",
   "name": "DeepSeek Harness",
+  "description": "Runs a local DeepSeek Harness (dsh) agent as a native Paseo provider.",
   "icon": "dsh.png",
   "requirements": {
     "paseo": ">=0.11.0"
-  },
-  "build": [
-    ["npm", "install", "--include=dev"],
-    ["npm", "run", "build"]
-  ]
+  }
 }

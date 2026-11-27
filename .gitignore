@@ -1,8 +1,6 @@
 .mcp.json
 node_modules/
 dist/
-server/generated-bridge.ts
-server/generated-version.ts
 coverage/
 .env
 .env.*

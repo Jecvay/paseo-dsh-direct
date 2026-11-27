@@ -84,7 +84,7 @@ jobs:
       - if: steps.plan.outputs.published == 'false'
         run: npm ci --include=dev
       - if: steps.plan.outputs.published == 'false'
-        run: npm run build
+        run: npm run verify:generated
       - if: steps.plan.outputs.published == 'false'
         run: npm run typecheck
       - if: steps.plan.outputs.published == 'false'
@@ -93,6 +93,8 @@ jobs:
         run: npm run verify:notes
       - if: steps.plan.outputs.published == 'false'
         run: npm run verify:docs
+      - if: steps.plan.outputs.published == 'false'
+        run: npm run verify:package
       - name: Choose dist-tag
         id: dist
         if: steps.plan.outputs.published == 'false'

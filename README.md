@@ -37,7 +37,6 @@ paseo plugin update paseo-dsh-direct --yes     # install the latest release
   git clone https://github.com/Jecvay/paseo-dsh-direct.git
   cd paseo-dsh-direct
   npm ci
-  npm run build
   paseo plugin install "$PWD"
   paseo plugin ls
   paseo provider models dsh-pi
@@ -90,9 +89,12 @@ See [compatibility](docs/en/compatibility.md) for the full version policy and te
 
 ```bash
 npm ci
+npm run setup:hooks
 npm run build
 npm run typecheck
 npm test
+npm run verify:generated
+npm run verify:package
 npm run verify:notes
 npm run verify:docs
 ```

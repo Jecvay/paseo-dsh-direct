@@ -1,4 +1,4 @@
-# Git hooks (lefthook). Install: `npm install` (postinstall runs scripts/install-lefthook.mjs).
+# Git hooks (lefthook). Install: `npm run setup:hooks` after `npm ci`.
 # No CI here — the local pre-commit IS the full documentation gate (the doc-quick role).
 
 pre-commit:
