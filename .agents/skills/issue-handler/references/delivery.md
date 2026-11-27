@@ -64,7 +64,7 @@ action: 仅合并 / 合并并由既有 Publish 工作流发布
 ### 确认前的候选准备
 
 - 判断是否需要 npm 版本：运行时代码/分发产物通常需要；纯 skill、研究或内部文档若不随包分发，则只准备合并，不能为了步骤齐全硬发一个版本。
-- 需要发包时，在同一 PR 改 `package.json` 版本、锁文件对应版本字段及 `CHANGELOG.md`；遵守既有版本线。发布 PR 分支用 `issue/…` 或 `release/…`，不能碰巧以 `rel/…` 开头触发维护线发布。
+- 需要发包时，在同一 PR 改 `package.json` 版本、锁文件对应版本字段、`CHANGELOG.md`，并按根发布约定同步生成文件（如 `server/generated-version.ts`）；遵守既有版本线。`CHANGELOG.md` 只写面向用户的变更与升级说明，不写测试计数或 `Verified with ...` 验证记录。发布 PR 分支用 `issue/…` 或 `release/…`，不能碰巧以 `rel/…` 开头触发维护线发布。
 - 目标 `main` 对应当前线与 `latest`；旧线是 `rel/<major.minor>` 与 `dsh-<major.minor>`，不是历史材料中的 `release/<major.minor>`。
 - 发布前的版本材料、方案落点调整和图解也应进入最终候选并通过适用检查，再请人确认。
 

@@ -58,7 +58,7 @@ npm run verify:docs
 
 **发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本：
 
-1. 在一个 PR 里升版本号并在 `CHANGELOG.md` 顶部加这个版本的条目（0.2.26 起的版本；`rel/0.1` 旧线沿用原流程）：用 `npm version <ver> --no-git-tag-version` 同时更新 `package.json` 与 `package-lock.json`，再运行 `npm run build` 更新 `server/generated-version.ts` 并一起提交。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。若进入 bridge bundle 的源码（含其 import）变化，也必须重新生成并提交两个生成文件；Publish 前的生成物检查会拒绝过期文件。
+1. 在一个 PR 里升版本号并在 `CHANGELOG.md` 顶部加这个版本的条目：`CHANGELOG.md` 只写面向用户的变更与升级说明，不写测试计数或 `Verified with ...` 验证记录（验证结果记在 PR、commit 或 issue 中）。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。0.2.26 起的版本（`rel/0.1` 旧线沿用原流程）用 `npm version <ver> --no-git-tag-version` 同时更新 `package.json` 与 `package-lock.json`，再运行 `npm run build` 更新 `server/generated-version.ts` 并一起提交；若进入 bridge bundle 的源码（含其 import）变化，也必须重新生成并提交两个生成文件，Publish 前的生成物检查会拒绝过期文件。
 2. 把 PR 合进 `main`，旧线合进对应的 `rel/<major.minor>`。
 3. 合并即发布：CI 发 npm 包并推送 tag `vX.Y.Z`，不需要人推 tag。在 Actions 的 Publish 运行里确认成功，再在 npm 上看到新版本。
 4. 已安装的用户从 Paseo 里更新插件。
@@ -73,7 +73,7 @@ npm run verify:docs
 - 在 Actions 页面手动运行 Publish（Run workflow，选分支）；
 - 推送 tag `v*`，tag 必须与 `package.json` 版本一致。
 
-工作流先查 npm 上有没有这个版本、远端有没有 tag `v<版本号>`：已有版本不重复发布、已有 tag 不重复创建；从分支运行时，已发布版本仍会对齐该分支应使用的 dist-tag。因此只改依赖不改版本号的提交不会发布新包。npm 上没有时，先跑构建、生成物一致性检查、类型检查、测试、文档门禁与 npm 产物检查，再发布；tag 没有时，发布成功后用 Actions 自带的令牌把 tag 打在这次提交上并推送（这个推送不会再触发工作流）。门禁失败则不发布也不打 tag：把修复合进同一分支，再在 Actions 页面对该分支手动运行 Publish；版本号在 npm 上被占用（例如手动发过）时不重发包，按需校正 dist-tag 并补 tag。dist-tag 按提交所在分支决定：在 `origin/main` 上发 `latest`，在 `rel/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。
+工作流先查 npm 上有没有这个版本、远端有没有 tag `v<版本号>`：已有版本不重复发布、已有 tag 不重复创建；从分支运行时，已发布版本仍会对齐该分支应使用的 dist-tag。因此只改依赖不改版本号的提交不会发布新包。npm 上没有时，先跑生成物一致性检查、类型检查、测试、文档门禁与 npm 产物检查，再发布；tag 没有时，发布成功后用 Actions 自带的令牌把 tag 打在这次提交上并推送（这个推送不会再触发工作流）。门禁失败则不发布也不打 tag：把修复合进同一分支，再在 Actions 页面对该分支手动运行 Publish；版本号在 npm 上被占用（例如手动发过）时不重发包，按需校正 dist-tag 并补 tag。dist-tag 按提交所在分支决定：在 `origin/main` 上发 `latest`，在 `rel/<major.minor>` 上发 `dsh-<major.minor>`，都不在则失败。
 
 一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish 与 Allow npm dist-tag（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
 

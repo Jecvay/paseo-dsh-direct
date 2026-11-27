@@ -100,7 +100,7 @@ DSH 内部契约随版本变化。桥接启动有两道检查，任一失败都�
 
 `server/dsh/bridge.ts` 构建为 `dist/dsh-bridge.mjs`，同时生成嵌入服务端 bundle 的源码字符串。启动器把该资源写入专用临时目录，再通过绝对路径加载。资源定位不依赖 Paseo Daemon 的工作目录。
 
-构建依赖由 `package-lock.json` 固定；生成的桥接模块随源码提交并包含在 npm 包中，安装时不再构建。桥接使用 Node 内置模块、DSH 已加载的服务，以及从实际 DSH 安装中解析的官方模型选择 helper；不额外安装另一份 DSH 运行时。
+构建依赖由 `package-lock.json` 固定；生成的桥接模块随源码提交并包含在 npm 包中，安装时不运行构建。桥接使用 Node 内置模块、DSH 已加载的服务，以及从实际 DSH 安装中解析的官方模型选择 helper；不额外安装另一份 DSH 运行时。
 
 ## 协议
 

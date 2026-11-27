@@ -6,16 +6,29 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import ts from 'typescript'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
+function fail(message) {
+  throw new Error(`verify:package: ${message}`)
+}
+
+function assert(condition, message) {
+  if (!condition) fail(message)
+}
+
 // Under `npm run`, npm_execpath points at npm's JS entry. Running it with the
 // current Node avoids Windows' inability to execFile a .cmd shim.
 if (process.platform === 'win32' && !process.env.npm_execpath) {
-  throw new Error('verify:package: run this through `npm run verify:package` so npm_execpath is available')
+  fail('run this through `npm run verify:package` so npm_execpath is available')
 }
 const npm = process.env.npm_execpath
   ? [process.execPath, process.env.npm_execpath]
   : ['npm']
+const generatedFiles = [
+  'server/generated-bridge.ts',
+  'server/generated-version.ts',
+]
 const requiredFiles = [
   'index.client.tsx',
   'index.server.ts',
@@ -23,8 +36,7 @@ const requiredFiles = [
   'paseo-plugin.json',
   'dsh.svg',
   'server/dsh/bridge.ts',
-  'server/generated-bridge.ts',
-  'server/generated-version.ts',
+  ...generatedFiles,
 ]
 const forbiddenPatterns = [
   /(^|\/)dist\//,
@@ -33,12 +45,36 @@ const forbiddenPatterns = [
   /^scripts\//,
 ]
 
-function fail(message) {
-  throw new Error(`verify:package: ${message}`)
-}
+const JS_TO_TS_EXTENSIONS = [
+  [/\.js$/, ['.ts', '.tsx']],
+  [/\.jsx$/, ['.tsx']],
+  [/\.mjs$/, ['.mts']],
+  [/\.cjs$/, ['.cts']],
+]
 
-function assert(condition, message) {
-  if (!condition) fail(message)
+function importCandidates(specifier) {
+  for (const [pattern, replacements] of JS_TO_TS_EXTENSIONS) {
+    if (pattern.test(specifier)) {
+      return [specifier, ...replacements.map(ext => specifier.replace(pattern, ext))]
+    }
+  }
+  return [
+    specifier,
+    `${specifier}.ts`,
+    `${specifier}.tsx`,
+    `${specifier}.mts`,
+    `${specifier}.cts`,
+    `${specifier}.js`,
+    `${specifier}.jsx`,
+    `${specifier}.mjs`,
+    `${specifier}.cjs`,
+    join(specifier, 'index.ts'),
+    join(specifier, 'index.tsx'),
+    join(specifier, 'index.js'),
+    join(specifier, 'index.jsx'),
+    join(specifier, 'index.mjs'),
+    join(specifier, 'index.cjs'),
+  ]
 }
 
 function npmRun(args, options) {
@@ -87,7 +123,7 @@ try {
     '--workspaces=false',
   ], { cwd: project, stdio: 'inherit' })
 
-  const installed = join(project, 'node_modules', 'paseo-dsh-direct')
+  const installed = resolve(project, 'node_modules', 'paseo-dsh-direct')
   assert(existsSync(installed), 'the tarball did not install as an npm package')
   const lock = JSON.parse(readFileSync(join(project, 'package-lock.json'), 'utf8'))
   const artifact = lock.packages?.['node_modules/paseo-dsh-direct']
@@ -110,7 +146,7 @@ try {
   assert(existsSync(join(installed, manifest.icon)), 'the declared icon is missing')
   assert(!('build' in manifest), 'the installed manifest must not run an install-time build')
 
-  for (const path of ['server/generated-bridge.ts', 'server/generated-version.ts']) {
+  for (const path of generatedFiles) {
     const repositoryCopy = readFileSync(join(root, path))
     const installedCopy = readFileSync(join(installed, path))
     assert(repositoryCopy.equals(installedCopy), `${path} in the tarball differs from the repository`)
@@ -122,26 +158,34 @@ try {
   // import reachable from them must exist there. A missing shared module would
   // otherwise pass the file-list check and fail only after installation.
   const seen = new Set()
-  const pending = ['index.server.ts', 'index.client.tsx']
-  const generated = new Set(['server/generated-bridge.ts', 'server/generated-version.ts'])
-  const allowedRoots = ['client', 'server', 'shared'].map(directory => join(installed, directory) + sep)
+  const pending = ['index.server.ts', 'index.client.tsx'].map(entry => resolve(installed, entry))
+  const allowedRoots = ['client', 'server', 'shared'].map(directory => resolve(installed, directory) + sep)
   while (pending.length > 0) {
     const file = pending.pop()
-    if (seen.has(file) || generated.has(file)) continue
+    if (seen.has(file)) continue
     seen.add(file)
-    const source = readFileSync(join(installed, file), 'utf8')
-    for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*|import\s+)["'](\.{1,2}\/[^"']+)["']/g)) {
-      const specifier = match[1]
-      const candidates = [specifier, `${specifier}.ts`, `${specifier}.tsx`, specifier.replace(/\.js$/, '.ts'), specifier.replace(/\.js$/, '.tsx')]
-      const directory = dirname(join(installed, file))
-      const resolved = candidates
+    const source = readFileSync(file, 'utf8')
+    const { importedFiles, referencedFiles } = ts.preProcessFile(source, true, true)
+    const localSpecifiers = [
+      ...importedFiles.map(({ fileName }) => fileName).filter(specifier => /^\.\.?(\/|$)/.test(specifier)),
+      ...referencedFiles.map(({ fileName }) => fileName),
+    ]
+    for (const specifier of localSpecifiers) {
+      const directory = dirname(file)
+      const base = resolve(directory, specifier)
+      assert(
+        base.startsWith(installed + sep),
+        `${relative(installed, file)} imports ${specifier}, which is outside client/, server/ or shared/`,
+      )
+      const resolved = importCandidates(specifier)
         .map(candidate => resolve(directory, candidate))
         .find(candidate => candidate.startsWith(installed + sep) && existsSync(candidate) && statSync(candidate).isFile())
-      assert(resolved, `${file} imports ${specifier}, which is missing from the tarball`)
-      const target = relative(installed, resolved)
-      const isEntry = target === 'index.server.ts' || target === 'index.client.tsx'
-      assert(isEntry || allowedRoots.some(root => resolved.startsWith(root)), `${file} imports ${specifier}, which is outside client/, server/ or shared/`)
-      pending.push(target)
+      assert(resolved, `${relative(installed, file)} imports ${specifier}, which is missing from the tarball`)
+      assert(
+        allowedRoots.some(allowedRoot => resolved.startsWith(allowedRoot)),
+        `${relative(installed, file)} imports ${specifier}, which is outside client/, server/ or shared/`,
+      )
+      if (/\.[cm]?[jt]sx?$/i.test(resolved)) pending.push(resolved)
     }
   }
 

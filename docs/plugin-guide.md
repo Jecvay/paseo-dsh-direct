@@ -15,7 +15,7 @@ npm run verify:notes
 npm run verify:docs
 ```
 
-`build` 编译 DSH 桥接并生成供服务端导入的源码模块。生成物随仓库提交，也包含在 npm 包中，安装时不再运行构建；任何进入 bridge bundle 的源码（含其 import）或版本号变化后，运行 `npm run build` 并提交两个生成文件，`verify:generated` 检查它们与源码一致。`verify:package` 从 npm tarball 安装并检查产物。CI 与 Publish 执行同一组检查。
+`build` 编译 DSH 桥接并生成供服务端导入的源码模块。生成物随仓库提交，也包含在 npm 包中，安装时不运行插件级构建；任何进入 bridge bundle 的源码（含其 import）或版本号变化后，运行 `npm run build` 并提交两个生成文件，`verify:generated` 检查它们与源码一致。`verify:package` 从 npm tarball 安装并检查产物。CI 与 Publish 执行同一组检查。
 
 ## 目录与导入
 

@@ -87,7 +87,7 @@
   <text class="box-text" x="108" y="820">Both start with no build</text>
   <text class="box-text" x="108" y="852">on Paseo 0.17.5.</text>
   <text class="small" x="108" y="886">Package checks pass.</text>
-  <text class="small" x="108" y="918">353 pass, 3 skipped (356).</text>
+  <text class="small" x="108" y="918">352 pass, 3 skipped (355).</text>
 
   <!-- not yet -->
   <rect x="1100" y="720" width="420" height="210" rx="12" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
