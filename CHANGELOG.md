@@ -8,7 +8,7 @@
 - Add `npm run verify:package`, which packs the npm tarball, installs it with Paseo's npm acquisition options, and checks the installed manifest, generated bridge and version. CI and Publish run it before release.
 - Replace the retired paseo.cafe reference in the maintainer guide with the official paseo.sh/plugins registry, and update the packaging documentation. Describe the plugin as running a local DeepSeek Harness agent as a native Paseo provider.
 - Update the plugin to 0.2.26 and reload it; no configuration change is needed.
-- Verified with `npm ci`, the generated-file check, all four typecheck targets, 355 tests (352 pass, 3 environment-gated skips), notes and documentation gates, `verify:package` under npm 11 and npm 12, a clean Git clone and a clean local copy loaded as `running` on an isolated Paseo 0.17.5 daemon with the provider ready. Installing the exact published npm version remains for post-release verification.
+- Verified with `npm ci`, the generated-file check, all four typecheck targets, 356 tests (353 pass, 3 environment-gated skips), notes and documentation gates, `verify:package` under npm 11 and npm 12, a clean Git clone and a clean local copy loaded as `running` on an isolated Paseo 0.17.5 daemon with the provider ready. Installing the exact published npm version remains for post-release verification.
 
 ## 0.2.25
 

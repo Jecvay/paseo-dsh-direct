@@ -81,8 +81,7 @@ In the **Subagents** section, select **Edit models** to open the model picker (a
 ## Update a local checkout
 
 ```bash
-npm run build
 paseo plugin reload paseo-dsh-direct
 ```
 
-For a Git- or npm-installed plugin, update with `paseo plugin update paseo-dsh-direct --yes`.
+The generated modules are already in the checkout. If you changed source that enters the bridge bundle, or the version, run `npm run build` first (after one `npm ci`); otherwise reload is enough. For a Git- or npm-installed plugin, update with `paseo plugin update paseo-dsh-direct --yes`.

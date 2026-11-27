@@ -45,4 +45,31 @@ describe("plugin module boundary", () => {
     );
     assert.deepEqual(offenders.map((file) => path.relative(ROOT, file)), []);
   });
+
+  it("only names host-provided packages in shipped sources", () => {
+    // Paseo resolves these from its own installation. Any other bare import would
+    // need a dependency installed in the plugin directory, which is not shipped.
+    const hostModules = [
+      /^@getpaseo\/plugin(?:\/|$)/,
+      /^@tanstack\/react-query$/,
+      /^react$/,
+      /^react\/jsx-runtime$/,
+      /^react-native$/,
+      /^zod$/,
+    ];
+    const generated = new Set(["server/generated-bridge.ts", "server/generated-version.ts"]);
+    const offenders: string[] = [];
+    for (const file of shippedSources()) {
+      if (generated.has(path.relative(ROOT, file))) continue;
+      const source = readFileSync(file, "utf8");
+      for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*|import\s+)["']([^"']+)["']/g)) {
+        const specifier = match[1];
+        if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("node:")) continue;
+        if (!hostModules.some((pattern) => pattern.test(specifier))) {
+          offenders.push(`${path.relative(ROOT, file)} -> ${specifier}`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, []);
+  });
 });
