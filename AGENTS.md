@@ -58,7 +58,7 @@ npm run verify:docs
 
 **发版**：插件以 npm 包和 Git 仓库两种来源分发，用户在 Paseo 的 Settings → Plugins → Install Plugin 里安装（见 README「安装」）。发一个版本：
 
-1. 在一个 PR 里升版本号并在 `CHANGELOG.md` 顶部加这个版本的条目：用 `npm version <ver> --no-git-tag-version` 同时更新 `package.json` 与 `package-lock.json`，再运行 `npm run build` 更新 `server/generated-version.ts` 并一起提交。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。若进入 bridge bundle 的源码（含其 import）变化，也必须重新生成并提交两个生成文件；Publish 前的生成物检查会拒绝过期文件。
+1. 在一个 PR 里升版本号并在 `CHANGELOG.md` 顶部加这个版本的条目（0.2.26 起的版本；`rel/0.1` 旧线沿用原流程）：用 `npm version <ver> --no-git-tag-version` 同时更新 `package.json` 与 `package-lock.json`，再运行 `npm run build` 更新 `server/generated-version.ts` 并一起提交。`major.minor` 跟随 dsh 线（`main` 是当前线，旧线在 `rel/<major.minor>`）。若进入 bridge bundle 的源码（含其 import）变化，也必须重新生成并提交两个生成文件；Publish 前的生成物检查会拒绝过期文件。
 2. 把 PR 合进 `main`，旧线合进对应的 `rel/<major.minor>`。
 3. 合并即发布：CI 发 npm 包并推送 tag `vX.Y.Z`，不需要人推 tag。在 Actions 的 Publish 运行里确认成功，再在 npm 上看到新版本。
 4. 已安装的用户从 Paseo 里更新插件。
@@ -77,7 +77,7 @@ npm run verify:docs
 
 一次性设置：npmjs.com 包设置 → Trusted Publisher，添加 GitHub Actions，仓库填 `Jecvay/paseo-dsh-direct`，工作流填 `publish.yml`，Allowed actions 勾选 Allow npm publish 与 Allow npm dist-tag（只留默认的 `npm stage publish` 时直接发布会报 `E403 OIDC permission denied`）（理由见 [决策记录](.agents/notes/implemented/process/2026-10-10-publish-via-github-actions-trusted-publishing.md)）。
 
-**手动发布（兜底）**：Actions 不可用时，从 tag 的干净 checkout 发布——`main` 线（当前最新 dsh 线）发布为 `latest`；旧线加 `--tag dsh-<major.minor>`（如 `--tag dsh-0.1`）。发布前用 `npm pack --dry-run` 核对文件列表。npm 账号开了 Security Key 两步验证，`npm publish` 只在真实终端里才会给出网页确认地址，否则直接报 `EOTP`；agent 在后台发布时用 `script` 包一层伪终端，从日志里取出 `https://www.npmjs.com/auth/cli/...` 地址交给人在浏览器确认：
+**手动发布（兜底）**：Actions 不可用时，从 tag 的干净 checkout 发布——`main` 线（当前最新 dsh 线）发布为 `latest`；旧线加 `--tag dsh-<major.minor>`（如 `--tag dsh-0.1`）。下面的生成物与产物门禁适用于 0.2.26 起的版本；`rel/0.1` 旧线没有这些脚本，仍按 `npm ci --include=dev`、`npm run build`、`npm pack --dry-run` 的顺序发布。npm 账号开了 Security Key 两步验证，`npm publish` 只在真实终端里才会给出网页确认地址，否则直接报 `EOTP`；agent 在后台发布时用 `script` 包一层伪终端，从日志里取出 `https://www.npmjs.com/auth/cli/...` 地址交给人在浏览器确认：
 
 ```bash
 git clone --branch <tag> https://github.com/Jecvay/paseo-dsh-direct.git /tmp/paseo-dsh-direct-release

@@ -50,7 +50,7 @@ paseo provider models dsh-pi
 
 若已启用的插件仍显示 `disabled`，请在 Paseo 的 `config.json` 中将 `pluginsEnabled` 设为 `true`，然后执行 `paseo daemon reload`。保留配置文件中的其他字段。
 
-插件和 Provider 是两个标识：插件管理使用 `paseo-dsh-direct`，会话操作使用 `dsh-pi`。本地源码更新后重新构建，并执行：
+插件和 Provider 是两个标识：插件管理使用 `paseo-dsh-direct`，会话操作使用 `dsh-pi`。本地源码更新后，只有改动进入 bridge bundle 的源码或版本号时才需要重新构建；其余改动直接重载：
 
 ```bash
 paseo plugin reload paseo-dsh-direct

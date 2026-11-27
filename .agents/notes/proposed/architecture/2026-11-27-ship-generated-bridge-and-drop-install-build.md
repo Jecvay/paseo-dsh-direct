@@ -20,7 +20,7 @@ Status: proposed
 ## 考虑过的其他做法
 
 - **shrinkwrap + `npm ci` 保留安装时构建**：改动更小，审查政策也接受带锁的 dev 构建；但 npm 12.2.3 不支持 shrinkwrap，使用该版本执行这条 build 会安装失败，而且每次安装仍要下载几百个包。放弃。
-- **只在发布 CI 里临时生成 shrinkwrap**：仓库只保留 `package-lock.json`；同样受 npm 12 影响，手工发布和 tag 兜底容易漏步骤。放弃。
+- **只在发布 CI 里临时生成 shrinkwrap**：仓库只保留 `package-lock.json`；同样受 npm 12.2.3 的 `npm ci` 行为影响，手工发布和 tag 兜底容易漏步骤。放弃。
 - **保留 `npm install` 并只补锁文件**：安装仍可改写依赖树，审查者无法确认装的就是被审的那棵。放弃。
 - **只提交 Git 来源，不修 npm 包**：README 推荐 npm，现网用户主要从 npm 更新；把 npm 产物留在不合规状态与 issue 目标不符。放弃。
 

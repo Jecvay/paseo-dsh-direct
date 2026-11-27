@@ -2,17 +2,20 @@
 // Packs the npm tarball, installs it the way Paseo acquires an npm plugin, and
 // checks that the installed package contains the modules the runtime imports.
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 // Under `npm run`, npm_execpath points at npm's JS entry. Running it with the
 // current Node avoids Windows' inability to execFile a .cmd shim.
+if (process.platform === 'win32' && !process.env.npm_execpath) {
+  throw new Error('verify:package: run this through `npm run verify:package` so npm_execpath is available')
+}
 const npm = process.env.npm_execpath
   ? [process.execPath, process.env.npm_execpath]
-  : [process.platform === 'win32' ? 'npm.cmd' : 'npm']
+  : ['npm']
 const requiredFiles = [
   'index.client.tsx',
   'index.server.ts',
@@ -90,9 +93,10 @@ try {
   const artifact = lock.packages?.['node_modules/paseo-dsh-direct']
   assert(artifact?.version === info.version, 'the installed package does not match the packed version')
   assert(typeof artifact.resolved === 'string' && artifact.resolved.startsWith('file:'), 'the installed package did not come from the local tarball')
+  assert(typeof artifact.integrity === 'string' && artifact.integrity.startsWith('sha512-'), 'the installed package has no integrity hash')
 
   const installedPackage = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'))
-  assert(installedPackage.name === 'paseo-dsh-direct', `unexpected package name ${installedPackage.name}`)
+  assert(installedPackage.name === packageJson.name, `unexpected package name ${installedPackage.name}`)
   assert(installedPackage.version === packageJson.version, 'the installed package version does not match package.json')
   for (const lifecycle of ['preinstall', 'install', 'postinstall', 'prepare', 'prepack', 'prepublish', 'prepublishOnly']) {
     assert(!(lifecycle in (installedPackage.scripts ?? {})), `the installed package must not declare ${lifecycle}`)
@@ -102,6 +106,7 @@ try {
   assert(manifest.id === installedPackage.name, `unexpected plugin id ${manifest.id}`)
   assert(manifest.requirements?.paseo === '>=0.11.0', 'the Paseo requirement changed; raising it needs evidence of real incompatibility')
   assert(typeof manifest.icon === 'string' && manifest.icon.length > 0, 'the manifest does not declare an icon')
+  assert(/\.png$/i.test(manifest.icon), 'the manifest icon must be a PNG path')
   assert(existsSync(join(installed, manifest.icon)), 'the declared icon is missing')
   assert(!('build' in manifest), 'the installed manifest must not run an install-time build')
 
@@ -110,33 +115,37 @@ try {
     const installedCopy = readFileSync(join(installed, path))
     assert(repositoryCopy.equals(installedCopy), `${path} in the tarball differs from the repository`)
   }
+  const versionModule = readFileSync(join(installed, 'server/generated-version.ts'), 'utf8')
+  assert(versionModule.includes(`export const PLUGIN_VERSION = ${JSON.stringify(installedPackage.version)}`), 'the generated plugin version does not match the installed package')
 
   // Paseo compiles the entry points from the installed package, so every relative
   // import reachable from them must exist there. A missing shared module would
   // otherwise pass the file-list check and fail only after installation.
   const seen = new Set()
   const pending = ['index.server.ts', 'index.client.tsx']
+  const generated = new Set(['server/generated-bridge.ts', 'server/generated-version.ts'])
+  const allowedRoots = ['client', 'server', 'shared'].map(directory => join(installed, directory) + sep)
   while (pending.length > 0) {
     const file = pending.pop()
-    if (seen.has(file)) continue
+    if (seen.has(file) || generated.has(file)) continue
     seen.add(file)
     const source = readFileSync(join(installed, file), 'utf8')
-    for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g)) {
+    for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*|import\s+)["'](\.{1,2}\/[^"']+)["']/g)) {
       const specifier = match[1]
       const candidates = [specifier, `${specifier}.ts`, `${specifier}.tsx`, specifier.replace(/\.js$/, '.ts'), specifier.replace(/\.js$/, '.tsx')]
-      const directory = resolve(installed, file, '..')
+      const directory = dirname(join(installed, file))
       const resolved = candidates
         .map(candidate => resolve(directory, candidate))
-        .find(candidate => candidate.startsWith(installed + sep) && existsSync(candidate))
+        .find(candidate => candidate.startsWith(installed + sep) && existsSync(candidate) && statSync(candidate).isFile())
       assert(resolved, `${file} imports ${specifier}, which is missing from the tarball`)
-      pending.push(relative(installed, resolved))
+      const target = relative(installed, resolved)
+      const isEntry = target === 'index.server.ts' || target === 'index.client.tsx'
+      assert(isEntry || allowedRoots.some(root => resolved.startsWith(root)), `${file} imports ${specifier}, which is outside client/, server/ or shared/`)
+      pending.push(target)
     }
   }
 
   console.log(`verify:package: ${info.filename} installs and contains the generated runtime modules`)
-} catch (error) {
-  console.error(`verify:package: temporary files are in ${temporary}`)
-  throw error
 } finally {
   try {
     rmSync(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

@@ -14,7 +14,7 @@ In Paseo, go to **Settings → Plugins → Install Plugin** and paste `npm:paseo
 
 ## Install from source
 
-For local development, or to install without going through the Settings UI:
+To install from a local checkout, or without going through the Settings UI:
 
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-direct.git

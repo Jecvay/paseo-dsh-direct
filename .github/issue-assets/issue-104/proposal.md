@@ -12,7 +12,7 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 - `paseo-plugin.json` 在安装时执行 `npm install --include=dev`，现场解析并安装约 385 个构建依赖。
 - npm 不发布 `package-lock.json`，`0.2.25` 的 tarball 里没有任何锁文件，这次安装没有固定依赖树。
 - 官方发布文档要求被安装的依赖树有锁定版本、来源与完整性校验的锁文件；审查政策把“需要锁文件却不附带”列为打包阻塞项。
-- 即使改用 `npm-shrinkwrap.json` + `npm ci`，npm 12 已不再读取或写入 shrinkwrap；在只含 shrinkwrap 的包上执行 `npm ci` 会报 `EUSAGE: ... can only install with an existing package-lock.json`，依赖安装方式本身也不稳定。
+- 即使改用 `npm-shrinkwrap.json` + `npm ci`，npm 12.2.3 的 `npm ci` 也不接受只含 shrinkwrap 的包：执行 `npm ci` 会报 `EUSAGE: ... can only install with an existing package-lock.json`，依赖安装方式本身也不稳定。
 - `0.2.25` 已发布，不能原地修改；修复后的可提交产物必须是新版本。
 
 本次范围是移除安装时构建、让 npm/Git/本地目录三种来源都直接可用、验证打包、更新当前文档并准备官方登记。合并、发布和向第三方提交登记仍需本人逐次确认；不提高 Paseo 或 dsh 的最低版本，不改运行时协议。
@@ -23,7 +23,7 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 |---|---|---|
 | 有准备命令安装依赖时，产物必须带锁文件；缺锁是打包阻塞项 | [发布文档](https://paseo.sh/docs/plugins/publishing) 的 “Lock installed dependencies”；[REVIEW.md](https://github.com/getpaseo/plugins/blob/main/REVIEW.md) 的 “concrete packaging blocker” | 2026-11-27 阅读原文 |
 | 官方鼓励普通插件省略 build，由 Paseo 原生编译 TypeScript；已有 DSH Provider 以“无 build、直接带源码”通过审查 | [Paseo 插件参考](https://paseo.sh/docs/plugins/reference)；[geoqiao/deepseek-harness](https://github.com/getpaseo/plugins/blob/main/plugins/geoqiao/deepseek-harness.json)、[liuxing7954/dsh-paseo](https://github.com/getpaseo/plugins/blob/main/plugins/liuxing7954/dsh-paseo.json) | 2026-11-27 阅读注册表记录与审查 PR |
-| npm 12 的 `npm ci` 不接受 shrinkwrap-only 包 | npm 12.2.3 在只含 `npm-shrinkwrap.json` 的包上执行 `npm ci --include=dev --ignore-scripts`，退出 1，报 `EUSAGE: ... can only install with an existing package-lock.json` | 2026-11-27 本机实际执行 |
+| npm 12.2.3 的 `npm ci` 不接受 shrinkwrap-only 包 | npm 12.2.3 在只含 `npm-shrinkwrap.json` 的包上执行 `npm ci --include=dev --ignore-scripts`，退出 1，报 `EUSAGE: ... can only install with an existing package-lock.json` | 2026-11-27 本机实际执行 |
 | 当前 npm 产物没有锁文件，安装时现场解析 385 个包 | `npm pack paseo-dsh-direct@0.2.25` 文件列表无锁文件；隔离 Paseo 0.17.5 daemon 安装日志显示 `added 385 packages`，解析出的 `lefthook` 与仓库锁版本不同 | 2026-11-27 本机实际执行 |
 | 现有架构允许提交预生成的 TypeScript 模块 | [TypeScript 决策](../../../.agents/notes/implemented/architecture/2026-09-16-adopt-typescript-as-core-language.md) 拒绝的是把 CJS/MJS 预编译产物当作插件入口，不是拒绝生成桥接字符串；Paseo 仍编译 `.ts` | 阅读决定记录与 Paseo 编译器实现 |
 | 带 dev 依赖的 `npm ci` 构建可被审查接受（仅作为替代方案证据） | [vokturz/peer-agents PR](https://github.com/getpaseo/plugins/pull/321)、[po-trottier/omp-roles PR](https://github.com/getpaseo/plugins/pull/1471) | 2026-11-27 阅读审查记录 |
@@ -40,7 +40,7 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 6. **更新当前事实文档**：`AGENTS.md` 的社区索引改为官方注册表，开发者安装步骤补 `npm run setup:hooks`，发版步骤补“更新版本号后重新生成并提交生成物”；`docs/plugin-guide.md`、`docs/compatibility.md`、`docs/en/compatibility.md`、`docs/server-architecture.md` 改写成“无安装时构建、生成物随包发布”的现行机制；`CHANGELOG.md` 增加 `0.2.26` 条目。
 7. **元数据与锁**：`package.json` 与 `paseo-plugin.json` 的 description 统一为一句 `Runs a local DeepSeek Harness (dsh) agent as a native Paseo provider.`。`package.json` 版本升到 `0.2.26`，保留 `package-lock.json` 供开发/CI 使用，不新增 shrinkwrap；路线提案里仍有效的分发计划行从 paseo.cafe 改为官方注册表，历史调研数字不动。
 
-数据流：开发时 `npm run build` 生成桥接字符串和版本模块并提交；发布时 GitHub Actions 用仓库源码构建、检查生成物无差异、验证 tarball，再发到 npm。用户从 npm、Git 或本地目录安装时，Paseo 直接编译随包提供的 TypeScript，不再运行任何 npm 安装命令。
+数据流：开发时 `npm run build` 生成桥接字符串和版本模块并提交；发布时 GitHub Actions 用仓库源码构建、检查生成物无差异、验证 tarball，再发到 npm。用户从 Git 或本地目录安装时 Paseo 直接编译随包提供的 TypeScript，不经过 npm；npm 来源仍由 Paseo 用宿主 npm 取包，但不再安装插件依赖或运行构建。
 
 ### 施工顺序
 
@@ -60,15 +60,15 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 
 ## 考虑过的其他做法
 
-- **shrinkwrap + `npm ci` 继续安装时构建**：审查政策接受带锁的 dev 构建，仓库改动能更小；但 npm 12 已不支持 shrinkwrap，任何使用 npm 12 的 daemon 主机都会安装失败，而且每次安装仍要下载约 385 个包。不选。
-- **只在发布 CI 里生成 shrinkwrap**：仓库只保留 `package-lock.json`；同样受 npm 12 影响，手工发布与 tag 兜底还会漏掉转换步骤。不选。
+- **shrinkwrap + `npm ci` 继续安装时构建**：审查政策接受带锁的 dev 构建，仓库改动能更小；但 npm 12.2.3 不支持 shrinkwrap，使用该版本执行这条 build 会安装失败，而且每次安装仍要下载约 385 个包。不选。
+- **只在发布 CI 里生成 shrinkwrap**：仓库只保留 `package-lock.json`；同样受 npm 12.2.3 的 `npm ci` 行为影响，手工发布与 tag 兜底还会漏掉转换步骤。不选。
 - **保留 `npm install`，只补 lock**：安装仍可改写依赖树，审查者无法确认装的就是被审的那棵。不选。
 - **只提交 Git 来源、不发布新 npm 版本**：能绕开 npm 锁问题，但 README 推荐 npm，现网用户主要从 npm 更新；把 npm 产物留在不合规状态与 issue 目标不符。不选。
 - **继续留在 paseo.cafe**：该目录 2026-12-01 移除，不可行。
 
 ## 怎么算做完
 
-- `npm pack --dry-run --ignore-scripts` 的文件列表含 `paseo-plugin.json`、`OVERVIEW.md`、入口、`server/generated-bridge.ts`、`server/generated-version.ts`，不含测试与 `dist/`。
+- `npm pack --dry-run --ignore-scripts` 的文件列表含 `paseo-plugin.json`、`OVERVIEW.md`、入口、`server/generated-bridge.ts`、`server/generated-version.ts`，不含测试、`scripts/` 与 `dist/`。
 - `npm run verify:package` 通过：安装后的 manifest 无 `build`，生成桥接非空，`PLUGIN_VERSION` 与 `0.2.26` 一致。
 - `npm ci`、`npm run verify:generated`、四个 typecheck、`npm test`、`verify:notes`、`verify:docs` 全部通过。
 - 隔离 Paseo 0.17.5 daemon 安装候选目录后插件为 `running`、provider 可用；发布后用 npm 上精确 `0.2.26` 复验并记录证据。

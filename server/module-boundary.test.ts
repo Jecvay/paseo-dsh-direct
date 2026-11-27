@@ -27,7 +27,7 @@ function shippedSources(): string[] {
 describe("plugin module boundary", () => {
   it("keeps relative imports inside client/, server/ and shared/", () => {
     const escapes: string[] = [];
-    for (const file of ALLOWED.filter((dir) => existsSync(dir)).flatMap((dir) => sources(dir))) {
+    for (const file of shippedSources()) {
       const text = readFileSync(file, "utf8");
       for (const match of text.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g)) {
         const target = path.resolve(path.dirname(file), match[1]);
@@ -37,7 +37,7 @@ describe("plugin module boundary", () => {
     assert.deepEqual(escapes, []);
   });
 
-  it("does not import the host client package without installing it", () => {
+  it("does not reference @getpaseo/client, which a clean install lacks", () => {
     // Paseo supplies its plugin SDK declarations, but a clean plugin directory has
     // no @getpaseo/client. A type-only reference would still fail the plugin build.
     const offenders = shippedSources().filter((file) =>
