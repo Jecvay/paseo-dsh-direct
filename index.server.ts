@@ -35,7 +35,14 @@ export default function contribute(server: PluginServerContext) {
     }),
   });
   // Provider discovery supplies the same resolved command and environment used for sessions.
-  const refreshLaunch = async (paseo: import("@getpaseo/client").PaseoApi) => {
+  // Keep the host API shape local so the plugin compiles without installing host packages.
+  type ProviderDiscovery = {
+    providers: {
+      refresh(input: { providers: string[] }): Promise<unknown>
+      listModels(provider: string): Promise<{ error?: string | null }>
+    }
+  }
+  const refreshLaunch = async (paseo: ProviderDiscovery) => {
     await paseo.providers.refresh({ providers: ["dsh-pi"] });
     const result = await paseo.providers.listModels("dsh-pi");
     if (result.error) throw new Error(result.error);

@@ -35,11 +35,12 @@ paseo.cafe 在 2026-12-01 停止目录与 `/api/plugins`，官方注册表改为
 ### 改什么，数据如何流动
 
 1. **发布前生成、随仓库提交**：删除 `.gitignore` 对 `server/generated-bridge.ts` 与 `server/generated-version.ts` 的忽略，运行 `npm run build` 生成并提交这两个文件；`files` 去掉对应的 `!` 排除项，让 npm 包包含它们。`dist/dsh-bridge.mjs` 仍只作本地中间产物，不提交、不发布。
-2. **删除安装时构建**：从 `paseo-plugin.json` 删除 `build`；从 `package.json` 删除 `postinstall`，新增显式 `setup:hooks` 供开发者安装 lefthook。npm 包不再声明任何生命周期或准备命令；npm 来源仍由 Paseo 用宿主 npm 获取包本身，Git 与本地目录来源不经过 npm。
-3. **防止生成物过期**：`npm run verify:generated` 先用 `git ls-files --error-unmatch` 确认两个生成物已被 Git 跟踪，再运行 `npm run build` 并 `git diff --exit-code` 检查提交内容与源码一致；版本号变化必须同时更新 `generated-version.ts`。CI 与 Publish 只调用这一条，不重复构建。
-4. **产物级门禁**：新增 `scripts/verify-package.mjs` 与 `npm run verify:package`。它用 `npm pack --json --ignore-scripts` 打包，断言 tarball 含 `paseo-plugin.json`、`OVERVIEW.md`、入口、`server/generated-*.ts` 与 `server/dsh/bridge.ts` 源码，不含测试与 `dist/`；再用 Paseo 的 npm 获取参数把 tarball 装进临时父目录，读取安装后的 `package.json` 与 manifest，断言没有生命周期脚本、没有 `build`、生成桥接非空、版本号与 `package.json` 一致。CI 与 Publish 在发布前都执行。
-5. **更新当前事实文档**：`AGENTS.md` 的社区索引改为官方注册表，开发者安装步骤补 `npm run setup:hooks`，发版步骤补“更新版本号后重新生成并提交生成物”；`docs/plugin-guide.md`、`docs/compatibility.md`、`docs/en/compatibility.md`、`docs/server-architecture.md` 改写成“无安装时构建、生成物随包发布”的现行机制；`CHANGELOG.md` 增加 `0.2.26` 条目。
-6. **元数据与锁**：`package.json` 与 `paseo-plugin.json` 的 description 统一为一句 `Runs a local DeepSeek Harness (dsh) agent as a native Paseo provider.`。`package.json` 版本升到 `0.2.26`，保留 `package-lock.json` 供开发/CI 使用，不新增 shrinkwrap；路线提案里仍有效的分发计划行从 paseo.cafe 改为官方注册表，历史调研数字不动。
+2. **去掉宿主类型依赖**：`index.server.ts` 里的 `import("@getpaseo/client").PaseoApi` 换成只描述实际用到的 `providers.refresh` / `providers.listModels` 的本地结构类型，让干净 checkout 没有宿主包时也能编译。
+3. **删除安装时构建**：从 `paseo-plugin.json` 删除 `build`；从 `package.json` 删除 `postinstall`，新增显式 `setup:hooks` 供开发者安装 lefthook。npm 包不再声明任何生命周期或准备命令；npm 来源仍由 Paseo 用宿主 npm 获取包本身，Git 与本地目录来源不经过 npm。
+4. **防止生成物过期**：`npm run verify:generated` 先用 `git ls-files --error-unmatch` 确认两个生成物已被 Git 跟踪，再运行 `npm run build` 并 `git diff --exit-code` 检查提交内容与源码一致；版本号变化必须同时更新 `generated-version.ts`。CI 与 Publish 只调用这一条，不重复构建。
+5. **产物级门禁**：新增 `scripts/verify-package.mjs` 与 `npm run verify:package`。它用 `npm pack --json --ignore-scripts` 打包，断言 tarball 含 `paseo-plugin.json`、`OVERVIEW.md`、入口、`server/generated-*.ts` 与 `server/dsh/bridge.ts` 源码，不含测试与 `dist/`；再用 Paseo 的 npm 获取参数把 tarball 装进临时父目录，读取安装后的 `package.json` 与 manifest，断言没有生命周期脚本、没有 `build`、生成桥接非空、版本号与 `package.json` 一致。CI 与 Publish 在发布前都执行。
+6. **更新当前事实文档**：`AGENTS.md` 的社区索引改为官方注册表，开发者安装步骤补 `npm run setup:hooks`，发版步骤补“更新版本号后重新生成并提交生成物”；`docs/plugin-guide.md`、`docs/compatibility.md`、`docs/en/compatibility.md`、`docs/server-architecture.md` 改写成“无安装时构建、生成物随包发布”的现行机制；`CHANGELOG.md` 增加 `0.2.26` 条目。
+7. **元数据与锁**：`package.json` 与 `paseo-plugin.json` 的 description 统一为一句 `Runs a local DeepSeek Harness (dsh) agent as a native Paseo provider.`。`package.json` 版本升到 `0.2.26`，保留 `package-lock.json` 供开发/CI 使用，不新增 shrinkwrap；路线提案里仍有效的分发计划行从 paseo.cafe 改为官方注册表，历史调研数字不动。
 
 数据流：开发时 `npm run build` 生成桥接字符串和版本模块并提交；发布时 GitHub Actions 用仓库源码构建、检查生成物无差异、验证 tarball，再发到 npm。用户从 npm、Git 或本地目录安装时，Paseo 直接编译随包提供的 TypeScript，不再运行任何 npm 安装命令。
 

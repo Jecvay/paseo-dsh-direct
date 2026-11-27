@@ -3,6 +3,7 @@
 ## 0.2.26
 
 - Ship the generated DSH bridge and plugin version modules in the npm tarball and the repository, so Paseo compiles the plugin directly instead of running an install-time npm build. This removes the unlocked plugin-level dependency install that the official Paseo registry review treats as a packaging blocker, and removes the install-time dependence on the host `npm ci`/lockfile behavior. An npm-source install still uses the host npm to fetch the package itself.
+- Replace the direct `@getpaseo/client` type import in the server entry with a local structural type, so a clean npm or Git install compiles without host packages present.
 - Remove the manifest `build` step and the `postinstall` hook. Developers run `npm run setup:hooks` after `npm ci`. `npm run build` still regenerates `server/generated-bridge.ts` and `server/generated-version.ts`; CI and Publish fail when the committed files are stale.
 - Add `npm run verify:package`, which packs the npm tarball, installs it with Paseo's npm acquisition options, and checks the installed manifest, generated bridge and version. CI and Publish run it before release.
 - Replace the retired paseo.cafe reference in the maintainer guide with the official paseo.sh/plugins registry, and update the packaging documentation. Describe the plugin as running a local DeepSeek Harness agent as a native Paseo provider.
