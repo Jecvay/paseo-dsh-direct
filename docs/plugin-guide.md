@@ -6,14 +6,16 @@
 
 ```bash
 npm ci
-npm run build
+npm run setup:hooks
+npm run verify:generated
 npm run typecheck
 npm test
+npm run verify:package
 npm run verify:notes
 npm run verify:docs
 ```
 
-`build` 编译 DSH 桥接并生成供服务端导入的源码模块，因此必须先于类型检查、测试和本地安装运行。生成物不提交到 Git；Git 来源的安装和更新由 Paseo manifest 构建命令重新生成，本地目录安装前须自行构建。CI 执行同一组检查。
+`build` 编译 DSH 桥接并生成供服务端导入的源码模块。生成物随仓库提交，也包含在 npm 包中，安装时不运行插件级构建；任何进入 bridge bundle 的源码（含其 import）或版本号变化后，运行 `npm run build` 并提交两个生成文件，`verify:generated` 检查它们与源码一致。`verify:package` 从 npm tarball 安装并检查产物。CI 与 Publish 执行同一组检查。
 
 ## 目录与导入
 
@@ -38,7 +40,7 @@ Paseo 编译器检查客户端、服务端和共享模块边界。分层 TypeScr
 
 ## 本机安装
 
-在项目目录完成构建和检查后执行：
+在项目目录完成检查后执行；仅当改动进入 bridge bundle 的源码（含其 import）或版本号时，先运行 `npm run build` 并提交生成物。
 
 ```bash
 paseo plugin install "$PWD"
@@ -48,7 +50,7 @@ paseo provider models dsh-pi
 
 若已启用的插件仍显示 `disabled`，请在 Paseo 的 `config.json` 中将 `pluginsEnabled` 设为 `true`，然后执行 `paseo daemon reload`。保留配置文件中的其他字段。
 
-插件和 Provider 是两个标识：插件管理使用 `paseo-dsh-direct`，会话操作使用 `dsh-pi`。本地源码更新后重新构建，并执行：
+插件和 Provider 是两个标识：插件管理使用 `paseo-dsh-direct`，会话操作使用 `dsh-pi`。本地源码更新后，只有改动进入 bridge bundle 的源码或版本号时才需要重新构建；其余改动直接重载：
 
 ```bash
 paseo plugin reload paseo-dsh-direct

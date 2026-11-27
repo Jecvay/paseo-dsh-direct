@@ -21,7 +21,7 @@ Status: proposed
 - **P0 护栏**(低成本先行):①桥启动前 `dsh --dump-config --patch <patch.json>` 断言组合树含预期行——拦「目标行改名→disable 静默失效→TUI 与桥抢 stdout」这一最阴险碎裂向量;②握手时对消费的内部事件名抽样断言;③manifest 版本加上界 `>=0.8.0 <0.10`,每个 paseo minor 跑测试再放宽;④抄 paseo-omp 的 capability 机械化台账,SDK 升级先 diff。
 - **P1 能力补齐**(官方已给、我们未用):①usage 补 contextWindow 字段+模型 contextWindowMaxTokens,点亮上下文计量表(纯映射,成本最低);②timeline.plugin 自定义卡片+renderer,把 goal 续跑/plan 切换/preset 变更可视化(官方 provider-direct「完全体」标配);③registerSettings+设置屏替代 PASEO_DSH_* 环境变量,cache key 纳入生效配置。
 - **P2 条件触发**:revertToken(需 dsh 截断历史)、subsession 子 agent 轨道(需 dsh 子会话事件)、ACP 迁移试点(自建 dsh-base+acp-app profile 只读验证,不动用户 pi-tui)。
-- **P3 分发与成熟度**:npm 发布+paseo.cafe 提交;手机真机实测;dsh 侧 acp profile 路由修复(settings 迁移后新存储未吃到 CPA 路由),修好留 `extends: acp` 当低成本对照组;根 README/README.zh/docs/en 版本表同步到 0.9.2/0.1.7-rc.2/0.4.9。
+- **P3 分发与成熟度**:npm 发布与官方插件注册表(paseo.sh/plugins)提交;手机真机实测;dsh 侧 acp profile 路由修复(settings 迁移后新存储未吃到 CPA 路由),修好留 `extends: acp` 当低成本对照组;根 README/README.zh/docs/en 版本表同步到 0.9.2/0.1.7-rc.2/0.4.9。
 
 **技术债标记**:对 pi-tui 的唯一硬依赖是 `tuiStartup` 握手与 profile 复用;若自建 profile 可行可去掉第三方依赖,兼容面收敛为 dsh 内部契约一层,与放弃判据联动评估。**(已完成 2026-09-28:插件改用官方 web 模板生成的 `paseo` profile,`tuiStartup` 握手已删,见 [去除 pi-tui 依赖](../../implemented/process/2026-09-26-drop-pi-tui-dependency.md)。)**
 

@@ -14,17 +14,15 @@ In Paseo, go to **Settings → Plugins → Install Plugin** and paste `npm:paseo
 
 ## Install from source
 
-For local development, or to install without going through the Settings UI:
+To install from a local checkout, or without going through the Settings UI:
 
 ```bash
 git clone https://github.com/Jecvay/paseo-dsh-direct.git
 cd paseo-dsh-direct
-npm ci
-npm run build
 paseo plugin install "$PWD"
 ```
 
-For an existing checkout, use `paseo plugin install /absolute/path/to/paseo-dsh-direct` after `npm run build`. Verify registration with:
+For an existing checkout, use `paseo plugin install /absolute/path/to/paseo-dsh-direct` directly; run `npm run build` first if you changed any source that enters the bridge bundle, or the version. Verify registration with:
 
 ```bash
 paseo plugin ls
@@ -83,8 +81,7 @@ In the **Subagents** section, select **Edit models** to open the model picker (a
 ## Update a local checkout
 
 ```bash
-npm run build
 paseo plugin reload paseo-dsh-direct
 ```
 
-For a Git- or npm-installed plugin, update with `paseo plugin update paseo-dsh-direct --yes`.
+The generated modules are already in the checkout. If you changed source that enters the bridge bundle, or the version, run `npm run build` first (after one `npm ci`); otherwise reload is enough. For a Git- or npm-installed plugin, update with `paseo plugin update paseo-dsh-direct --yes`.

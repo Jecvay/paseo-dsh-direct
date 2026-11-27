@@ -14,3 +14,6 @@
 .gitattributes text eol=lf
 LICENSE     text eol=lf
 *.png       binary
+
+server/generated-bridge.ts  linguist-generated=true
+server/generated-version.ts linguist-generated=true

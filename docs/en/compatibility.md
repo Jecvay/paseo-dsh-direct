@@ -30,6 +30,8 @@ The Paseo daemon fixes its `PATH` at startup; after upgrading DSH, run `paseo da
 
 The plugin publishes to npm as `paseo-dsh-direct` (unscoped). The current dsh line (`main`) publishes as `latest`; older lines (such as `rel/0.1`) publish with `--tag dsh-<major.minor>` (for example `dsh-0.1`), installed as `npm:paseo-dsh-direct@dsh-<major.minor>`. See [AGENTS.md](../../AGENTS.md) for the release steps.
 
+Both the npm package and the Git repository contain `server/generated-bridge.ts` and `server/generated-version.ts`. Paseo compiles the shipped TypeScript when it loads the plugin and runs no plugin-level npm install or build command; an npm-source install still uses the host npm to fetch the package itself. After changing any source that enters the bridge bundle, or the version, run `npm run build` and commit both generated files; `verify:generated` checks them against a fresh build, and `verify:package` installs the packed tarball and checks the artifact. The repository `package-lock.json` pins development dependencies only; it is not shipped and is not needed to install the plugin.
+
 Paseo's Install Plugin field has no Git ref input, so pasting a Git URL there always installs the `main` branch (the current dsh line); installing an older line's Git tag needs the CLI, `paseo plugin install <url> --ref <tag>`. A Git source is written `github:owner/repository` or a full Git URL; since Paseo 0.11 a bare `owner/slug` names a plugin-registry entry and does not install this plugin. The npm source has no such limit — a dist-tag is part of the `npm:<package>@<tag>` string itself, so it works from both the Settings field and the CLI.
 
 ## Runtime boundaries

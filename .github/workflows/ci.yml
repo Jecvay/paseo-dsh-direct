@@ -14,8 +14,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --include=dev
-      - run: npm run build
+      - run: npm run verify:generated
       - run: npm run typecheck
       - run: npm test
       - run: npm run verify:notes
       - run: npm run verify:docs
+      - run: npm run verify:package
+      - name: Verify package with npm 12
+        run: npx --yes npm@12 run verify:package
