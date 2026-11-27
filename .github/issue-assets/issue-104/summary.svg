@@ -12,10 +12,10 @@
       .title { font: 700 42px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0f172a; }
       .subtitle { font: 400 23px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #475569; }
       .lane { font: 700 25px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #334155; letter-spacing: .03em; }
-      .status { font: 700 19px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .08em; }
+      .status { font: 700 24px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .08em; }
       .box-title { font: 700 30px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0f172a; }
       .box-text { font: 400 24px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #334155; }
-      .small { font: 400 20px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #475569; }
+      .small { font: 400 24px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #475569; }
       .bad { font: 700 24px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #991b1b; }
       .ok { font: 700 24px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #166534; }
       .warn { font: 700 24px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; fill: #92400e; }
@@ -63,7 +63,7 @@
   <rect x="590" y="475" width="420" height="200" rx="12" fill="#eff6ff" stroke="#1d4ed8" stroke-width="3"/>
   <text class="status" x="618" y="506" fill="#1d4ed8">CHANGED</text>
   <text class="box-title" x="618" y="542">npm 0.2.26</text>
-  <text class="box-text" x="618" y="582">Generated modules shipped.</text>
+  <text class="box-text" x="618" y="582">Generated modules included.</text>
   <text class="box-text" x="618" y="616">No build, no postinstall.</text>
 
   <line x1="1010" y1="575" x2="1090" y2="575" stroke="#334155" stroke-width="3" marker-end="url(#arrow)"/>
@@ -84,17 +84,17 @@
   <rect x="80" y="720" width="420" height="210" rx="12" fill="#f0fdf4" stroke="#15803d" stroke-width="2"/>
   <text class="status" x="108" y="752" fill="#166534">VERIFIED</text>
   <text class="box-title" x="108" y="786">Git and local copies</text>
-  <text class="box-text" x="108" y="824">Both start with no build on</text>
-  <text class="box-text" x="108" y="858">Paseo 0.17.5; provider ready.</text>
-  <text class="small" x="108" y="894">Package check and typechecks pass.</text>
-  <text class="small" x="108" y="920">356 tests pass; 3 skipped.</text>
+  <text class="box-text" x="108" y="820">Both start with no build</text>
+  <text class="box-text" x="108" y="852">on Paseo 0.17.5.</text>
+  <text class="small" x="108" y="886">Package checks pass.</text>
+  <text class="small" x="108" y="918">353 pass, 3 skipped (356).</text>
 
   <!-- not yet -->
   <rect x="1100" y="720" width="420" height="210" rx="12" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
   <text class="status" x="1128" y="752" fill="#92400e">NOT YET VERIFIED</text>
   <text class="box-title" x="1128" y="786">npm 0.2.26</text>
   <text class="box-text" x="1128" y="824">Not published. npm install</text>
-  <text class="box-text" x="1128" y="858">and registry review are open.</text>
+  <text class="box-text" x="1128" y="858">and registry review open.</text>
   <text class="box-text" x="1128" y="892">Users stay on 0.2.25.</text>
 
   <text class="small" x="80" y="970">Blue: changed. Green: verified. Amber: not yet verified. White: next step.</text>
