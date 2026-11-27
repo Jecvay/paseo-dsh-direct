@@ -4,7 +4,6 @@
 
 - Ship the generated DSH bridge and plugin version modules directly in the npm tarball and Git repository, and remove the manifest `build` step and `postinstall` hook. Paseo now compiles the shipped TypeScript without running an install-time npm build, removing the unlocked dependency install that blocks official `paseo.sh/plugins` registry review and avoiding host `npm ci`/lockfile issues. (An npm-source install still uses the host npm to fetch the package itself.)
 - Replace the direct `@getpaseo/client` type import in `index.server.ts` with a local structural type, so clean npm and Git installs compile without the host client package present.
-- Update the package description and installation/compatibility docs for no-build packaging and the official `paseo.sh/plugins` registry. Contributors now install Git hooks explicitly with `npm run setup:hooks` after `npm ci`.
 - Update the plugin to 0.2.26 and reload it; no configuration change is needed.
 
 ## 0.2.25

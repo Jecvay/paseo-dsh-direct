@@ -81,7 +81,7 @@
     "verify:docs": "tsx scripts/verify-md-links.ts && tsx scripts/verify-doc-refs.ts",
     "verify-archived-agent-notes": "tsx scripts/verify-archived-agent-notes.ts",
     "setup:hooks": "node scripts/install-lefthook.mjs",
-    "verify:generated": "git ls-files --error-unmatch server/generated-bridge.ts server/generated-version.ts && node scripts/build.mjs --check",
+    "verify:generated": "git ls-files --error-unmatch server/generated-bridge.ts server/generated-version.ts && node scripts/build.mjs --check && git diff --exit-code -- server/generated-bridge.ts server/generated-version.ts",
     "verify:package": "node scripts/verify-package.mjs"
   }
 }
