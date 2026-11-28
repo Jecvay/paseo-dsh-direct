@@ -78,7 +78,7 @@ Paseo 为会话提供的 system prompt 追加到该 agent 的 DSH system prompt�
 
 npm 包与 Git 仓库都直接包含 `server/generated-bridge.ts` 和 `server/generated-version.ts`。任何进入 bridge bundle 的源码（含其 import）或版本号变化后，运行 `npm run build` 并提交这两个生成文件；`verify:generated` 检查它们与源码一致，`verify:package` 从 tarball 安装并检查产物。仓库的 `package-lock.json` 只固定开发依赖，不进入 npm 包，也不需要随插件安装。
 
-本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 来源写 `github:owner/repository` 或完整 Git 地址；Paseo 0.11 起不带前缀的 `owner/slug` 指向插件注册表，不能用来装本插件。Git 或 npm 安装可指定已存在的 tag、commit 或 dist-tag：
+本地源码安装及重载见 [开发与验证](plugin-guide.md)。Git 来源写 `github:owner/repository` 或完整 Git 地址；Paseo 0.11 起不带前缀的 `owner/slug` 通过插件注册表解析，`jecvay/paseo-dsh-direct` 是[官方展示页](https://paseo.sh/plugins/jecvay/paseo-dsh-direct)的注册表 ID，安装的是该展示页固定的已审核版本。Git 或 npm 安装可指定已存在的 tag、commit 或 dist-tag：
 
 ```bash
 paseo plugin install github:Jecvay/paseo-dsh-direct --ref <tag-or-commit>

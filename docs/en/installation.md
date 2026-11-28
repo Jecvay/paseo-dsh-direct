@@ -10,7 +10,13 @@ Install DSH with npm (`npm install -g @deepseek-ai/dsh`, or in a separate direct
 
 ## Install from the Settings UI
 
-In Paseo, go to **Settings → Plugins → Install Plugin** and paste `npm:paseo-dsh-direct` (recommended) or `https://github.com/Jecvay/paseo-dsh-direct`. See the root [README](../../README.md#install) for update commands and older DSH lines, and [npm releases and dist-tags](compatibility.md#npm-releases-and-dist-tags) for how dist-tags map to DSH releases.
+In Paseo, go to **Settings → Plugins → Install Plugin** and paste one of these sources:
+
+- `npm:paseo-dsh-direct` (recommended; follows npm `latest`)
+- `jecvay/paseo-dsh-direct` ([official registry listing](https://paseo.sh/plugins/jecvay/paseo-dsh-direct); installs the exact reviewed version the listing pins)
+- `https://github.com/Jecvay/paseo-dsh-direct`
+
+See the root [README](../../README.md#install) for update commands and older DSH lines, and [npm releases and dist-tags](compatibility.md#npm-releases-and-dist-tags) for how dist-tags map to DSH releases.
 
 ## Install from source
 

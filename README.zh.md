@@ -12,14 +12,15 @@
 
 在 Paseo 中打开 **Settings → Plugins → Install Plugin**，粘贴任一来源：
 
-- **npm（推荐）：** `npm:paseo-dsh-direct`
+- **npm（最新版，推荐）：** `npm:paseo-dsh-direct`
+- **Paseo 插件注册表（已审核版本）：** `jecvay/paseo-dsh-direct` —— [官方展示页](https://paseo.sh/plugins/jecvay/paseo-dsh-direct)，安装展示页固定的已审核版本（命令行：`paseo plugin add jecvay/paseo-dsh-direct`）
 - **Git：** `https://github.com/Jecvay/paseo-dsh-direct`
 
-更新插件需在 daemon 所在机器上执行以下命令（App 插件菜单没有更新入口）：
+更新插件需在 daemon 所在机器上执行以下命令（App 插件菜单没有更新入口）。npm 安装跟随所选 dist-tag（默认 `latest`），Git 安装跟随远端默认分支；注册表安装停留在展示页固定的版本，展示页更新后才会前移。
 
 ```bash
 paseo plugin update paseo-dsh-direct --check   # 检查是否有新版本
-paseo plugin update paseo-dsh-direct --yes     # 更新到最新版本
+paseo plugin update paseo-dsh-direct --yes     # 安装可用的版本
 ```
 
 <details>

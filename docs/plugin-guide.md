@@ -56,7 +56,7 @@ paseo provider models dsh-pi
 paseo plugin reload paseo-dsh-direct
 ```
 
-Git 与 npm 安装通过 `paseo plugin update paseo-dsh-direct` 更新。安装固定版本时使用已发布的 Git tag 或 commit；本地构建成功不代表远端已存在同名 tag。
+Git、npm 与注册表安装都通过 `paseo plugin update paseo-dsh-direct` 更新；注册表安装跟随展示页固定的已审核版本，展示页更新后才会前移。安装固定版本时使用已发布的 Git tag 或 commit；本地构建成功不代表远端已存在同名 tag。
 
 重载或激活更新会停止旧插件及其 Provider 连接，当前回合也会中断。若当前 agent 正由 `dsh-pi` 驱动，应从会话外的终端执行更新或重载；持久会话随后可以恢复，但正在执行的工具不能据此视为完成。源码加载用 `paseo plugin reload`，无需为此重启整个 Daemon。
 
