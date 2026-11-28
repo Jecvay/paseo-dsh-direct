@@ -12,14 +12,15 @@ Install `dsh` (`0.2.x`) on the machine running the Paseo daemon (macOS, Linux, o
 
 In Paseo, open **Settings → Plugins → Install Plugin** and paste one of the sources below:
 
-- **npm (recommended):** `npm:paseo-dsh-direct`
+- **npm (latest, recommended):** `npm:paseo-dsh-direct`
+- **Paseo plugin registry (reviewed release):** `jecvay/paseo-dsh-direct` — [official listing](https://paseo.sh/plugins/jecvay/paseo-dsh-direct), installs the exact version the listing pins (CLI: `paseo plugin add jecvay/paseo-dsh-direct`)
 - **Git:** `https://github.com/Jecvay/paseo-dsh-direct`
 
-To update, run these commands on the daemon machine (the Paseo app has no in-app update button):
+To update, run these commands on the daemon machine (the Paseo app has no in-app update button). An npm install follows its dist-tag (`latest` by default), a Git install follows the remote's default branch, and a registry install stays on the release its listing pins until the listing updates.
 
 ```bash
 paseo plugin update paseo-dsh-direct --check   # check for a newer release
-paseo plugin update paseo-dsh-direct --yes     # install the latest release
+paseo plugin update paseo-dsh-direct --yes     # install the available release
 ```
 
 <details>
